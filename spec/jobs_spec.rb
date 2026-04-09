@@ -6,6 +6,7 @@ RSpec.describe "job execution" do
   end
   let(:tracker) { Tickrake::Tracker.new(File.join(Dir.mktmpdir, "tickrake.sqlite3")) }
   let(:logger) { Logger.new(nil) }
+  let(:cli_app) { instance_double(SchwabRb::CLI::App) }
 
   def config_with(config, **overrides)
     attrs = config.instance_variables.each_with_object({}) do |ivar, hash|
@@ -29,6 +30,22 @@ RSpec.describe "job execution" do
           symbolize_names: true
         )
       )
+      allow(SchwabRb::CLI::App).to receive(:new).and_return(cli_app)
+      allow(cli_app).to receive(:fetch_option_sample).and_return(
+        JSON.parse(
+          File.read(File.expand_path("fixtures/option_chains/ACME_calls.json", __dir__)),
+          symbolize_names: true
+        )
+      )
+      allow(cli_app).to receive(:option_sample_output_path) do |directory, options, _response|
+        File.join(
+          directory,
+          "#{options[:root] || options[:symbol]}_exp#{options.fetch(:expiration_date).iso8601}_#{options.fetch(:timestamp).strftime("%Y-%m-%d_%H-%M-%S")}.csv"
+        )
+      end
+      allow(cli_app).to receive(:write_option_sample) do |output_path, _response, _options|
+        File.write(output_path, "contract_type,symbol\nCALL,SPXW  260409C05100000\n")
+      end
       client_factory = instance_double(Tickrake::ClientFactory, build: client)
       runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, client_factory: client_factory, logger: logger)
 
@@ -36,6 +53,7 @@ RSpec.describe "job execution" do
 
       expect(Dir.glob(File.join(dir, "*.csv"))).not_to be_empty
       expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("success"))
+      expect(cli_app).to have_received(:fetch_option_sample).at_least(:once)
     end
   end
 

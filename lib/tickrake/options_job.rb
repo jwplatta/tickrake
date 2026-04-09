@@ -9,10 +9,11 @@ module Tickrake
     def run(now: Time.now)
       @runtime.logger.info("Starting options scrape at #{now.utc.iso8601}")
       client = @runtime.client_factory.build
+      writer = Tickrake::OptionSampleWriter.new(client: client)
       run_time = now
       queue = build_queue(client)
       @runtime.logger.info("Resolved #{queue.length} option fetch tasks.")
-      process_queue(queue, client, run_time)
+      process_queue(queue, writer, run_time)
       @runtime.logger.info("Completed options scrape at #{Time.now.utc.iso8601}")
     end
 
@@ -35,7 +36,7 @@ module Tickrake
       end
     end
 
-    def process_queue(queue, client, run_time)
+    def process_queue(queue, writer, run_time)
       index = 0
       mutex = Mutex.new
       worker_count = [@runtime.config.max_workers, queue.length].min
@@ -50,13 +51,13 @@ module Tickrake
             end
             break unless job
 
-            fetch_one(job, client, run_time)
+            fetch_one(job, writer, run_time)
           end
         end
       end.each(&:join)
     end
 
-    def fetch_one(job, client, run_time)
+    def fetch_one(job, writer, run_time)
       @runtime.logger.info(
         "Fetching option chain for #{job.fetch(:symbol)} exp=#{job.fetch(:resolved).date} buckets=#{job.fetch(:resolved).requested_buckets.join(',')}"
       )
@@ -73,25 +74,15 @@ module Tickrake
 
       retries = 0
       begin
-        response = Timeout.timeout(@runtime.config.option_fetch_timeout_seconds) do
-          client.get_option_chain(
-            job.fetch(:symbol),
-            contract_type: SchwabRb::Option::ContractTypes::ALL,
-            strike_range: SchwabRb::Option::StrikeRanges::ALL,
-            from_date: job.fetch(:resolved).date,
-            to_date: job.fetch(:resolved).date,
-            return_data_objects: false
+        path = Timeout.timeout(@runtime.config.option_fetch_timeout_seconds) do
+          writer.write(
+            symbol: job.fetch(:symbol),
+            option_root: job[:option_root],
+            expiration_date: job.fetch(:resolved).date,
+            directory: @runtime.config.options_dir,
+            timestamp: run_time
           )
         end
-        filtered = Tickrake::Serializers.filter_option_chain(response, job[:option_root])
-        root = job[:option_root] || job.fetch(:symbol)
-        path = Tickrake::Serializers.option_path(
-          directory: @runtime.config.options_dir,
-          root: root,
-          expiration_date: job.fetch(:resolved).date,
-          sampled_at: run_time
-        )
-        Tickrake::Serializers.write_option_csv(path, filtered)
         @runtime.logger.info("Wrote option chain for #{job.fetch(:symbol)} to #{path}")
         @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
       rescue StandardError => e
