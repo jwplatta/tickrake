@@ -1,0 +1,48 @@
+timezone: America/Chicago
+sqlite_path: ~/.schwab_rb/data/tickrake.sqlite3
+storage:
+  history_dir: ~/.schwab_rb/data/history
+  options_dir: ~/.schwab_rb/data/options
+schedule:
+  options_monitor:
+    interval_seconds: 300
+    windows:
+      - days: [mon, tue, wed, thu, fri]
+        start: "08:30"
+        end: "15:00"
+  eod_candles:
+    run_at: "16:10"
+    days: [mon, tue, wed, thu, fri]
+runtime:
+  max_workers: 4
+  retry_count: 2
+  retry_delay_seconds: 2
+  option_fetch_timeout_seconds: 30
+  candle_fetch_timeout_seconds: 60
+options:
+  dte_buckets:
+    - 0DTE
+    - 1DTE
+    - 2DTE
+    - 3DTE
+    - 4DTE
+    - 5DTE
+    - 6DTE
+    - 7DTE
+    - 8DTE
+    - 9DTE
+    - 10DTE
+    - 30DTE
+  universe:
+    - symbol: $SPX
+      option_root: SPXW
+    - symbol: SPY
+    - symbol: QQQ
+candles:
+  universe:
+    - symbol: $SPX
+      start_date: "2020-01-01"
+      frequency: day
+    - symbol: SPY
+      start_date: "2020-01-01"
+      frequency: day
