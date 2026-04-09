@@ -12,14 +12,15 @@ module Tickrake
       db.execute(
         <<~SQL,
           INSERT INTO fetch_runs (
-            job_type, dataset_type, symbol, option_root, requested_buckets,
+            job_type, dataset_type, symbol, frequency, option_root, requested_buckets,
             resolved_expiration, scheduled_for, started_at, status, output_path, error_message
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         SQL
         [
           attrs.fetch(:job_type),
           attrs.fetch(:dataset_type),
           attrs.fetch(:symbol),
+          attrs[:frequency],
           attrs[:option_root],
           attrs[:requested_buckets] && JSON.dump(attrs[:requested_buckets]),
           attrs[:resolved_expiration],
@@ -70,6 +71,7 @@ module Tickrake
             job_type TEXT NOT NULL,
             dataset_type TEXT NOT NULL,
             symbol TEXT NOT NULL,
+            frequency TEXT,
             option_root TEXT,
             requested_buckets TEXT,
             resolved_expiration TEXT,
@@ -82,6 +84,14 @@ module Tickrake
           );
         SQL
       )
+      add_column_unless_exists("fetch_runs", "frequency", "TEXT")
+    end
+
+    def add_column_unless_exists(table, column, sql_type)
+      columns = db.table_info(table).map { |row| row["name"] }
+      return if columns.include?(column)
+
+      db.execute("ALTER TABLE #{table} ADD COLUMN #{column} #{sql_type}")
     end
 
     def iso(value)

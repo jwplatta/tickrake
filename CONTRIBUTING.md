@@ -3,14 +3,13 @@
 ## Development setup
 
 1. Install Ruby 3.1+ and Bundler.
-2. Make sure the local `schwab_rb` repo exists at `/Users/jplatta/repos/schwab_rb`, or set `SCHWAB_RB_PATH` to another checkout before installing gems.
-3. Install dependencies:
+2. Install dependencies:
 
 ```bash
 bundle install
 ```
 
-4. Initialize Tickrake's local config:
+3. Initialize Tickrake's local config:
 
 ```bash
 bundle exec exe/tickrake init

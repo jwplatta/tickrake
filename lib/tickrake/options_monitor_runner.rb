@@ -11,6 +11,7 @@ module Tickrake
 
     def run
       Tickrake::Lockfile.new("tickrake-options-monitor").synchronize do
+        @runtime.logger.info("Starting options scheduler job.")
         @runtime.with_timezone do
           loop do
             now = Time.now

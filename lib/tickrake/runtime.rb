@@ -4,12 +4,12 @@ module Tickrake
   class Runtime
     attr_reader :config, :tracker, :client_factory, :logger
 
-    def initialize(config:, tracker: nil, client_factory: nil, logger: Logger.new($stdout))
+    def initialize(config:, tracker: nil, client_factory: nil, logger: nil, verbose: false, stdout: $stdout)
       @config = config
       @tracker = tracker || Tracker.new(config.sqlite_path)
       @client_factory = client_factory || ClientFactory.new(config)
-      @logger = logger
-      logger.level = Logger::INFO
+      @logger = logger || LoggerFactory.build(verbose: verbose, stdout: stdout)
+      @logger.level = Logger::INFO
     end
 
     def with_timezone

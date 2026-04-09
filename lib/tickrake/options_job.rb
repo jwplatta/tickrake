@@ -7,10 +7,13 @@ module Tickrake
     end
 
     def run(now: Time.now)
+      @runtime.logger.info("Starting options scrape at #{now.utc.iso8601}")
       client = @runtime.client_factory.build
       run_time = now
       queue = build_queue(client)
+      @runtime.logger.info("Resolved #{queue.length} option fetch tasks.")
       process_queue(queue, client, run_time)
+      @runtime.logger.info("Completed options scrape at #{Time.now.utc.iso8601}")
     end
 
     private
@@ -54,6 +57,9 @@ module Tickrake
     end
 
     def fetch_one(job, client, run_time)
+      @runtime.logger.info(
+        "Fetching option chain for #{job.fetch(:symbol)} exp=#{job.fetch(:resolved).date} buckets=#{job.fetch(:resolved).requested_buckets.join(',')}"
+      )
       id = @runtime.tracker.record_start(
         job_type: "options_monitor",
         dataset_type: "options",
@@ -86,13 +92,16 @@ module Tickrake
           sampled_at: run_time
         )
         Tickrake::Serializers.write_option_csv(path, filtered)
+        @runtime.logger.info("Wrote option chain for #{job.fetch(:symbol)} to #{path}")
         @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
       rescue StandardError => e
         retries += 1
         if retries <= @runtime.config.retry_count
+          @runtime.logger.warn("Retry #{retries} for #{job.fetch(:symbol)} exp=#{job.fetch(:resolved).date}: #{e.message}")
           sleep @runtime.config.retry_delay_seconds
           retry
         end
+        @runtime.logger.error("Failed option fetch for #{job.fetch(:symbol)} exp=#{job.fetch(:resolved).date}: #{e.message}")
         @runtime.tracker.record_finish(id: id, status: "failed", finished_at: Time.now, error_message: e.message)
       end
     end

@@ -2,15 +2,16 @@
 
 module Tickrake
   class EodCandlesRunner
-    def initialize(runtime, sleeper: Kernel)
+    def initialize(runtime, sleeper: Kernel, from_config_start: false)
       @runtime = runtime
       @sleeper = sleeper
-      @job = CandlesJob.new(runtime)
+      @job = CandlesJob.new(runtime, from_config_start: from_config_start)
       @last_run_on = nil
     end
 
     def run
       Tickrake::Lockfile.new("tickrake-eod-candles").synchronize do
+        @runtime.logger.info("Starting candle scheduler job.")
         @runtime.with_timezone do
           loop do
             now = Time.now

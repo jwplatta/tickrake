@@ -16,6 +16,10 @@ module Tickrake
       File.join(home_dir, "tickrake.sqlite3")
     end
 
+    def log_path
+      File.join(home_dir, "tickrake.log")
+    end
+
     def lock_path(name)
       File.join(home_dir, "#{name}.lock")
     end
