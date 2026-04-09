@@ -34,8 +34,7 @@ universes, DTE buckets, schedule windows, worker limits, and retry policy.
 Tickrake's candle workflow depends on `schwab_rb >= 0.8.1`, which provides the shared
 price-history downloader used for cache-aware candle merges.
 
-For candle collection, each symbol can use either a single `frequency:` or a
-`frequencies:` array. Supported values are `minute`, `5min`, `10min`, `15min`,
+For candle collection, each symbol uses a `frequencies:` array. Supported values are `minute`, `5min`, `10min`, `15min`,
 `30min`, `day`, `week`, and `month`.
 
 `candles.lookback_days` controls the normal recurring candle request window for

@@ -52,7 +52,7 @@ candles:
       frequencies: [day, 30min, 10min, 5min, minute]
     - symbol: $VIX
       start_date: "2020-01-01"
-      frequency: day
+      frequencies: [day]
     - symbol: $VIX9D
       start_date: "2020-01-01"
-      frequency: day
+      frequencies: [day]

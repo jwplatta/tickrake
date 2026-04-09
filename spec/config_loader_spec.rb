@@ -12,35 +12,6 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.candles_universe.first.frequencies).to include("day", "30min", "10min", "5min", "1min")
   end
 
-  it "keeps single frequency entries backward compatible" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "single.yml")
-      File.write(path, <<~YAML)
-        schedule:
-          options_monitor:
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-          eod_candles:
-            run_at: "16:10"
-            days: [mon]
-        options:
-          universe:
-            - symbol: SPY
-        candles:
-          universe:
-            - symbol: SPY
-              start_date: "2020-01-01"
-              frequency: minute
-      YAML
-
-      config = described_class.load(path)
-      expect(config.candles_universe.first.frequencies).to eq(["1min"])
-    end
-  end
-
   it "rejects malformed dte buckets" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "bad.yml")
@@ -91,6 +62,7 @@ RSpec.describe Tickrake::ConfigLoader do
           universe:
             - symbol: SPY
               start_date: "2020-01-01"
+              frequencies: [day]
       YAML
 
       expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /lookback_days/)

@@ -48,7 +48,7 @@ module Tickrake
       candles_universe = Array(candles_config.fetch("universe", [])).map do |row|
         CandleSymbol.new(
           symbol: row.fetch("symbol"),
-          frequencies: normalize_frequencies(row),
+          frequencies: Array(row.fetch("frequencies")).map { |value| normalize_frequency(value) }.uniq,
           start_date: Date.iso8601(row.fetch("start_date")),
           need_extended_hours_data: !!row.fetch("need_extended_hours_data", false),
           need_previous_close: !!row.fetch("need_previous_close", false)
@@ -152,12 +152,5 @@ module Tickrake
       raise ConfigError, "Unsupported candle frequency: #{value}"
     end
 
-    def normalize_frequencies(row)
-      if row.key?("frequencies")
-        Array(row.fetch("frequencies")).map { |value| normalize_frequency(value) }.uniq
-      else
-        [normalize_frequency(row.fetch("frequency", "day"))]
-      end
-    end
   end
 end
