@@ -27,6 +27,7 @@ module Tickrake
       schedule = data.fetch("schedule", {})
       options_schedule = schedule.fetch("options_monitor", {})
       eod_schedule = schedule.fetch("eod_candles", {})
+      candles_config = data.fetch("candles", {})
 
       options_windows = Array(options_schedule.fetch("windows", [])).map do |window|
         SchedulerWindow.new(
@@ -44,10 +45,10 @@ module Tickrake
         OptionSymbol.new(symbol: row.fetch("symbol"), option_root: row["option_root"])
       end
 
-      candles_universe = Array(dig(data, "candles", "universe", [])).map do |row|
+      candles_universe = Array(candles_config.fetch("universe", [])).map do |row|
         CandleSymbol.new(
           symbol: row.fetch("symbol"),
-          frequency: normalize_frequency(row.fetch("frequency", "day")),
+          frequencies: normalize_frequencies(row),
           start_date: Date.iso8601(row.fetch("start_date")),
           need_extended_hours_data: !!row.fetch("need_extended_hours_data", false),
           need_previous_close: !!row.fetch("need_previous_close", false)
@@ -68,6 +69,7 @@ module Tickrake
         options_windows: options_windows,
         eod_run_at: normalize_clock(eod_schedule.fetch("run_at", "16:10")),
         eod_days: normalize_days(eod_schedule.fetch("days", %w[mon tue wed thu fri])),
+        candle_lookback_days: Integer(candles_config.fetch("lookback_days", 7)),
         dte_buckets: dte_buckets,
         options_universe: options_universe,
         candles_universe: candles_universe
@@ -89,6 +91,7 @@ module Tickrake
       raise ConfigError, "At least one candle universe symbol is required." if config.candles_universe.empty?
       raise ConfigError, "options_monitor interval must be positive." if config.options_monitor_interval_seconds <= 0
       raise ConfigError, "max_workers must be positive." if config.max_workers <= 0
+      raise ConfigError, "candle lookback_days must be non-negative." if config.candle_lookback_days.negative?
     end
 
     def dig(hash, *keys)
@@ -124,10 +127,37 @@ module Tickrake
     end
 
     def normalize_frequency(value)
-      normalized = value.to_s.downcase
-      return normalized if %w[1min 5min 10min 15min 30min day week month].include?(normalized)
+      normalized = value.to_s.downcase.strip
+      aliases = {
+        "minute" => "1min",
+        "1m" => "1min",
+        "1min" => "1min",
+        "5m" => "5min",
+        "5min" => "5min",
+        "10m" => "10min",
+        "10min" => "10min",
+        "15m" => "15min",
+        "15min" => "15min",
+        "30m" => "30min",
+        "30min" => "30min",
+        "day" => "day",
+        "daily" => "day",
+        "week" => "week",
+        "weekly" => "week",
+        "month" => "month",
+        "monthly" => "month"
+      }
+      return aliases.fetch(normalized) if aliases.key?(normalized)
 
       raise ConfigError, "Unsupported candle frequency: #{value}"
+    end
+
+    def normalize_frequencies(row)
+      if row.key?("frequencies")
+        Array(row.fetch("frequencies")).map { |value| normalize_frequency(value) }.uniq
+      else
+        [normalize_frequency(row.fetch("frequency", "day"))]
+      end
     end
   end
 end

@@ -39,10 +39,20 @@ options:
     - symbol: SPY
     - symbol: QQQ
 candles:
+  lookback_days: 7
   universe:
     - symbol: $SPX
       start_date: "2020-01-01"
-      frequency: day
+      frequencies: [day, 30min, 10min, 5min, minute]
     - symbol: SPY
+      start_date: "2020-01-01"
+      frequencies: [day, 30min, 10min, 5min, minute]
+    - symbol: QQQ
+      start_date: "2020-01-01"
+      frequencies: [day, 30min, 10min, 5min, minute]
+    - symbol: $VIX
+      start_date: "2020-01-01"
+      frequency: day
+    - symbol: $VIX9D
       start_date: "2020-01-01"
       frequency: day

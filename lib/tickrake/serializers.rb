@@ -11,65 +11,6 @@ module Tickrake
       underlying_price
     ].freeze
 
-    FREQUENCY_ALIASES = {
-      "1min" => {
-        frequency_type: SchwabRb::PriceHistory::FrequencyTypes::MINUTE,
-        frequency: SchwabRb::PriceHistory::Frequencies::EVERY_MINUTE,
-        period_type: SchwabRb::PriceHistory::PeriodTypes::DAY,
-        period: SchwabRb::PriceHistory::Periods::ONE_DAY
-      },
-      "5min" => {
-        frequency_type: SchwabRb::PriceHistory::FrequencyTypes::MINUTE,
-        frequency: SchwabRb::PriceHistory::Frequencies::EVERY_FIVE_MINUTES,
-        period_type: SchwabRb::PriceHistory::PeriodTypes::DAY,
-        period: SchwabRb::PriceHistory::Periods::ONE_DAY
-      },
-      "10min" => {
-        frequency_type: SchwabRb::PriceHistory::FrequencyTypes::MINUTE,
-        frequency: SchwabRb::PriceHistory::Frequencies::EVERY_TEN_MINUTES,
-        period_type: SchwabRb::PriceHistory::PeriodTypes::DAY,
-        period: SchwabRb::PriceHistory::Periods::ONE_DAY
-      },
-      "15min" => {
-        frequency_type: SchwabRb::PriceHistory::FrequencyTypes::MINUTE,
-        frequency: SchwabRb::PriceHistory::Frequencies::EVERY_FIFTEEN_MINUTES,
-        period_type: SchwabRb::PriceHistory::PeriodTypes::DAY,
-        period: SchwabRb::PriceHistory::Periods::ONE_DAY
-      },
-      "30min" => {
-        frequency_type: SchwabRb::PriceHistory::FrequencyTypes::MINUTE,
-        frequency: SchwabRb::PriceHistory::Frequencies::EVERY_THIRTY_MINUTES,
-        period_type: SchwabRb::PriceHistory::PeriodTypes::DAY,
-        period: SchwabRb::PriceHistory::Periods::ONE_DAY
-      },
-      "day" => {
-        frequency_type: SchwabRb::PriceHistory::FrequencyTypes::DAILY,
-        frequency: SchwabRb::PriceHistory::Frequencies::DAILY,
-        period_type: SchwabRb::PriceHistory::PeriodTypes::YEAR,
-        period: SchwabRb::PriceHistory::Periods::TWENTY_YEARS
-      },
-      "week" => {
-        frequency_type: SchwabRb::PriceHistory::FrequencyTypes::WEEKLY,
-        frequency: SchwabRb::PriceHistory::Frequencies::WEEKLY,
-        period_type: SchwabRb::PriceHistory::PeriodTypes::YEAR,
-        period: SchwabRb::PriceHistory::Periods::TWENTY_YEARS
-      },
-      "month" => {
-        frequency_type: SchwabRb::PriceHistory::FrequencyTypes::MONTHLY,
-        frequency: SchwabRb::PriceHistory::Frequencies::MONTHLY,
-        period_type: SchwabRb::PriceHistory::PeriodTypes::YEAR,
-        period: SchwabRb::PriceHistory::Periods::TWENTY_YEARS
-      }
-    }.freeze
-
-    def price_history_request(frequency)
-      FREQUENCY_ALIASES.fetch(frequency)
-    end
-
-    def history_path(directory:, symbol:, frequency:)
-      File.join(directory, "#{Tickrake::PathSupport.sanitize_symbol(symbol)}_#{frequency}.csv")
-    end
-
     def option_path(directory:, root:, expiration_date:, sampled_at:)
       File.join(
         directory,
@@ -79,38 +20,6 @@ module Tickrake
           sampled_at.strftime("%Y-%m-%d_%H-%M-%S")
         ].join("_") + ".csv"
       )
-    end
-
-    def write_history_csv(path, response)
-      normalized = normalize_price_history(response)
-      FileUtils.mkdir_p(File.dirname(path))
-      File.write(path, CSV.generate do |csv|
-        csv << %w[datetime open high low close volume]
-        normalized.each do |candle|
-          csv << candle
-        end
-      end)
-      path
-    end
-
-    def merge_history(existing_path, response)
-      new_rows = normalize_price_history(response)
-      existing_rows =
-        if File.exist?(existing_path)
-          CSV.read(existing_path, headers: true).map do |row|
-            [row["datetime"], row["open"], row["high"], row["low"], row["close"], row["volume"]]
-          end
-        else
-          []
-        end
-
-      merged = (existing_rows + new_rows).each_with_object({}) { |row, by_dt| by_dt[row[0]] = row }.values.sort_by(&:first)
-      FileUtils.mkdir_p(File.dirname(existing_path))
-      File.write(existing_path, CSV.generate do |csv|
-        csv << %w[datetime open high low close volume]
-        merged.each { |row| csv << row }
-      end)
-      existing_path
     end
 
     def write_option_csv(path, response)
@@ -177,20 +86,6 @@ module Tickrake
       Date.parse(value.to_s).iso8601
     end
 
-    def normalize_price_history(response)
-      Array(response[:candles]).map do |candle|
-        normalized = candle.transform_keys(&:to_sym)
-        [
-          Time.at(normalized.fetch(:datetime) / 1000.0).utc.iso8601,
-          normalized[:open],
-          normalized[:high],
-          normalized[:low],
-          normalized[:close],
-          normalized[:volume]
-        ]
-      end.sort_by(&:first)
-    end
-
     def filter_map(date_map, root)
       return {} unless date_map
 
@@ -203,6 +98,6 @@ module Tickrake
       end
     end
 
-    module_function :normalize_price_history, :filter_map
+    module_function :filter_map
   end
 end
