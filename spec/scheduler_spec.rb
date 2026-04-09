@@ -21,8 +21,8 @@ RSpec.describe "schedulers" do
   it "runs eod candles once after configured time" do
     runner = Tickrake::EodCandlesRunner.new(runtime)
 
-    before = Time.new(2026, 4, 6, 16, 5, 0, "-05:00")
-    after = Time.new(2026, 4, 6, 16, 10, 0, "-05:00")
+    before = Time.new(2026, 4, 6, 16, 4, 0, "-05:00")
+    after = Time.new(2026, 4, 6, 16, 5, 0, "-05:00")
 
     expect(runner.due?(before)).to eq(false)
     expect(runner.due?(after)).to eq(true)

@@ -6,6 +6,7 @@ RSpec.describe Tickrake::ConfigLoader do
 
     expect(config.options_monitor_interval_seconds).to eq(300)
     expect(config.dte_buckets).to include(0, 10, 30)
+    expect(config.sqlite_path).to eq(File.expand_path("~/.tickrake/tickrake.sqlite3"))
     expect(config.options_universe.map(&:symbol)).to include("$SPX", "SPY")
     expect(config.candles_universe.map(&:frequency)).to all(eq("day"))
   end

@@ -3,7 +3,7 @@
 module Tickrake
   class Lockfile
     def initialize(name)
-      @path = Tickrake::PathSupport.expand_path("~/.schwab_rb/data/#{name}.lock")
+      @path = Tickrake::PathSupport.lock_path(name)
       FileUtils.mkdir_p(File.dirname(@path))
     end
 

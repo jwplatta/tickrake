@@ -5,8 +5,8 @@ require_relative "lib/tickrake/version"
 Gem::Specification.new do |spec|
   spec.name = "tickrake"
   spec.version = Tickrake::VERSION
-  spec.authors = ["OpenAI Codex"]
-  spec.email = ["support@openai.com"]
+  spec.authors = ["Joseph Platta"]
+  spec.email = ["jwplatta@gmail.com"]
 
   spec.summary = "Scheduled options and candle collection on top of schwab_rb"
   spec.description = "Tickrake schedules option-chain sampling and end-of-day candle collection."
@@ -21,7 +21,7 @@ Gem::Specification.new do |spec|
     Dir.glob("config/**/*") +
       Dir.glob("exe/*") +
       Dir.glob("lib/**/*") +
-      %w[README.md]
+      %w[CONTRIBUTING.md LICENSE.txt README.md]
   end
   spec.bindir = "exe"
   spec.executables = ["tickrake"]

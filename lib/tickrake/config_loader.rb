@@ -19,7 +19,7 @@ module Tickrake
       data = YAML.safe_load(File.read(@path), permitted_classes: [Date], aliases: true) || {}
 
       timezone = data.fetch("timezone", ENV.fetch("TZ", "America/Chicago"))
-      sqlite_path = Tickrake::PathSupport.expand_path(data.fetch("sqlite_path", "~/.schwab_rb/data/tickrake.sqlite3"))
+      sqlite_path = Tickrake::PathSupport.expand_path(data.fetch("sqlite_path", Tickrake::PathSupport.sqlite_path))
       history_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "history_dir", "~/.schwab_rb/data/history"))
       options_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "options_dir", "~/.schwab_rb/data/options"))
 

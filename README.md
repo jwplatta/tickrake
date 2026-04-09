@@ -7,18 +7,21 @@ Schwab CLI directories while tracking fetch activity in SQLite.
 ## Commands
 
 ```bash
-bundle exec exe/tickrake validate-config --config config/tickrake.yml
-bundle exec exe/tickrake run options-monitor --config config/tickrake.yml
-bundle exec exe/tickrake run eod-candles --config config/tickrake.yml
+bundle exec exe/tickrake init
+bundle exec exe/tickrake validate-config --config ~/.tickrake/tickrake.yml
+bundle exec exe/tickrake run options-monitor --config ~/.tickrake/tickrake.yml
+bundle exec exe/tickrake run eod-candles --config ~/.tickrake/tickrake.yml
 ```
 
 ## Storage
 
 - Candle payloads: `~/.schwab_rb/data/history`
 - Option payloads: `~/.schwab_rb/data/options`
-- Tickrake metadata DB: `~/.schwab_rb/data/tickrake.sqlite3`
+- Tickrake config: `~/.tickrake/tickrake.yml`
+- Tickrake metadata DB: `~/.tickrake/tickrake.sqlite3`
+- Tickrake lockfiles: `~/.tickrake/*.lock`
 
 ## Config
 
-Copy `config/tickrake.example.yml` to your own config path and edit the universes,
-DTE buckets, schedule windows, worker limits, and retry policy.
+Run `tickrake init` to generate the default config in `~/.tickrake/`, then edit the
+universes, DTE buckets, schedule windows, worker limits, and retry policy.

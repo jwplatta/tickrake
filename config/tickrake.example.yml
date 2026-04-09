@@ -1,5 +1,5 @@
 timezone: America/Chicago
-sqlite_path: ~/.schwab_rb/data/tickrake.sqlite3
+sqlite_path: ~/.tickrake/tickrake.sqlite3
 storage:
   history_dir: ~/.schwab_rb/data/history
   options_dir: ~/.schwab_rb/data/options
@@ -11,7 +11,7 @@ schedule:
         start: "08:30"
         end: "15:00"
   eod_candles:
-    run_at: "16:10"
+    run_at: "16:05"
     days: [mon, tue, wed, thu, fri]
 runtime:
   max_workers: 4
