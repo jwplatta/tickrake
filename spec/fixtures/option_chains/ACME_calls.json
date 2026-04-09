@@ -1,0 +1,39 @@
+{
+  "symbol": "$SPX",
+  "status": "SUCCESS",
+  "underlyingPrice": 5100.25,
+  "callExpDateMap": {
+    "2026-04-09:0": {
+      "5100.0": [
+        {
+          "putCall": "CALL",
+          "symbol": "SPXW  260409C05100000",
+          "description": "SPXW Apr 09 2026 5100 Call",
+          "optionRoot": "SPXW",
+          "expirationDate": "2026-04-09T20:00:00+0000",
+          "strikePrice": 5100.0,
+          "mark": 101.5,
+          "bid": 101.0,
+          "bidSize": 10,
+          "ask": 102.0,
+          "askSize": 12,
+          "last": 101.25,
+          "lastSize": 1,
+          "openInterest": 100,
+          "totalVolume": 50,
+          "delta": 0.5,
+          "gamma": 0.01,
+          "theta": -0.1,
+          "vega": 0.2,
+          "rho": 0.05,
+          "volatility": 18.5,
+          "theoreticalVolatility": 18.0,
+          "theoreticalOptionValue": 101.4,
+          "intrinsicValue": 25.0,
+          "extrinsicValue": 76.5
+        }
+      ]
+    }
+  },
+  "putExpDateMap": {}
+}

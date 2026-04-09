@@ -27,7 +27,7 @@ Gem::Specification.new do |spec|
   spec.executables = ["tickrake"]
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "schwab_rb"
+  spec.add_dependency "schwab_rb", ">= 0.8.1", "< 0.9"
   spec.add_dependency "sqlite3", ">= 1.6"
 
   spec.add_development_dependency "rspec", "~> 3.13"

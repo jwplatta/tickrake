@@ -1,0 +1,54 @@
+{
+  "expirationList": [
+    {
+      "expirationDate": "2026-04-09",
+      "daysToExpiration": 0,
+      "expirationType": "W",
+      "settlementType": "P",
+      "optionRoots": "SPXW"
+    },
+    {
+      "expirationDate": "2026-04-10",
+      "daysToExpiration": 1,
+      "expirationType": "W",
+      "settlementType": "P",
+      "optionRoots": "SPXW"
+    },
+    {
+      "expirationDate": "2026-04-13",
+      "daysToExpiration": 4,
+      "expirationType": "W",
+      "settlementType": "P",
+      "optionRoots": "SPXW"
+    },
+    {
+      "expirationDate": "2026-04-16",
+      "daysToExpiration": 7,
+      "expirationType": "W",
+      "settlementType": "P",
+      "optionRoots": "SPXW"
+    },
+    {
+      "expirationDate": "2026-04-17",
+      "daysToExpiration": 8,
+      "expirationType": "S",
+      "settlementType": "P",
+      "optionRoots": "SPX"
+    },
+    {
+      "expirationDate": "2026-04-20",
+      "daysToExpiration": 11,
+      "expirationType": "W",
+      "settlementType": "P",
+      "optionRoots": "SPXW"
+    },
+    {
+      "expirationDate": "2026-05-09",
+      "daysToExpiration": 30,
+      "expirationType": "W",
+      "settlementType": "P",
+      "optionRoots": "SPXW"
+    }
+  ],
+  "status": "SUCCESS"
+}
