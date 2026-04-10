@@ -13,6 +13,12 @@ module Tickrake
       case command
       when "init"
         init_command(argv)
+      when "status"
+        status_command(argv)
+      when "stop"
+        stop_command(argv)
+      when "logs"
+        logs_command(argv)
       when nil
         @stderr.puts(usage)
         1
@@ -20,7 +26,8 @@ module Tickrake
         common_options = parse_common_options!(argv)
         config_path = common_options[:config_path]
         config = Tickrake::ConfigLoader.load(config_path)
-        runtime = Tickrake::Runtime.new(config: config, verbose: common_options[:verbose], stdout: @stdout)
+        runtime = nil
+        runtime = Tickrake::Runtime.new(config: config, verbose: common_options[:verbose], stdout: @stdout) unless command == "start"
 
         run_command(command, argv, runtime, config_path)
       end
@@ -39,6 +46,8 @@ module Tickrake
       when "validate-config"
         @stdout.puts("Config valid: #{config_path}")
         0
+      when "start"
+        start_subcommand(argv, config_path)
       when "run"
         run_subcommand(argv, runtime)
       else
@@ -74,6 +83,24 @@ module Tickrake
       end
     end
 
+    def start_subcommand(argv, config_path)
+      name = argv.shift
+      options = parse_run_options!(argv)
+      starter = Tickrake::BackgroundProcess.new(stdout: @stdout)
+
+      case name
+      when "options"
+        starter.start(job_name: "options", config_path: config_path)
+        0
+      when "candles"
+        starter.start(job_name: "candles", config_path: config_path, from_config_start: options[:from_config_start])
+        0
+      else
+        @stderr.puts(usage)
+        1
+      end
+    end
+
     def parse_run_options!(argv)
       options = { job: false, from_config_start: false }
       parser = OptionParser.new do |opts|
@@ -81,6 +108,96 @@ module Tickrake
         opts.on("--from-config-start", "Always use the configured candle start_date for candle requests") do
           options[:from_config_start] = true
         end
+      end
+      parser.order!(argv)
+      options
+    end
+
+    def status_command(argv)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+
+      registry = Tickrake::JobRegistry.new
+      registry.statuses.each do |job|
+        case job[:state]
+        when "running"
+          @stdout.puts("#{job[:name]}: running pid=#{job[:pid]} started_at=#{job[:started_at]} log=#{job[:log_path]}")
+        when "stale"
+          @stdout.puts("#{job[:name]}: stale pid=#{job[:pid]} started_at=#{job[:started_at]}")
+        else
+          @stdout.puts("#{job[:name]}: stopped")
+        end
+      end
+      0
+    end
+
+    def stop_command(argv)
+      target = argv.shift
+      raise OptionParser::MissingArgument, "job name" if target.nil?
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+
+      registry = Tickrake::JobRegistry.new
+      targets = target == "all" ? Tickrake::JobRegistry::JOB_NAMES : [target]
+
+      targets.each do |name|
+        unless Tickrake::JobRegistry::JOB_NAMES.include?(name)
+          raise Tickrake::Error, "Unknown job `#{name}`."
+        end
+
+        stop_one(registry, name)
+      end
+      0
+    end
+
+    def stop_one(registry, name)
+      job = registry.status(name)
+      case job[:state]
+      when "running"
+        Process.kill("TERM", Integer(job[:pid]))
+        wait_for_stop(registry, name, Integer(job[:pid]))
+      when "stale"
+        registry.delete(name)
+        @stdout.puts("Removed stale #{name} job metadata for pid #{job[:pid]}.")
+      else
+        @stdout.puts("#{name} job is not running.")
+      end
+    end
+
+    def wait_for_stop(registry, name, pid)
+      deadline = Time.now + 5
+      while Time.now < deadline
+        unless registry.pid_alive?(pid)
+          registry.delete(name)
+          @stdout.puts("Stopped #{name} job (pid #{pid}).")
+          return
+        end
+
+        sleep 0.2
+      end
+
+      @stdout.puts("Sent TERM to #{name} job (pid #{pid}); waiting for shutdown.")
+    end
+
+    def logs_command(argv)
+      options = parse_logs_options!(argv)
+      log_path = Tickrake::PathSupport.log_path
+      unless File.exist?(log_path)
+        @stdout.puts("No log file at #{log_path}")
+        return 0
+      end
+
+      content = File.read(log_path)
+      if options[:tail]
+        @stdout.print(content.lines.last(options[:tail]).join)
+      else
+        @stdout.print(content)
+      end
+      0
+    end
+
+    def parse_logs_options!(argv)
+      options = { tail: nil }
+      parser = OptionParser.new do |opts|
+        opts.on("--tail N", Integer, "Show only the last N log lines") { |value| options[:tail] = value }
       end
       parser.order!(argv)
       options
@@ -146,8 +263,13 @@ module Tickrake
         Usage:
           tickrake init [--config path/to/tickrake.yml] [--force]
           tickrake validate-config [--config path/to/tickrake.yml] [--verbose]
+          tickrake start options [--config path/to/tickrake.yml]
+          tickrake start candles [--from-config-start] [--config path/to/tickrake.yml]
           tickrake run options [--job] [--config path/to/tickrake.yml] [--verbose]
           tickrake run candles [--job] [--from-config-start] [--config path/to/tickrake.yml] [--verbose]
+          tickrake status
+          tickrake stop options|candles|all
+          tickrake logs [--tail N]
       TEXT
     end
   end

@@ -1,0 +1,55 @@
+# frozen_string_literal: true
+
+require "rbconfig"
+
+module Tickrake
+  class BackgroundProcess
+    def initialize(registry: Tickrake::JobRegistry.new, stdout: $stdout)
+      @registry = registry
+      @stdout = stdout
+    end
+
+    def start(job_name:, config_path:, from_config_start: false)
+      current = @registry.status(job_name)
+      if current[:state] == "running"
+        raise Tickrake::Error, "#{job_name} job is already running with pid #{current[:pid]}."
+      end
+
+      FileUtils.mkdir_p(File.dirname(Tickrake::PathSupport.log_path))
+      log_device = File.open(Tickrake::PathSupport.log_path, "a")
+
+      args = [
+        RbConfig.ruby,
+        executable_path,
+        "run",
+        job_name,
+        "--job",
+        "--config",
+        Tickrake::PathSupport.expand_path(config_path)
+      ]
+      args << "--from-config-start" if job_name == "candles" && from_config_start
+
+      pid = Process.spawn(*args, out: log_device, err: log_device, pgroup: true)
+      Process.detach(pid)
+      log_device.close
+
+      @registry.write(
+        job_name,
+        pid: pid,
+        command: args.join(" "),
+        started_at: Time.now.utc.iso8601,
+        config_path: Tickrake::PathSupport.expand_path(config_path),
+        log_path: Tickrake::PathSupport.log_path
+      )
+
+      @stdout.puts("Started #{job_name} job with pid #{pid}.")
+      pid
+    end
+
+    private
+
+    def executable_path
+      File.expand_path("../../exe/tickrake", __dir__)
+    end
+  end
+end
