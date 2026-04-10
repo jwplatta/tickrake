@@ -2,6 +2,8 @@
 
 module Tickrake
   class OptionsJob
+    EXPIRATION_PROBE_BUFFER_DAYS = 7
+
     def initialize(runtime)
       @runtime = runtime
     end
@@ -11,7 +13,7 @@ module Tickrake
       client = @runtime.client_factory.build
       writer = Tickrake::OptionSampleWriter.new(client: client)
       run_time = now
-      queue = build_queue(client)
+      queue = build_queue(client, run_time.to_date)
       @runtime.logger.info("Resolved #{queue.length} option fetch tasks.")
       process_queue(queue, writer, run_time)
       @runtime.logger.info("Completed options scrape at #{Time.now.utc.iso8601}")
@@ -19,19 +21,62 @@ module Tickrake
 
     private
 
-    def build_queue(client)
+    def build_queue(client, base_date)
       @runtime.config.options_universe.flat_map do |entry|
-        chain = client.get_option_expiration_chain(entry.symbol)
+        expiration_entries = probe_expiration_entries(client, entry, base_date)
+        if expiration_entries.empty?
+          @runtime.logger.warn("No expirations returned for #{entry.symbol}")
+          next []
+        end
+
         Tickrake::DteResolver.new(
-          expiration_chain: chain,
-          target_buckets: @runtime.config.dte_buckets,
-          option_root: entry.option_root
+          expiration_entries: expiration_entries,
+          target_buckets: @runtime.config.dte_buckets
         ).resolve.map do |resolved|
           {
             symbol: entry.symbol,
             option_root: entry.option_root,
             resolved: resolved
           }
+        end
+      end
+    end
+
+    def probe_expiration_entries(client, entry, base_date)
+      api_symbol = SchwabRb::PriceHistory::Downloader.api_symbol(entry.symbol)
+      max_bucket = @runtime.config.dte_buckets.max || 0
+
+      (0..(max_bucket + EXPIRATION_PROBE_BUFFER_DAYS)).filter_map do |offset|
+        expiration_date = base_date + offset
+        response = client.get_option_chain(
+          api_symbol,
+          contract_type: SchwabRb::Option::ContractTypes::ALL,
+          strike_range: SchwabRb::Option::StrikeRanges::ALL,
+          from_date: expiration_date,
+          to_date: expiration_date,
+          return_data_objects: false
+        )
+        next unless matching_contracts?(response, entry.option_root)
+
+        Tickrake::OptionExpirationEntry.new(
+          expiration_date: expiration_date.iso8601,
+          days_to_expiration: offset
+        )
+      end
+    end
+
+    def matching_contracts?(response, option_root)
+      rows = option_rows(response)
+      return rows.any? if option_root.nil? || option_root.empty?
+
+      normalized_root = option_root.to_s.upcase
+      rows.any? { |row| row[:optionRoot].to_s.upcase == normalized_root }
+    end
+
+    def option_rows(response)
+      [response[:callExpDateMap], response[:putExpDateMap]].compact.flat_map do |date_map|
+        date_map.values.flat_map do |strikes|
+          strikes.values.flatten.map { |option| option.transform_keys(&:to_sym) }
         end
       end
     end

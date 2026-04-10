@@ -6,7 +6,7 @@ RSpec.describe "job execution" do
   end
   let(:tracker) { Tickrake::Tracker.new(File.join(Dir.mktmpdir, "tickrake.sqlite3")) }
   let(:logger) { Logger.new(nil) }
-  let(:cli_app) { instance_double(SchwabRb::CLI::App) }
+  let(:option_sample_writer) { instance_double(Tickrake::OptionSampleWriter) }
 
   def config_with(config, **overrides)
     attrs = config.instance_variables.each_with_object({}) do |ivar, hash|
@@ -19,32 +19,26 @@ RSpec.describe "job execution" do
     Dir.mktmpdir do |dir|
       custom = config_with(config, options_dir: dir)
       client = instance_double("client")
-      allow(client).to receive(:get_option_expiration_chain).and_return(
-        SchwabRb::DataObjects::OptionExpirationChain.build(
-          JSON.parse(File.read(File.expand_path("fixtures/option_expiration_chain.json", __dir__)))
-        )
+      matching_response = JSON.parse(
+        File.read(File.expand_path("fixtures/option_chains/ACME_calls.json", __dir__)),
+        symbolize_names: true
       )
-      allow(client).to receive(:get_option_chain).and_return(
-        JSON.parse(
-          File.read(File.expand_path("fixtures/option_chains/ACME_calls.json", __dir__)),
-          symbolize_names: true
-        )
-      )
-      allow(SchwabRb::CLI::App).to receive(:new).and_return(cli_app)
-      allow(cli_app).to receive(:fetch_option_sample).and_return(
-        JSON.parse(
-          File.read(File.expand_path("fixtures/option_chains/ACME_calls.json", __dir__)),
-          symbolize_names: true
-        )
-      )
-      allow(cli_app).to receive(:option_sample_output_path) do |directory, options, _response|
-        File.join(
-          directory,
-          "#{options[:root] || options[:symbol]}_exp#{options.fetch(:expiration_date).iso8601}_#{options.fetch(:timestamp).strftime("%Y-%m-%d_%H-%M-%S")}.csv"
-        )
+      empty_response = { callExpDateMap: {}, putExpDateMap: {} }
+      allow(client).to receive(:get_option_chain) do |_symbol, **kwargs|
+        if kwargs[:from_date] == Date.new(2026, 4, 9) && kwargs[:to_date] == Date.new(2026, 4, 9)
+          matching_response
+        else
+          empty_response
+        end
       end
-      allow(cli_app).to receive(:write_option_sample) do |output_path, _response, _options|
-        File.write(output_path, "contract_type,symbol\nCALL,SPXW  260409C05100000\n")
+      allow(Tickrake::OptionSampleWriter).to receive(:new).with(client: client).and_return(option_sample_writer)
+      allow(option_sample_writer).to receive(:write) do |**kwargs|
+        path = File.join(
+          kwargs.fetch(:directory),
+          "SPXW_exp#{kwargs.fetch(:expiration_date).iso8601}_#{kwargs.fetch(:timestamp).strftime("%Y-%m-%d_%H-%M-%S")}.csv"
+        )
+        File.write(path, "contract_type,symbol\nCALL,SPXW  260409C05100000\n")
+        path
       end
       client_factory = instance_double(Tickrake::ClientFactory, build: client)
       runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, client_factory: client_factory, logger: logger)
@@ -53,7 +47,15 @@ RSpec.describe "job execution" do
 
       expect(Dir.glob(File.join(dir, "*.csv"))).not_to be_empty
       expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("success"))
-      expect(cli_app).to have_received(:fetch_option_sample).at_least(:once)
+      expect(option_sample_writer).to have_received(:write).at_least(:once)
+      expect(client).to have_received(:get_option_chain).with(
+        "$SPX",
+        hash_including(
+          from_date: Date.new(2026, 4, 9),
+          to_date: Date.new(2026, 4, 9),
+          return_data_objects: false
+        )
+      )
     end
   end
 
