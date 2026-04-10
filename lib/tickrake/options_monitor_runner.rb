@@ -7,22 +7,29 @@ module Tickrake
       @sleeper = sleeper
       @job = OptionsJob.new(runtime)
       @last_run_at = nil
+      @shutdown_requested = false
     end
 
     def run
       Tickrake::Lockfile.new("tickrake-options-monitor").synchronize do
+        install_signal_handlers
         @runtime.logger.info("Starting options scheduler job.")
         @runtime.with_timezone do
-          loop do
+          until @shutdown_requested
             now = Time.now
             if due?(now)
               @job.run(now: now)
               @last_run_at = now
             end
+            break if @shutdown_requested
+
             @sleeper.sleep(sleep_seconds(now))
           end
         end
+        @runtime.logger.info("Stopped options scheduler job.")
       end
+    ensure
+      Tickrake::JobRegistry.new.delete("options")
     end
 
     def due?(time)
@@ -60,6 +67,15 @@ module Tickrake
       return 30 unless in_window?(now)
 
       [@runtime.config.options_monitor_interval_seconds / 2, 30].max
+    end
+
+    def install_signal_handlers
+      %w[TERM INT].each do |signal|
+        Signal.trap(signal) do
+          @shutdown_requested = true
+          @runtime.logger.info("Received #{signal}, stopping options scheduler after current iteration.")
+        end
+      end
     end
   end
 end

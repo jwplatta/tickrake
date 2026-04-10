@@ -20,6 +20,14 @@ module Tickrake
       File.join(home_dir, "tickrake.log")
     end
 
+    def jobs_dir
+      File.join(home_dir, "jobs")
+    end
+
+    def job_state_path(name)
+      File.join(jobs_dir, "#{name}.json")
+    end
+
     def lock_path(name)
       File.join(home_dir, "#{name}.lock")
     end
