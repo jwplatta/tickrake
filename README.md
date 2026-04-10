@@ -9,6 +9,14 @@ tracking fetch activity in SQLite.
 ```bash
 bundle exec exe/tickrake init
 bundle exec exe/tickrake validate-config
+bundle exec exe/tickrake start options
+bundle exec exe/tickrake start candles
+bundle exec exe/tickrake status
+bundle exec exe/tickrake stop options
+bundle exec exe/tickrake stop candles
+bundle exec exe/tickrake stop all
+bundle exec exe/tickrake logs
+bundle exec exe/tickrake logs --tail 100
 bundle exec exe/tickrake run options
 bundle exec exe/tickrake run candles
 bundle exec exe/tickrake run candles --from-config-start
@@ -24,6 +32,7 @@ bundle exec exe/tickrake run options --verbose
 - Tickrake config: `~/.tickrake/tickrake.yml`
 - Tickrake metadata DB: `~/.tickrake/tickrake.sqlite3`
 - Tickrake log file: `~/.tickrake/tickrake.log`
+- Tickrake job state: `~/.tickrake/jobs/*.json`
 - Tickrake lockfiles: `~/.tickrake/*.lock`
 
 ## Config
@@ -45,3 +54,17 @@ history file already exists.
 
 All commands write structured logs to `~/.tickrake/tickrake.log`. Add `--verbose`
 to also mirror log output to the console while the command runs.
+
+## Background Jobs
+
+Use `tickrake start options` and `tickrake start candles` to launch the schedulers as
+background processes. Tickrake records process metadata in `~/.tickrake/jobs/` and uses
+the main log file at `~/.tickrake/tickrake.log` for all scheduler output.
+
+Use `tickrake status` to see whether the `options` and `candles` jobs are running, and
+`tickrake stop options`, `tickrake stop candles`, or `tickrake stop all` to request a
+graceful shutdown. The long-running runners trap `TERM` and `INT`, finish the current
+iteration, and then exit.
+
+Use `tickrake logs` to print the full log file or `tickrake logs --tail 100` to inspect
+just the most recent lines.
