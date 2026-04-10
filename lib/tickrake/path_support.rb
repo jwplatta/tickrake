@@ -16,8 +16,29 @@ module Tickrake
       File.join(home_dir, "tickrake.sqlite3")
     end
 
-    def log_path
-      File.join(home_dir, "tickrake.log")
+    def cli_log_path
+      File.join(home_dir, "cli.log")
+    end
+
+    def options_log_path
+      File.join(home_dir, "options.log")
+    end
+
+    def candles_log_path
+      File.join(home_dir, "candles.log")
+    end
+
+    def named_log_path(name)
+      case name.to_s
+      when "cli"
+        cli_log_path
+      when "options"
+        options_log_path
+      when "candles"
+        candles_log_path
+      else
+        cli_log_path
+      end
     end
 
     def jobs_dir

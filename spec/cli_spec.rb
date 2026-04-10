@@ -10,7 +10,9 @@ RSpec.describe Tickrake::CLI do
       allow(Tickrake::PathSupport).to receive(:home_dir).and_return(fake_home)
       allow(Tickrake::PathSupport).to receive(:config_path).and_return(File.join(fake_home, "tickrake.yml"))
       allow(Tickrake::PathSupport).to receive(:sqlite_path).and_return(File.join(fake_home, "tickrake.sqlite3"))
-      allow(Tickrake::PathSupport).to receive(:log_path).and_return(File.join(fake_home, "tickrake.log"))
+      allow(Tickrake::PathSupport).to receive(:cli_log_path).and_return(File.join(fake_home, "cli.log"))
+      allow(Tickrake::PathSupport).to receive(:options_log_path).and_return(File.join(fake_home, "options.log"))
+      allow(Tickrake::PathSupport).to receive(:candles_log_path).and_return(File.join(fake_home, "candles.log"))
       allow(Tickrake::PathSupport).to receive(:lock_path) { |name| File.join(fake_home, "#{name}.lock") }
 
       exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["init"])
@@ -18,7 +20,9 @@ RSpec.describe Tickrake::CLI do
       expect(exit_code).to eq(0)
       expect(File.exist?(File.join(fake_home, "tickrake.yml"))).to eq(true)
       expect(stdout.string).to include("Initialized Tickrake home")
-      expect(stdout.string).to include("Log file will be written")
+      expect(stdout.string).to include("CLI log file will be written")
+      expect(stdout.string).to include("Options job log file will be written")
+      expect(stdout.string).to include("Candles job log file will be written")
     end
   end
 
@@ -29,7 +33,12 @@ RSpec.describe Tickrake::CLI do
     job = instance_double(Tickrake::CandlesJob, run: true)
 
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(instance_double(Tickrake::Config))
-    allow(Tickrake::Runtime).to receive(:new).and_return(runtime)
+    allow(Tickrake::Runtime).to receive(:new).with(
+      config: anything,
+      verbose: false,
+      stdout: stdout,
+      log_path: Tickrake::PathSupport.candles_log_path
+    ).and_return(runtime)
     allow(Tickrake::CandlesJob).to receive(:new).with(runtime, from_config_start: false).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles"])
@@ -45,7 +54,12 @@ RSpec.describe Tickrake::CLI do
     job = instance_double(Tickrake::CandlesJob, run: true)
 
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(instance_double(Tickrake::Config))
-    allow(Tickrake::Runtime).to receive(:new).and_return(runtime)
+    allow(Tickrake::Runtime).to receive(:new).with(
+      config: anything,
+      verbose: false,
+      stdout: stdout,
+      log_path: Tickrake::PathSupport.candles_log_path
+    ).and_return(runtime)
     allow(Tickrake::CandlesJob).to receive(:new).with(runtime, from_config_start: true).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles", "--from-config-start"])
@@ -60,7 +74,12 @@ RSpec.describe Tickrake::CLI do
     runner = instance_double(Tickrake::OptionsMonitorRunner, run: true)
 
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(instance_double(Tickrake::Config))
-    allow(Tickrake::Runtime).to receive(:new).and_return(runtime)
+    allow(Tickrake::Runtime).to receive(:new).with(
+      config: anything,
+      verbose: false,
+      stdout: stdout,
+      log_path: Tickrake::PathSupport.options_log_path
+    ).and_return(runtime)
     allow(Tickrake::OptionsMonitorRunner).to receive(:new).with(runtime).and_return(runner)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "options", "--job"])
@@ -116,16 +135,16 @@ RSpec.describe Tickrake::CLI do
     expect(stdout.string).to include("Stopped options job")
   end
 
-  it "prints the log file tail" do
+  it "prints the targeted log file tail" do
     Dir.mktmpdir do |dir|
-      log_path = File.join(dir, "tickrake.log")
+      log_path = File.join(dir, "options.log")
       File.write(log_path, "one\ntwo\nthree\n")
       stdout = StringIO.new
       stderr = StringIO.new
 
-      allow(Tickrake::PathSupport).to receive(:log_path).and_return(log_path)
+      allow(Tickrake::PathSupport).to receive(:named_log_path).with("options").and_return(log_path)
 
-      exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["logs", "--tail", "2"])
+      exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["logs", "options", "--tail", "2"])
 
       expect(exit_code).to eq(0)
       expect(stdout.string).to eq("two\nthree\n")
@@ -140,7 +159,12 @@ RSpec.describe Tickrake::CLI do
     config = instance_double(Tickrake::Config)
 
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
-    allow(Tickrake::Runtime).to receive(:new).with(config: config, verbose: true, stdout: stdout).and_return(runtime)
+    allow(Tickrake::Runtime).to receive(:new).with(
+      config: config,
+      verbose: true,
+      stdout: stdout,
+      log_path: Tickrake::PathSupport.candles_log_path
+    ).and_return(runtime)
     allow(Tickrake::CandlesJob).to receive(:new).with(runtime, from_config_start: false).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles", "--verbose"])

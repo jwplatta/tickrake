@@ -2,11 +2,13 @@
 
 module Tickrake
   class LoggerFactory
-    def self.build(verbose:, stdout:)
-      log_path = Tickrake::PathSupport.log_path
+    LOG_ROTATION_COUNT = 10
+    LOG_ROTATION_SIZE = 10 * 1024 * 1024
+
+    def self.build(verbose:, stdout:, log_path: Tickrake::PathSupport.cli_log_path)
       FileUtils.mkdir_p(File.dirname(log_path))
 
-      devices = [File.open(log_path, "a")]
+      devices = [Logger.new(log_path, LOG_ROTATION_COUNT, LOG_ROTATION_SIZE)]
       devices << stdout if verbose
 
       logger = Logger.new(MultiIO.new(*devices))
@@ -23,19 +25,31 @@ module Tickrake
       end
 
       def write(*args)
-        @targets.each { |target| target.write(*args) }
+        @targets.each do |target|
+          if target.is_a?(Logger)
+            target << args.join
+          else
+            target.write(*args)
+          end
+        end
       end
 
       def close
         @targets.each do |target|
           next if [STDOUT, STDERR, $stdout, $stderr].include?(target)
 
-          target.close unless target.closed?
+          if target.is_a?(Logger)
+            target.close
+          else
+            target.close unless target.closed?
+          end
         end
       end
 
       def flush
-        @targets.each(&:flush)
+        @targets.each do |target|
+          target.flush if target.respond_to?(:flush)
+        end
       end
     end
   end

@@ -15,8 +15,9 @@ module Tickrake
         raise Tickrake::Error, "#{job_name} job is already running with pid #{current[:pid]}."
       end
 
-      FileUtils.mkdir_p(File.dirname(Tickrake::PathSupport.log_path))
-      log_device = File.open(Tickrake::PathSupport.log_path, "a")
+      log_path = Tickrake::PathSupport.named_log_path(job_name)
+      FileUtils.mkdir_p(File.dirname(log_path))
+      log_device = File.open(log_path, "a")
 
       args = [
         RbConfig.ruby,
@@ -39,7 +40,7 @@ module Tickrake
         command: args.join(" "),
         started_at: Time.now.utc.iso8601,
         config_path: Tickrake::PathSupport.expand_path(config_path),
-        log_path: Tickrake::PathSupport.log_path
+        log_path: log_path
       )
 
       @stdout.puts("Started #{job_name} job with pid #{pid}.")
