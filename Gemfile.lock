@@ -2,7 +2,7 @@ PATH
   remote: .
   specs:
     tickrake (0.1.0)
-      schwab_rb (>= 0.8.2, < 0.9)
+      schwab_rb (>= 0.9.0, < 1.0)
       sqlite3 (>= 1.6)
 
 GEM
@@ -105,7 +105,7 @@ GEM
       rspec-support (~> 3.13.0)
     rspec-support (3.13.5)
     ruby2_keywords (0.0.5)
-    schwab_rb (0.8.2)
+    schwab_rb (0.9.0)
       async (~> 2.18)
       async-http (~> 0.82)
       dotenv
