@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
 
   spec.summary = "Scheduled options and candle collection on top of schwab_rb"
   spec.description = "Tickrake schedules option-chain sampling and end-of-day candle collection."
-  spec.homepage = "https://example.com/tickrake"
+  spec.homepage = "https://github.com/jwplatta/tickrake"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.1.0"
 
@@ -30,5 +30,6 @@ Gem::Specification.new do |spec|
   spec.add_dependency "schwab_rb", ">= 0.9.0", "< 1.0"
   spec.add_dependency "sqlite3", ">= 1.6"
 
+  spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "rspec", "~> 3.13"
 end

@@ -4,26 +4,76 @@
 `schwab_rb`. It keeps payload storage in the standard Schwab CLI directories while
 tracking fetch activity in SQLite.
 
+## Install
+
+Install Tickrake as a global gem:
+
+```bash
+gem install tickrake
+```
+
+Tickrake requires:
+- Ruby 3.1+
+- `schwab_rb >= 0.9.0`
+- exported Schwab credentials in the shell environment
+- a valid Schwab token file at `~/.schwab_rb/token.json`
+
+Required environment variables:
+- `SCHWAB_API_KEY`
+- `SCHWAB_APP_SECRET`
+
+`SCHWAB_APP_CALLBACK_URL` is only needed when you are logging in or refreshing auth setup.
+
+## First Run
+
+Initialize Tickrake's home directory and config:
+
+```bash
+tickrake init
+tickrake validate-config
+```
+
+Then edit:
+
+```text
+~/.tickrake/tickrake.yml
+```
+
+to set:
+- options universe
+- candle universe
+- DTE buckets
+- options monitor interval
+- options windows
+- EOD candle time
+
+Run a one-off command to verify the setup:
+
+```bash
+tickrake run options --verbose
+tickrake run candles --verbose
+```
+
 ## Commands
 
 ```bash
-bundle exec exe/tickrake init
-bundle exec exe/tickrake validate-config
-bundle exec exe/tickrake start options
-bundle exec exe/tickrake start candles
-bundle exec exe/tickrake status
-bundle exec exe/tickrake stop options
-bundle exec exe/tickrake stop candles
-bundle exec exe/tickrake stop all
-bundle exec exe/tickrake logs cli
-bundle exec exe/tickrake logs options --tail 100
-bundle exec exe/tickrake logs candles --tail 100
-bundle exec exe/tickrake run options
-bundle exec exe/tickrake run candles
-bundle exec exe/tickrake run candles --from-config-start
-bundle exec exe/tickrake run options --job
-bundle exec exe/tickrake run candles --job
-bundle exec exe/tickrake run options --verbose
+tickrake init
+tickrake validate-config
+tickrake start options
+tickrake start candles
+tickrake status
+tickrake stop options
+tickrake stop candles
+tickrake stop all
+tickrake logs cli
+tickrake logs options --tail 100
+tickrake logs candles --tail 100
+tickrake run options
+tickrake run candles
+tickrake run candles --from-config-start
+tickrake run options --job
+tickrake run candles --job
+tickrake run options --verbose
 ```
 
 ## Storage
