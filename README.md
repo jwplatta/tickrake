@@ -1,8 +1,8 @@
 # Tickrake
 
-`Tickrake` is a releaseable Ruby gem for scheduled market-data collection on top of
-`schwab_rb`. It keeps payload storage in the standard Schwab CLI directories while
-tracking fetch activity in SQLite.
+`Tickrake` is a releaseable Ruby gem for scheduled market-data collection. It currently
+fetches data through `schwab_rb`, stores datasets in Tickrake-managed directories, and
+tracks fetch activity in SQLite.
 
 ## Install
 
@@ -78,8 +78,9 @@ tickrake run options --verbose
 
 ## Storage
 
-- Candle payloads: `~/.schwab_rb/data/history`
-- Option payloads: `~/.schwab_rb/data/options`
+- Market data root: `~/.tickrake/data`
+- Candle payloads: `~/.tickrake/data/history/<provider>`
+- Option payloads: `~/.tickrake/data/options/<provider>`
 - Tickrake config: `~/.tickrake/tickrake.yml`
 - Tickrake metadata DB: `~/.tickrake/tickrake.sqlite3`
 - Tickrake CLI log: `~/.tickrake/cli.log`
@@ -93,8 +94,40 @@ tickrake run options --verbose
 Run `tickrake init` to generate the default config in `~/.tickrake/`, then edit the
 universes, DTE buckets, schedule windows, worker limits, and retry policy.
 
-Tickrake depends on `schwab_rb >= 0.9.0`, which provides the shared
-price-history downloader used for cache-aware candle merges.
+Tickrake currently supports:
+
+- `provider: schwab`
+
+Set the provider at the top level of the config:
+
+```yaml
+provider: schwab
+```
+
+For storage, prefer setting `storage.data_dir` and let Tickrake derive the history and
+options roots from it:
+
+```yaml
+storage:
+  data_dir: ~/.tickrake/data
+```
+
+That produces provider-separated output paths like:
+
+- `~/.tickrake/data/history/schwab/SPY_day.csv`
+- `~/.tickrake/data/options/schwab/SPXW_exp2026-04-11_2026-04-11_10-30-00.csv`
+
+If you need a custom layout, you can still set:
+
+```yaml
+storage:
+  history_dir: /mnt/market-data/history
+  options_dir: /mnt/market-data/options
+```
+
+When `history_dir` or `options_dir` are set explicitly, they override the derived
+subdirectories from `data_dir`. Tickrake still appends the provider name underneath
+those roots.
 
 For candle collection, each symbol uses a `frequencies:` array. Supported values are `minute`, `5min`, `10min`, `15min`,
 `30min`, `day`, `week`, and `month`.
