@@ -9,10 +9,10 @@ module Tickrake
 
     def run(now: Time.now)
       @runtime.logger.info("Starting candle scrape at #{now.utc.iso8601}")
-      client = @runtime.client_factory.build
+      provider = @runtime.provider_factory.build
       @runtime.config.candles_universe.each do |entry|
         entry.frequencies.each do |frequency|
-          fetch_one(entry, frequency, client, now)
+          fetch_one(entry, frequency, provider, now)
         end
       end
       @runtime.logger.info("Completed candle scrape at #{Time.now.utc.iso8601}")
@@ -20,7 +20,7 @@ module Tickrake
 
     private
 
-    def fetch_one(entry, frequency, client, scheduled_for)
+    def fetch_one(entry, frequency, provider, scheduled_for)
       @runtime.logger.info("Fetching #{frequency} candles for #{entry.symbol}")
       id = @runtime.tracker.record_start(
         job_type: "eod_candles",
@@ -35,20 +35,22 @@ module Tickrake
       begin
         start_date = request_start_date(entry, frequency, scheduled_for)
         end_date = scheduled_for.to_date + 1
-        response, path = Timeout.timeout(@runtime.config.candle_fetch_timeout_seconds) do
-          SchwabRb::PriceHistory::Downloader.resolve(
-            client: client,
+        bars, path = Timeout.timeout(@runtime.config.candle_fetch_timeout_seconds) do
+          fetched_bars = provider.fetch_bars(
             symbol: entry.symbol,
+            frequency: frequency,
             start_date: start_date,
             end_date: end_date,
-            directory: @runtime.config.history_dir,
-            frequency: frequency,
-            format: "csv",
-            need_extended_hours_data: entry.need_extended_hours_data,
-            need_previous_close: entry.need_previous_close
+            extended_hours: entry.need_extended_hours_data,
+            previous_close: entry.need_previous_close
           )
+          output_path = candle_reconciler.write(
+            path: storage_paths.candle_path(provider: provider.provider_name, symbol: entry.symbol, frequency: frequency),
+            bars: fetched_bars
+          )
+          [fetched_bars, output_path]
         end
-        candle_count = Array(response[:candles]).size
+        candle_count = Array(bars).size
         @runtime.logger.info(
           "Wrote #{frequency} candles for #{entry.symbol} to #{path} (requested #{start_date.iso8601} to #{end_date.iso8601}, #{candle_count} rows)"
         )
@@ -74,12 +76,15 @@ module Tickrake
     end
 
     def history_path(entry, frequency)
-      SchwabRb::PriceHistory::Downloader.canonical_output_path(
-        directory: @runtime.config.history_dir,
-        symbol: entry.symbol,
-        frequency: frequency,
-        format: "csv"
-      )
+      storage_paths.candle_path(provider: @runtime.config.provider, symbol: entry.symbol, frequency: frequency)
+    end
+
+    def storage_paths
+      @storage_paths ||= Storage::Paths.new(@runtime.config)
+    end
+
+    def candle_reconciler
+      @candle_reconciler ||= Storage::CandleReconciler.new
     end
   end
 end

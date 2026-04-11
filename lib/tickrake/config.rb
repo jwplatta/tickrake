@@ -13,7 +13,7 @@ module Tickrake
   )
 
   class Config
-    attr_reader :timezone, :sqlite_path, :history_dir, :options_dir, :max_workers,
+    attr_reader :timezone, :sqlite_path, :provider, :data_dir, :history_dir, :options_dir, :max_workers,
                 :retry_count, :retry_delay_seconds, :option_fetch_timeout_seconds,
                 :candle_fetch_timeout_seconds, :options_monitor_interval_seconds,
                 :options_windows, :eod_run_at, :eod_days, :candle_lookback_days, :dte_buckets,
@@ -22,6 +22,8 @@ module Tickrake
     def initialize(
       timezone:,
       sqlite_path:,
+      provider:,
+      data_dir:,
       history_dir:,
       options_dir:,
       max_workers:,
@@ -40,6 +42,8 @@ module Tickrake
     )
       @timezone = timezone
       @sqlite_path = sqlite_path
+      @provider = provider
+      @data_dir = data_dir
       @history_dir = history_dir
       @options_dir = options_dir
       @max_workers = max_workers

@@ -1,8 +1,10 @@
 timezone: America/Chicago
 sqlite_path: ~/.tickrake/tickrake.sqlite3
+provider: schwab
 storage:
-  history_dir: ~/.schwab_rb/data/history
-  options_dir: ~/.schwab_rb/data/options
+  data_dir: ~/.tickrake/data
+  history_dir: ~/.tickrake/data/history
+  options_dir: ~/.tickrake/data/options
 schedule:
   options_monitor:
     interval_seconds: 300
