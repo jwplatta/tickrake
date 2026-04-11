@@ -59,36 +59,33 @@ RSpec.describe "job execution" do
         need_previous_close: false
       )
       custom = config_with(config, history_dir: dir, candles_universe: [candle_entry])
-      client = instance_double("client")
-      client_factory = instance_double(Tickrake::ClientFactory, build: client)
-      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, client_factory: client_factory, logger: logger)
+      provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab")
+      provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
+      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger)
       rows = {
-        "day" => [{ datetime: Time.utc(2026, 4, 1, 21, 0, 0).to_i * 1000 }],
-        "1min" => [{ datetime: Time.utc(2026, 4, 1, 14, 0, 0).to_i * 1000 }],
-        "5min" => [{ datetime: Time.utc(2026, 4, 1, 14, 5, 0).to_i * 1000 }]
+        "day" => [Tickrake::Data::Bar.new(datetime: Time.utc(2026, 4, 1, 21, 0, 0), open: 1, high: 2, low: 0.5, close: 1.5, volume: 10)],
+        "1min" => [Tickrake::Data::Bar.new(datetime: Time.utc(2026, 4, 1, 14, 0, 0), open: 1, high: 2, low: 0.5, close: 1.5, volume: 10)],
+        "5min" => [Tickrake::Data::Bar.new(datetime: Time.utc(2026, 4, 1, 14, 5, 0), open: 1, high: 2, low: 0.5, close: 1.5, volume: 10)]
       }
-      allow(SchwabRb::PriceHistory::Downloader).to receive(:resolve) do |**kwargs|
-        path = File.join(dir, "SPY_#{kwargs.fetch(:frequency)}.csv")
-        File.write(path, "datetime,open,high,low,close,volume\n")
-        [{ symbol: "SPY", candles: rows.fetch(kwargs.fetch(:frequency)) }, path]
+      allow(provider).to receive(:fetch_bars) do |**kwargs|
+        rows.fetch(kwargs.fetch(:frequency))
       end
 
       Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(File.exist?(File.join(dir, "SPY_day.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "SPY_1min.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "SPY_5min.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "SPY_day.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "SPY_1min.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "SPY_5min.csv"))).to eq(true)
       expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("success"))
       expect(tracker.fetch_runs.map { |row| row["frequency"] }).to include("day", "1min", "5min")
-      expect(SchwabRb::PriceHistory::Downloader).to have_received(:resolve).with(
+      expect(provider).to have_received(:fetch_bars).with(
         hash_including(
-          client: client,
           symbol: "SPY",
+          frequency: "day",
           start_date: Date.new(2020, 1, 1),
-          end_date: Date.new(2026, 4, 7),
-          format: "csv"
+          end_date: Date.new(2026, 4, 7)
         )
-      ).at_least(:once)
+      )
     end
   end
 
@@ -102,16 +99,18 @@ RSpec.describe "job execution" do
         need_previous_close: false
       )
       custom = config_with(config, history_dir: dir, candles_universe: [candle_entry], candle_lookback_days: 3)
-      existing_path = File.join(dir, "SPY_day.csv")
+      existing_dir = File.join(dir, "schwab")
+      FileUtils.mkdir_p(existing_dir)
+      existing_path = File.join(existing_dir, "SPY_day.csv")
       File.write(existing_path, "datetime,open,high,low,close,volume\n")
-      client = instance_double("client")
-      client_factory = instance_double(Tickrake::ClientFactory, build: client)
-      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, client_factory: client_factory, logger: logger)
-      allow(SchwabRb::PriceHistory::Downloader).to receive(:resolve).and_return([{ symbol: "SPY", candles: [] }, existing_path])
+      provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab")
+      provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
+      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger)
+      allow(provider).to receive(:fetch_bars).and_return([])
 
       Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(SchwabRb::PriceHistory::Downloader).to have_received(:resolve).with(
+      expect(provider).to have_received(:fetch_bars).with(
         hash_including(start_date: Date.new(2026, 4, 3), end_date: Date.new(2026, 4, 7))
       )
     end
