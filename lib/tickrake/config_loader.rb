@@ -107,11 +107,7 @@ module Tickrake
 
     def load_providers(data)
       providers = parse_named_providers(data.fetch("providers"))
-      default_provider_name = if data.key?("default_provider")
-        data.fetch("default_provider")
-      else
-        infer_default_provider_name(providers)
-      end
+      default_provider_name = data.fetch("default_provider")
       [providers, default_provider_name.to_s]
     end
 
@@ -126,12 +122,6 @@ module Tickrake
         provider_name = name.to_s
         providers[provider_name] = ProviderDefinition.new(name: provider_name, adapter: adapter, settings: settings)
       end
-    end
-
-    def infer_default_provider_name(providers)
-      return providers.keys.first if providers.length == 1
-
-      raise ConfigError, "default_provider is required when multiple providers are configured."
     end
 
     def stringify_keys(value)

@@ -21,6 +21,7 @@ RSpec.describe Tickrake::ConfigLoader do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "storage.yml")
       File.write(path, <<~YAML)
+        default_provider: schwab
         providers:
           schwab:
             adapter: schwab
@@ -131,10 +132,42 @@ RSpec.describe Tickrake::ConfigLoader do
     end
   end
 
+  it "requires default_provider even when only one provider is configured" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "missing-default-single.yml")
+      File.write(path, <<~YAML)
+        providers:
+          schwab:
+            adapter: schwab
+        schedule:
+          options_monitor:
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+          eod_candles:
+            run_at: "16:10"
+            days: [mon]
+        options:
+          universe:
+            - symbol: SPY
+        candles:
+          universe:
+            - symbol: SPY
+              start_date: "2020-01-01"
+              frequencies: [day]
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /key not found: "default_provider"/)
+    end
+  end
+
   it "rejects unsupported provider adapters" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "bad-provider.yml")
       File.write(path, <<~YAML)
+        default_provider: bad
         providers:
           bad:
             adapter: fake
@@ -199,6 +232,7 @@ RSpec.describe Tickrake::ConfigLoader do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "bad.yml")
       File.write(path, <<~YAML)
+        default_provider: schwab
         providers:
           schwab:
             adapter: schwab
@@ -230,6 +264,7 @@ RSpec.describe Tickrake::ConfigLoader do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "bad-lookback.yml")
       File.write(path, <<~YAML)
+        default_provider: schwab
         providers:
           schwab:
             adapter: schwab
