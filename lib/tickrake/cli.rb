@@ -26,18 +26,7 @@ module Tickrake
         common_options = parse_common_options!(argv)
         config_path = common_options[:config_path]
         config = Tickrake::ConfigLoader.load(config_path)
-        runtime = nil
-        unless command == "start"
-          log_path = runtime_log_path(command, argv)
-          runtime = Tickrake::Runtime.new(
-            config: config,
-            verbose: common_options[:verbose],
-            stdout: @stdout,
-            log_path: log_path
-          )
-        end
-
-        run_command(command, argv, runtime, config_path)
+        run_command(command, argv, config, common_options, config_path)
       end
     rescue Tickrake::Error => e
       @stderr.puts(e.message)
@@ -49,7 +38,7 @@ module Tickrake
 
     private
 
-    def run_command(command, argv, runtime, config_path)
+    def run_command(command, argv, config, common_options, config_path)
       case command
       when "validate-config"
         @stdout.puts("Config valid: #{config_path}")
@@ -57,16 +46,23 @@ module Tickrake
       when "start"
         start_subcommand(argv, config_path)
       when "run"
-        run_subcommand(argv, runtime)
+        run_subcommand(argv, config, common_options)
       else
         @stderr.puts(usage)
         1
       end
     end
 
-    def run_subcommand(argv, runtime)
+    def run_subcommand(argv, config, common_options)
       name = argv.shift
       options = parse_run_options!(argv)
+      runtime = Tickrake::Runtime.new(
+        config: config,
+        provider_name: options[:provider],
+        verbose: common_options[:verbose],
+        stdout: @stdout,
+        log_path: runtime_log_path("run", [name])
+      )
 
       case name
       when "options"
@@ -98,10 +94,15 @@ module Tickrake
 
       case name
       when "options"
-        starter.start(job_name: "options", config_path: config_path)
+        starter.start(job_name: "options", config_path: config_path, provider_name: options[:provider])
         0
       when "candles"
-        starter.start(job_name: "candles", config_path: config_path, from_config_start: options[:from_config_start])
+        starter.start(
+          job_name: "candles",
+          config_path: config_path,
+          from_config_start: options[:from_config_start],
+          provider_name: options[:provider]
+        )
         0
       else
         @stderr.puts(usage)
@@ -110,9 +111,10 @@ module Tickrake
     end
 
     def parse_run_options!(argv)
-      options = { job: false, from_config_start: false }
+      options = { job: false, from_config_start: false, provider: nil }
       parser = OptionParser.new do |opts|
         opts.on("--job", "Run as a long-lived scheduler job") { options[:job] = true }
+        opts.on("--provider NAME", "Use the named provider from config") { |value| options[:provider] = value }
         opts.on("--from-config-start", "Always use the configured candle start_date for candle requests") do
           options[:from_config_start] = true
         end
@@ -295,10 +297,10 @@ module Tickrake
         Usage:
           tickrake init [--config path/to/tickrake.yml] [--force]
           tickrake validate-config [--config path/to/tickrake.yml] [--verbose]
-          tickrake start options [--config path/to/tickrake.yml]
-          tickrake start candles [--from-config-start] [--config path/to/tickrake.yml]
-          tickrake run options [--job] [--config path/to/tickrake.yml] [--verbose]
-          tickrake run candles [--job] [--from-config-start] [--config path/to/tickrake.yml] [--verbose]
+          tickrake start options [--provider NAME] [--config path/to/tickrake.yml]
+          tickrake start candles [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml]
+          tickrake run options [--job] [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
+          tickrake run candles [--job] [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml] [--verbose]
           tickrake status
           tickrake stop options|candles|all
           tickrake logs [cli|options|candles] [--tail N]

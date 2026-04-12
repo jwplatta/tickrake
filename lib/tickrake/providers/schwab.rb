@@ -55,12 +55,9 @@ module Tickrake
         }
       }.freeze
 
-      def initialize(client:)
+      def initialize(provider_name:, client:)
+        super(provider_name: provider_name, adapter_name: "schwab")
         @client = client
-      end
-
-      def provider_name
-        "schwab"
       end
 
       def fetch_bars(symbol:, frequency:, start_date:, end_date:, extended_hours:, previous_close:)

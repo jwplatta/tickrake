@@ -83,7 +83,7 @@ module Tickrake
     end
 
     def history_path(entry, frequency)
-      storage_paths.candle_path(provider: @runtime.config.provider, symbol: entry.symbol, frequency: frequency)
+      storage_paths.candle_path(provider: @runtime.provider_name, symbol: entry.symbol, frequency: frequency)
     end
 
     def storage_paths
@@ -100,7 +100,7 @@ module Tickrake
     end
 
     def ibkr_intraday_frequency?(frequency)
-      @runtime.config.provider == "ibkr" && !%w[day week month].include?(frequency)
+      @runtime.provider_definition.adapter == "ibkr" && !%w[day week month].include?(frequency)
     end
 
     def request_ranges(provider:, frequency:, start_date:, end_date:)
@@ -118,7 +118,7 @@ module Tickrake
     end
 
     def provider_chunk_days(provider:, frequency:)
-      return unless provider.provider_name == "ibkr"
+      return unless provider.adapter_name == "ibkr"
 
       {
         "1min" => 6,

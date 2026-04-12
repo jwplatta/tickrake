@@ -18,7 +18,7 @@ RSpec.describe Tickrake::Providers::Schwab do
       }
     )
 
-    bars = described_class.new(client: client).fetch_bars(
+    bars = described_class.new(provider_name: "schwab_main", client: client).fetch_bars(
       symbol: "SPX",
       frequency: "1min",
       start_date: Date.new(2026, 4, 1),
@@ -30,6 +30,7 @@ RSpec.describe Tickrake::Providers::Schwab do
     expect(bars.length).to eq(1)
     expect(bars.first).to be_a(Tickrake::Data::Bar)
     expect(bars.first.datetime).to eq(Time.utc(2026, 4, 1, 14, 0, 0))
+    expect(bars.first.source).to eq("schwab_main")
     expect(client).to have_received(:get_price_history).with(
       "$SPX",
       hash_including(

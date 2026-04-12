@@ -7,8 +7,8 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.options_monitor_interval_seconds).to eq(300)
     expect(config.dte_buckets).to include(0, 10, 30)
     expect(config.candle_lookback_days).to eq(7)
-    expect(config.provider).to eq("schwab")
-    expect(config.provider_settings).to eq({})
+    expect(config.default_provider_name).to eq("schwab")
+    expect(config.provider_definition("schwab").adapter).to eq("schwab")
     expect(config.sqlite_path).to eq(File.expand_path("~/.tickrake/tickrake.sqlite3"))
     expect(config.data_dir).to eq(File.expand_path("~/.tickrake/data"))
     expect(config.history_dir).to eq(File.expand_path("~/.tickrake/data/history"))
@@ -17,14 +17,18 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.candles_universe.first.frequencies).to include("day", "30min", "10min", "5min", "1min")
   end
 
-  it "preserves explicit legacy storage paths" do
+  it "preserves explicit storage paths" do
     Dir.mktmpdir do |dir|
-      path = File.join(dir, "legacy.yml")
+      path = File.join(dir, "storage.yml")
       File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
         storage:
           data_dir: #{dir}/tickrake-data
-          history_dir: #{dir}/legacy-history
-          options_dir: #{dir}/legacy-options
+          history_dir: #{dir}/custom-history
+          options_dir: #{dir}/custom-options
         schedule:
           options_monitor:
             interval_seconds: 300
@@ -48,20 +52,25 @@ RSpec.describe Tickrake::ConfigLoader do
       config = described_class.load(path)
 
       expect(config.data_dir).to eq(File.join(dir, "tickrake-data"))
-      expect(config.history_dir).to eq(File.join(dir, "legacy-history"))
-      expect(config.options_dir).to eq(File.join(dir, "legacy-options"))
+      expect(config.history_dir).to eq(File.join(dir, "custom-history"))
+      expect(config.options_dir).to eq(File.join(dir, "custom-options"))
     end
   end
 
-  it "loads ibkr provider settings" do
+  it "loads named provider settings" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "ibkr.yml")
       File.write(path, <<~YAML)
-        provider: ibkr
-        provider_settings:
-          host: 10.0.0.5
-          port: 7497
-          client_id: 77
+        default_provider: ib_paper
+        providers:
+          schwab_main:
+            adapter: schwab
+          ib_paper:
+            adapter: ibkr
+            settings:
+              host: 10.0.0.5
+              port: 7497
+              client_id: 77
         schedule:
           options_monitor:
             interval_seconds: 300
@@ -84,20 +93,21 @@ RSpec.describe Tickrake::ConfigLoader do
 
       config = described_class.load(path)
 
-      expect(config.provider).to eq("ibkr")
-      expect(config.provider_settings).to eq(
+      expect(config.default_provider_name).to eq("ib_paper")
+      expect(config.provider_definition("ib_paper").adapter).to eq("ibkr")
+      expect(config.provider_definition("ib_paper").settings).to eq(
         "host" => "10.0.0.5",
         "port" => 7497,
         "client_id" => 77
       )
+      expect(config.provider_definition("schwab_main").adapter).to eq("schwab")
     end
   end
 
-  it "rejects unsupported providers" do
+  it "requires providers to be configured" do
     Dir.mktmpdir do |dir|
-      path = File.join(dir, "bad-provider.yml")
+      path = File.join(dir, "missing-providers.yml")
       File.write(path, <<~YAML)
-        provider: fake
         schedule:
           options_monitor:
             interval_seconds: 300
@@ -118,7 +128,103 @@ RSpec.describe Tickrake::ConfigLoader do
               frequencies: [day]
       YAML
 
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Unsupported provider/)
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /key not found: "providers"/)
+    end
+  end
+
+  it "requires default_provider even when only one provider is configured" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "missing-default-single.yml")
+      File.write(path, <<~YAML)
+        providers:
+          schwab:
+            adapter: schwab
+        schedule:
+          options_monitor:
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+          eod_candles:
+            run_at: "16:10"
+            days: [mon]
+        options:
+          universe:
+            - symbol: SPY
+        candles:
+          universe:
+            - symbol: SPY
+              start_date: "2020-01-01"
+              frequencies: [day]
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /key not found: "default_provider"/)
+    end
+  end
+
+  it "rejects unsupported provider adapters" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "bad-provider.yml")
+      File.write(path, <<~YAML)
+        default_provider: bad
+        providers:
+          bad:
+            adapter: fake
+        schedule:
+          options_monitor:
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+          eod_candles:
+            run_at: "16:10"
+            days: [mon]
+        options:
+          universe:
+            - symbol: SPY
+        candles:
+          universe:
+            - symbol: SPY
+              start_date: "2020-01-01"
+              frequencies: [day]
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Unsupported provider adapter/)
+    end
+  end
+
+  it "requires default_provider when multiple providers are configured" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "missing-default.yml")
+      File.write(path, <<~YAML)
+        providers:
+          schwab_main:
+            adapter: schwab
+          ib_paper:
+            adapter: ibkr
+        schedule:
+          options_monitor:
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+          eod_candles:
+            run_at: "16:10"
+            days: [mon]
+        options:
+          universe:
+            - symbol: SPY
+        candles:
+          universe:
+            - symbol: SPY
+              start_date: "2020-01-01"
+              frequencies: [day]
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /default_provider/)
     end
   end
 
@@ -126,6 +232,10 @@ RSpec.describe Tickrake::ConfigLoader do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "bad.yml")
       File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
         schedule:
           options_monitor:
             interval_seconds: 300
@@ -154,6 +264,10 @@ RSpec.describe Tickrake::ConfigLoader do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "bad-lookback.yml")
       File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
         schedule:
           options_monitor:
             interval_seconds: 300

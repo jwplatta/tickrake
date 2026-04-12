@@ -2,19 +2,22 @@
 
 module Tickrake
   class ProviderFactory
-    def initialize(config, client_factory: nil)
+    def initialize(config, provider_name:, client_factory: nil)
       @config = config
+      @provider_name = provider_name
       @client_factory = client_factory || ClientFactory.new(config)
     end
 
     def build
-      case @config.provider
+      provider = @config.provider_definition(@provider_name)
+
+      case provider.adapter
       when "schwab"
-        Providers::Schwab.new(client: @client_factory.build)
+        Providers::Schwab.new(provider_name: provider.name, client: @client_factory.build)
       when "ibkr"
-        Providers::Ibkr.new(settings: @config.provider_settings)
+        Providers::Ibkr.new(provider_name: provider.name, settings: provider.settings)
       else
-        raise ConfigError, "Unsupported provider: #{@config.provider}"
+        raise ConfigError, "Unsupported provider adapter: #{provider.adapter}"
       end
     end
   end
