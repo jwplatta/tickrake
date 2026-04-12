@@ -2,7 +2,7 @@
 
 `Tickrake` is a releaseable Ruby gem for scheduled market-data collection. It currently
 fetches data through `schwab_rb`, stores datasets in Tickrake-managed directories, and
-tracks fetch activity in SQLite.
+tracks fetch activity plus cached dataset-summary metadata in SQLite.
 
 ## Install
 
@@ -53,6 +53,7 @@ Run a one-off command to verify the setup:
 ```bash
 tickrake run options --verbose
 tickrake run candles --verbose
+tickrake query --provider schwab
 ```
 
 ## Commands
@@ -75,6 +76,9 @@ tickrake run candles --from-config-start
 tickrake run options --job
 tickrake run candles --job
 tickrake run options --verbose
+tickrake query --provider schwab
+tickrake query --type candles --provider ibkr-paper --ticker SPY
+tickrake query --type options --provider schwab --ticker '$SPX' --format json
 ```
 
 ## Storage
@@ -89,6 +93,9 @@ tickrake run options --verbose
 - Tickrake candles log: `~/.tickrake/candles.log`
 - Tickrake job state: `~/.tickrake/jobs/*.json`
 - Tickrake lockfiles: `~/.tickrake/*.lock`
+
+The SQLite database is migrated additively at startup. Tickrake creates missing tables
+or adds missing columns, but it does not recreate or overwrite the existing database.
 
 ## Config
 
@@ -122,6 +129,7 @@ Then select which configured provider to use on each command:
 tickrake run candles --provider ibkr-paper
 tickrake run options --provider schwab
 tickrake start candles --provider ibkr-paper
+tickrake query --provider ibkr-paper
 ```
 
 For storage, prefer setting `storage.data_dir` and let Tickrake derive the history and
@@ -149,6 +157,38 @@ storage:
 When `history_dir` or `options_dir` are set explicitly, they override the derived
 subdirectories from `data_dir`. Tickrake still appends the provider name underneath
 those roots.
+
+## Querying Stored Data
+
+Use `tickrake query` to inspect the data already persisted on disk without printing raw
+rows. Queries are filesystem-backed and use the Tickrake SQLite database as a cache for
+summary metadata.
+
+At least one of `--provider` or `--ticker` is required.
+
+Available filters:
+
+- `--type candles|options`
+- `--provider NAME`
+- `--ticker SYMBOL`
+- `--frequency FREQ` for candle queries only
+- `--start-date YYYY-MM-DD`
+- `--end-date YYYY-MM-DD`
+- `--format text|json`
+
+Examples:
+
+```bash
+tickrake query --provider ibkr-paper
+tickrake query --type candles --provider ibkr-paper --ticker SPY
+tickrake query --type candles --provider ibkr-paper --ticker '$SPX' --frequency 30min
+tickrake query --type options --provider schwab --ticker '$SPX'
+tickrake query --type candles --provider ibkr-paper --ticker SPY --format json
+```
+
+Text output is grouped by provider, dataset type, and ticker. Candle summaries include
+frequency, row count, available timestamp range, and file path. Option summaries include
+snapshot count, available sample range, and the latest snapshot path.
 
 ## Provider Status
 

@@ -217,4 +217,38 @@ RSpec.describe Tickrake::CLI do
 
     expect(exit_code).to eq(0)
   end
+
+  it "runs query with parsed filters" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    config = instance_double(Tickrake::Config, sqlite_path: "/tmp/tickrake.sqlite3")
+    tracker = instance_double(Tickrake::Tracker)
+    engine = instance_double(Tickrake::Query::Engine, run: "ok")
+
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
+    allow(Tickrake::Tracker).to receive(:new).with("/tmp/tickrake.sqlite3").and_return(tracker)
+    allow(Tickrake::Query::Engine).to receive(:new).with(config: config, tracker: tracker, stdout: stdout).and_return(engine)
+    allow(engine).to receive(:run).with(
+      type: "candles",
+      provider_name: "ibkr-paper",
+      ticker: "SPY",
+      frequency: "minute",
+      start_date: Date.new(2026, 4, 1),
+      end_date: Date.new(2026, 4, 11),
+      format: "json"
+    )
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "query",
+      "--type", "candles",
+      "--provider", "ibkr-paper",
+      "--ticker", "SPY",
+      "--frequency", "minute",
+      "--start-date", "2026-04-01",
+      "--end-date", "2026-04-11",
+      "--format", "json"
+    ])
+
+    expect(exit_code).to eq(0)
+  end
 end
