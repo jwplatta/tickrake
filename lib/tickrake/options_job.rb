@@ -7,7 +7,7 @@ module Tickrake
     end
 
     def run(now: Time.now)
-      unless @runtime.config.provider == "schwab"
+      unless @runtime.provider_definition.adapter == "schwab"
         raise Tickrake::Error, "OptionsJob currently supports provider=schwab only."
       end
 

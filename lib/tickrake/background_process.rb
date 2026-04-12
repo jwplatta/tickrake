@@ -9,7 +9,7 @@ module Tickrake
       @stdout = stdout
     end
 
-    def start(job_name:, config_path:, from_config_start: false)
+    def start(job_name:, config_path:, from_config_start: false, provider_name: nil)
       current = @registry.status(job_name)
       if current[:state] == "running"
         raise Tickrake::Error, "#{job_name} job is already running with pid #{current[:pid]}."
@@ -28,6 +28,7 @@ module Tickrake
         "--config",
         Tickrake::PathSupport.expand_path(config_path)
       ]
+      args += ["--provider", provider_name] if provider_name
       args << "--from-config-start" if job_name == "candles" && from_config_start
 
       pid = Process.spawn(*args, out: log_device, err: log_device, pgroup: true)

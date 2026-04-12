@@ -35,6 +35,7 @@ RSpec.describe Tickrake::CLI do
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(instance_double(Tickrake::Config))
     allow(Tickrake::Runtime).to receive(:new).with(
       config: anything,
+      provider_name: nil,
       verbose: false,
       stdout: stdout,
       log_path: Tickrake::PathSupport.candles_log_path
@@ -56,6 +57,7 @@ RSpec.describe Tickrake::CLI do
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(instance_double(Tickrake::Config))
     allow(Tickrake::Runtime).to receive(:new).with(
       config: anything,
+      provider_name: nil,
       verbose: false,
       stdout: stdout,
       log_path: Tickrake::PathSupport.candles_log_path
@@ -76,6 +78,7 @@ RSpec.describe Tickrake::CLI do
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(instance_double(Tickrake::Config))
     allow(Tickrake::Runtime).to receive(:new).with(
       config: anything,
+      provider_name: nil,
       verbose: false,
       stdout: stdout,
       log_path: Tickrake::PathSupport.options_log_path
@@ -95,7 +98,7 @@ RSpec.describe Tickrake::CLI do
 
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
     allow(Tickrake::BackgroundProcess).to receive(:new).with(stdout: stdout).and_return(starter)
-    allow(starter).to receive(:start).with(job_name: "options", config_path: Tickrake::PathSupport.config_path)
+    allow(starter).to receive(:start).with(job_name: "options", config_path: Tickrake::PathSupport.config_path, provider_name: nil)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["start", "options"])
 
@@ -161,6 +164,7 @@ RSpec.describe Tickrake::CLI do
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
     allow(Tickrake::Runtime).to receive(:new).with(
       config: config,
+      provider_name: nil,
       verbose: true,
       stdout: stdout,
       log_path: Tickrake::PathSupport.candles_log_path
@@ -168,6 +172,48 @@ RSpec.describe Tickrake::CLI do
     allow(Tickrake::CandlesJob).to receive(:new).with(runtime, from_config_start: false).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles", "--verbose"])
+
+    expect(exit_code).to eq(0)
+  end
+
+  it "passes the selected provider into runtime for one-off runs" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    runtime = instance_double(Tickrake::Runtime)
+    job = instance_double(Tickrake::CandlesJob, run: true)
+    config = instance_double(Tickrake::Config)
+
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
+    allow(Tickrake::Runtime).to receive(:new).with(
+      config: config,
+      provider_name: "ib_paper",
+      verbose: false,
+      stdout: stdout,
+      log_path: Tickrake::PathSupport.candles_log_path
+    ).and_return(runtime)
+    allow(Tickrake::CandlesJob).to receive(:new).with(runtime, from_config_start: false).and_return(job)
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles", "--provider", "ib_paper"])
+
+    expect(exit_code).to eq(0)
+  end
+
+  it "passes the selected provider into background job startup" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    starter = instance_double(Tickrake::BackgroundProcess)
+    config = instance_double(Tickrake::Config)
+
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
+    allow(Tickrake::BackgroundProcess).to receive(:new).with(stdout: stdout).and_return(starter)
+    allow(starter).to receive(:start).with(
+      job_name: "candles",
+      config_path: Tickrake::PathSupport.config_path,
+      from_config_start: false,
+      provider_name: "schwab_live"
+    )
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["start", "candles", "--provider", "schwab_live"])
 
     expect(exit_code).to eq(0)
   end

@@ -1,7 +1,16 @@
 timezone: America/Chicago
 sqlite_path: ~/.tickrake/tickrake.sqlite3
-provider: schwab
-provider_settings: {}
+default_provider: schwab
+providers:
+  schwab:
+    adapter: schwab
+    settings: {}
+  ibkr-paper:
+    adapter: ibkr
+    settings:
+      host: 127.0.0.1
+      port: 4002
+      client_id: 1001
 storage:
   data_dir: ~/.tickrake/data
   history_dir: ~/.tickrake/data/history

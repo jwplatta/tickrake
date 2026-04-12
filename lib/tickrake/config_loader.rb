@@ -5,7 +5,7 @@ module Tickrake
     DEFAULT_DTE_BUCKETS = %w[
       0DTE 1DTE 2DTE 3DTE 4DTE 5DTE 6DTE 7DTE 8DTE 9DTE 10DTE 30DTE
     ].freeze
-    VALID_PROVIDERS = %w[schwab ibkr].freeze
+    VALID_ADAPTERS = %w[schwab ibkr].freeze
     VALID_DAYS = %w[mon tue wed thu fri sat sun].freeze
 
     def self.load(path)
@@ -21,8 +21,7 @@ module Tickrake
 
       timezone = data.fetch("timezone", ENV.fetch("TZ", "America/Chicago"))
       sqlite_path = Tickrake::PathSupport.expand_path(data.fetch("sqlite_path", Tickrake::PathSupport.sqlite_path))
-      provider = data.fetch("provider", "schwab")
-      provider_settings = data.fetch("provider_settings", {})
+      providers, default_provider_name = load_providers(data)
       data_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "data_dir", "~/.tickrake/data"))
       history_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "history_dir", File.join(data_dir, "history")))
       options_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "options_dir", File.join(data_dir, "options")))
@@ -62,8 +61,8 @@ module Tickrake
       config = Config.new(
         timezone: timezone,
         sqlite_path: sqlite_path,
-        provider: provider,
-        provider_settings: stringify_keys(provider_settings),
+        providers: providers,
+        default_provider_name: default_provider_name,
         data_dir: data_dir,
         history_dir: history_dir,
         options_dir: options_dir,
@@ -93,13 +92,61 @@ module Tickrake
     private
 
     def validate!(config)
-      raise ConfigError, "Unsupported provider: #{config.provider}" unless VALID_PROVIDERS.include?(config.provider)
+      raise ConfigError, "At least one provider is required." if config.providers.empty?
+      config.providers.each_value do |provider|
+        raise ConfigError, "Unsupported provider adapter: #{provider.adapter}" unless VALID_ADAPTERS.include?(provider.adapter)
+      end
+      config.provider_definition(config.default_provider_name)
       raise ConfigError, "At least one options monitor window is required." if config.options_windows.empty?
       raise ConfigError, "At least one options universe symbol is required." if config.options_universe.empty?
       raise ConfigError, "At least one candle universe symbol is required." if config.candles_universe.empty?
       raise ConfigError, "options_monitor interval must be positive." if config.options_monitor_interval_seconds <= 0
       raise ConfigError, "max_workers must be positive." if config.max_workers <= 0
       raise ConfigError, "candle lookback_days must be non-negative." if config.candle_lookback_days.negative?
+    end
+
+    def load_providers(data)
+      if data.key?("providers")
+        providers = parse_named_providers(data.fetch("providers"))
+        default_provider_name = if data.key?("default_provider")
+          data.fetch("default_provider")
+        else
+          infer_default_provider_name(providers)
+        end
+        [providers, default_provider_name.to_s]
+      else
+        legacy_provider = data.fetch("provider", "schwab").to_s
+        legacy_settings = stringify_keys(data.fetch("provider_settings", {}))
+        [
+          {
+            legacy_provider => ProviderDefinition.new(
+              name: legacy_provider,
+              adapter: legacy_provider,
+              settings: legacy_settings
+            )
+          },
+          legacy_provider
+        ]
+      end
+    end
+
+    def parse_named_providers(raw_providers)
+      raise ConfigError, "providers must be a mapping." unless raw_providers.is_a?(Hash)
+
+      raw_providers.each_with_object({}) do |(name, raw_provider), providers|
+        raise ConfigError, "provider `#{name}` must be a mapping." unless raw_provider.is_a?(Hash)
+
+        adapter = raw_provider.fetch("adapter").to_s
+        settings = stringify_keys(raw_provider.fetch("settings", {}))
+        provider_name = name.to_s
+        providers[provider_name] = ProviderDefinition.new(name: provider_name, adapter: adapter, settings: settings)
+      end
+    end
+
+    def infer_default_provider_name(providers)
+      return providers.keys.first if providers.length == 1
+
+      raise ConfigError, "default_provider is required when multiple providers are configured."
     end
 
     def stringify_keys(value)

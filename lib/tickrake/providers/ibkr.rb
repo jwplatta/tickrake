@@ -23,13 +23,10 @@ module Tickrake
         "month" => { bar_size: "1 month", chunk_days: 365 }
       }.freeze
 
-      def initialize(settings:, connection_builder: nil)
+      def initialize(provider_name:, settings:, connection_builder: nil)
+        super(provider_name: provider_name, adapter_name: "ibkr")
         @settings = settings
         @connection_builder = connection_builder
-      end
-
-      def provider_name
-        "ibkr"
       end
 
       def fetch_bars(symbol:, frequency:, start_date:, end_date:, extended_hours:, previous_close:)

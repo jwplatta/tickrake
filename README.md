@@ -95,29 +95,41 @@ tickrake run options --verbose
 Run `tickrake init` to generate the default config in `~/.tickrake/`, then edit the
 universes, DTE buckets, schedule windows, worker limits, and retry policy.
 
-Tickrake currently supports:
+Tickrake currently supports these provider adapters:
 
-- `provider: schwab`
-- `provider: ibkr`
+- `schwab`
+- `ibkr`
 
-Set the provider at the top level of the config:
+Configure named providers under `providers:` and choose one as the default:
+
+```yaml
+default_provider: schwab
+providers:
+  schwab:
+    adapter: schwab
+    settings: {}
+  ibkr-paper:
+    adapter: ibkr
+    settings:
+      host: 127.0.0.1
+      port: 4002
+      client_id: 1001
+```
+
+Then select which configured provider to use on each command:
+
+```bash
+tickrake run candles --provider ibkr-paper
+tickrake run options --provider schwab
+tickrake start candles --provider ibkr-paper
+```
+
+For backward compatibility, Tickrake still accepts the older single-provider shape:
 
 ```yaml
 provider: schwab
+provider_settings: {}
 ```
-
-For IBKR candles:
-
-```yaml
-provider: ibkr
-provider_settings:
-  host: 127.0.0.1
-  port: 4002
-  client_id: 1001
-```
-
-`provider_settings` are passed to the IBKR connection setup. `host`, `port`, and
-`client_id` are the supported keys today.
 
 For storage, prefer setting `storage.data_dir` and let Tickrake derive the history and
 options roots from it:
@@ -130,7 +142,7 @@ storage:
 That produces provider-separated output paths like:
 
 - `~/.tickrake/data/history/schwab/SPY_day.csv`
-- `~/.tickrake/data/history/ibkr/SPY_day.csv`
+- `~/.tickrake/data/history/ibkr-paper/SPY_day.csv`
 - `~/.tickrake/data/options/schwab/SPXW_exp2026-04-11_2026-04-11_10-30-00.csv`
 
 If you need a custom layout, you can still set:
@@ -150,9 +162,9 @@ those roots.
 - `schwab` supports candles and the existing options collection workflow.
 - `ibkr` currently supports candle collection only.
 
-If you set `provider: ibkr`, `tickrake run candles` will use Interactive Brokers
-historical data through `ib-api`. `tickrake run options` still requires
-`provider: schwab` and will raise an error otherwise.
+If you run with an `ibkr` provider entry, `tickrake run candles --provider NAME`
+will use Interactive Brokers historical data through `ib-api`. `tickrake run options`
+still requires a `schwab` provider and will raise an error otherwise.
 
 For candle collection, each symbol uses a `frequencies:` array. Supported values are `minute`, `5min`, `10min`, `15min`,
 `30min`, `day`, `week`, and `month`.

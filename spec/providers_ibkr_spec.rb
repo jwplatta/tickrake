@@ -70,6 +70,7 @@ RSpec.describe Tickrake::Providers::Ibkr do
     end
 
     provider = described_class.new(
+      provider_name: "ib_paper",
       settings: { "historical_timeout_seconds" => 1 },
       connection_builder: ->(**) { connection }
     )
@@ -84,6 +85,7 @@ RSpec.describe Tickrake::Providers::Ibkr do
     )
 
     expect(bars.map(&:datetime)).to eq([Time.utc(2026, 4, 1, 14, 0, 0), Time.utc(2026, 4, 7, 14, 0, 0)])
+    expect(bars.map(&:source)).to eq(%w[ib_paper ib_paper])
     expect(connection).to have_received(:send_message).twice
   end
 end

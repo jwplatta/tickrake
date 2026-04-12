@@ -50,7 +50,11 @@ RSpec.describe "job execution" do
   end
 
   it "rejects options collection for non-schwab providers" do
-    custom = config_with(config, provider: "ibkr", provider_settings: { "host" => "127.0.0.1" })
+    custom = config_with(
+      config,
+      providers: { "ibkr" => Tickrake::ProviderDefinition.new(name: "ibkr", adapter: "ibkr", settings: { "host" => "127.0.0.1" }) },
+      default_provider_name: "ibkr"
+    )
     runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, logger: logger)
 
     expect do
@@ -68,9 +72,9 @@ RSpec.describe "job execution" do
         need_previous_close: false
       )
       custom = config_with(config, history_dir: dir, candles_universe: [candle_entry])
-      provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab")
+      provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
       provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
-      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger)
+      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger, provider_name: "schwab")
       rows = {
         "day" => [Tickrake::Data::Bar.new(datetime: Time.utc(2026, 4, 1, 21, 0, 0), open: 1, high: 2, low: 0.5, close: 1.5, volume: 10)],
         "1min" => [Tickrake::Data::Bar.new(datetime: Time.utc(2026, 4, 1, 14, 0, 0), open: 1, high: 2, low: 0.5, close: 1.5, volume: 10)],
@@ -112,9 +116,9 @@ RSpec.describe "job execution" do
       FileUtils.mkdir_p(existing_dir)
       existing_path = File.join(existing_dir, "SPY_day.csv")
       File.write(existing_path, "datetime,open,high,low,close,volume\n")
-      provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab")
+      provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
       provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
-      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger)
+      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger, provider_name: "schwab")
       allow(provider).to receive(:fetch_bars).and_return([])
 
       Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
@@ -133,16 +137,16 @@ RSpec.describe "job execution" do
       need_extended_hours_data: false,
       need_previous_close: false
     )
-    custom = config_with(
-      config,
-      provider: "ibkr",
-      provider_settings: { "host" => "127.0.0.1" },
-      candles_universe: [candle_entry],
-      candle_lookback_days: 3
-    )
-    provider = instance_double(Tickrake::Providers::Ibkr, provider_name: "ibkr")
+      custom = config_with(
+        config,
+        providers: { "ib_paper" => Tickrake::ProviderDefinition.new(name: "ib_paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" }) },
+        default_provider_name: "ib_paper",
+        candles_universe: [candle_entry],
+        candle_lookback_days: 3
+      )
+    provider = instance_double(Tickrake::Providers::Ibkr, provider_name: "ib_paper", adapter_name: "ibkr")
     provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
-    runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger)
+    runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger, provider_name: "ib_paper")
     allow(provider).to receive(:fetch_bars).and_return([])
 
     Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
@@ -163,14 +167,14 @@ RSpec.describe "job execution" do
       )
       custom = config_with(
         config,
-        provider: "ibkr",
-        provider_settings: { "host" => "127.0.0.1" },
+        providers: { "ib_paper" => Tickrake::ProviderDefinition.new(name: "ib_paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" }) },
+        default_provider_name: "ib_paper",
         history_dir: dir,
         candles_universe: [candle_entry]
       )
-      provider = instance_double(Tickrake::Providers::Ibkr, provider_name: "ibkr")
+      provider = instance_double(Tickrake::Providers::Ibkr, provider_name: "ib_paper", adapter_name: "ibkr")
       provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
-      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger)
+      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger, provider_name: "ib_paper")
       allow(provider).to receive(:fetch_bars).and_return([])
 
       Tickrake::CandlesJob.new(runtime, from_config_start: true).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
@@ -184,6 +188,45 @@ RSpec.describe "job execution" do
       expect(provider).to have_received(:fetch_bars).with(
         hash_including(start_date: Date.new(2026, 3, 10), end_date: Date.new(2026, 4, 7), frequency: "30min")
       )
+    end
+  end
+
+  it "writes candles under the selected provider name when multiple providers share an adapter" do
+    Dir.mktmpdir do |dir|
+      candle_entry = Tickrake::CandleSymbol.new(
+        symbol: "SPY",
+        frequencies: ["day"],
+        start_date: Date.iso8601("2020-01-01"),
+        need_extended_hours_data: false,
+        need_previous_close: false
+      )
+      custom = config_with(
+        config,
+        history_dir: dir,
+        providers: {
+          "schwab_live" => Tickrake::ProviderDefinition.new(name: "schwab_live", adapter: "schwab", settings: {}),
+          "schwab_paper" => Tickrake::ProviderDefinition.new(name: "schwab_paper", adapter: "schwab", settings: {})
+        },
+        default_provider_name: "schwab_live",
+        candles_universe: [candle_entry]
+      )
+      provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab_paper", adapter_name: "schwab")
+      provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
+      runtime = Tickrake::Runtime.new(
+        config: custom,
+        tracker: tracker,
+        provider_factory: provider_factory,
+        logger: logger,
+        provider_name: "schwab_paper"
+      )
+      allow(provider).to receive(:fetch_bars).and_return([
+        Tickrake::Data::Bar.new(datetime: Time.utc(2026, 4, 1, 21, 0, 0), open: 1, high: 2, low: 0.5, close: 1.5, volume: 10)
+      ])
+
+      Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
+
+      expect(File.exist?(File.join(dir, "schwab_paper", "SPY_day.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab_live", "SPY_day.csv"))).to eq(false)
     end
   end
 end
