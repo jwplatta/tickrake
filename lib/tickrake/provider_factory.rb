@@ -11,6 +11,8 @@ module Tickrake
       case @config.provider
       when "schwab"
         Providers::Schwab.new(client: @client_factory.build)
+      when "ibkr"
+        Providers::Ibkr.new(settings: @config.provider_settings)
       else
         raise ConfigError, "Unsupported provider: #{@config.provider}"
       end

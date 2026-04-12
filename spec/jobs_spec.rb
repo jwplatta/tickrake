@@ -49,6 +49,15 @@ RSpec.describe "job execution" do
     end
   end
 
+  it "rejects options collection for non-schwab providers" do
+    custom = config_with(config, provider: "ibkr", provider_settings: { "host" => "127.0.0.1" })
+    runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, logger: logger)
+
+    expect do
+      Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
+    end.to raise_error(Tickrake::Error, /provider=schwab only/)
+  end
+
   it "downloads candles through schwab_rb's shared history downloader" do
     Dir.mktmpdir do |dir|
       candle_entry = Tickrake::CandleSymbol.new(
@@ -112,6 +121,68 @@ RSpec.describe "job execution" do
 
       expect(provider).to have_received(:fetch_bars).with(
         hash_including(start_date: Date.new(2026, 4, 3), end_date: Date.new(2026, 4, 7))
+      )
+    end
+  end
+
+  it "uses the configured lookback window for first-time ibkr intraday fetches" do
+    candle_entry = Tickrake::CandleSymbol.new(
+      symbol: "$SPX",
+      frequencies: ["30min"],
+      start_date: Date.iso8601("2020-01-01"),
+      need_extended_hours_data: false,
+      need_previous_close: false
+    )
+    custom = config_with(
+      config,
+      provider: "ibkr",
+      provider_settings: { "host" => "127.0.0.1" },
+      candles_universe: [candle_entry],
+      candle_lookback_days: 3
+    )
+    provider = instance_double(Tickrake::Providers::Ibkr, provider_name: "ibkr")
+    provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
+    runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger)
+    allow(provider).to receive(:fetch_bars).and_return([])
+
+    Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
+
+    expect(provider).to have_received(:fetch_bars).with(
+      hash_including(start_date: Date.new(2026, 4, 3), end_date: Date.new(2026, 4, 7), frequency: "30min")
+    )
+  end
+
+  it "splits ibkr full backfills into smaller candle requests" do
+    Dir.mktmpdir do |dir|
+      candle_entry = Tickrake::CandleSymbol.new(
+        symbol: "$SPX",
+        frequencies: ["30min"],
+        start_date: Date.iso8601("2026-01-01"),
+        need_extended_hours_data: false,
+        need_previous_close: false
+      )
+      custom = config_with(
+        config,
+        provider: "ibkr",
+        provider_settings: { "host" => "127.0.0.1" },
+        history_dir: dir,
+        candles_universe: [candle_entry]
+      )
+      provider = instance_double(Tickrake::Providers::Ibkr, provider_name: "ibkr")
+      provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
+      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger)
+      allow(provider).to receive(:fetch_bars).and_return([])
+
+      Tickrake::CandlesJob.new(runtime, from_config_start: true).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
+
+      expect(provider).to have_received(:fetch_bars).with(
+        hash_including(start_date: Date.new(2026, 1, 1), end_date: Date.new(2026, 2, 3), frequency: "30min")
+      )
+      expect(provider).to have_received(:fetch_bars).with(
+        hash_including(start_date: Date.new(2026, 2, 4), end_date: Date.new(2026, 3, 9), frequency: "30min")
+      )
+      expect(provider).to have_received(:fetch_bars).with(
+        hash_including(start_date: Date.new(2026, 3, 10), end_date: Date.new(2026, 4, 7), frequency: "30min")
       )
     end
   end

@@ -7,6 +7,10 @@ module Tickrake
     end
 
     def run(now: Time.now)
+      unless @runtime.config.provider == "schwab"
+        raise Tickrake::Error, "OptionsJob currently supports provider=schwab only."
+      end
+
       @runtime.logger.info("Starting options scrape at #{now.utc.iso8601}")
       client = @runtime.client_factory.build
       run_time = now
