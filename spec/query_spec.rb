@@ -121,9 +121,37 @@ RSpec.describe "query engine" do
       filters: { provider: "ibkr-paper", ticker: "SPY", format: "json" }
     )
 
-    expect(text).to include("candles provider=ibkr-paper ticker=SPY frequency=1min")
-    expect(text).to include("path=/tmp/SPY_1min.csv")
+    expect(text).to include("Filters: provider=ibkr-paper ticker=SPY format=text")
+    expect(text).to include("Provider: ibkr-paper")
+    expect(text).to include("Type: candles")
+    expect(text).to include("Ticker: SPY")
+    expect(text).to include("- 1min")
+    expect(text).to include("  path: /tmp/SPY_1min.csv")
     expect(text).not_to include("646.42")
     expect(JSON.parse(json).fetch("results").first.fetch("path")).to eq("/tmp/SPY_1min.csv")
+  end
+
+  it "omits coverage from text-formatted options summaries" do
+    option_result = Tickrake::Query::OptionsScanner::Result.new(
+      dataset_type: "options",
+      provider_name: "schwab",
+      ticker: "SPX",
+      snapshot_count: 12,
+      first_observed_at: "2026-04-01T14:30:00Z",
+      last_observed_at: "2026-04-10T20:04:33Z",
+      latest_path: "/tmp/SPXW_exp2026-04-10_2026-04-10_20-04-33.csv",
+      coverage: "all"
+    )
+
+    text = Tickrake::Query::TextFormatter.new.format(
+      results: [option_result],
+      filters: { provider: "schwab", ticker: "$SPX", type: "options", format: "text" }
+    )
+
+    expect(text).to include("Provider: schwab")
+    expect(text).to include("Type: options")
+    expect(text).to include("Ticker: SPX")
+    expect(text).to include("- snapshots: 12")
+    expect(text).not_to include("coverage:")
   end
 end
