@@ -124,13 +124,6 @@ tickrake run options --provider schwab
 tickrake start candles --provider ibkr-paper
 ```
 
-For backward compatibility, Tickrake still accepts the older single-provider shape:
-
-```yaml
-provider: schwab
-provider_settings: {}
-```
-
 For storage, prefer setting `storage.data_dir` and let Tickrake derive the history and
 options roots from it:
 

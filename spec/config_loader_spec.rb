@@ -17,14 +17,17 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.candles_universe.first.frequencies).to include("day", "30min", "10min", "5min", "1min")
   end
 
-  it "preserves explicit legacy storage paths" do
+  it "preserves explicit storage paths" do
     Dir.mktmpdir do |dir|
-      path = File.join(dir, "legacy.yml")
+      path = File.join(dir, "storage.yml")
       File.write(path, <<~YAML)
+        providers:
+          schwab:
+            adapter: schwab
         storage:
           data_dir: #{dir}/tickrake-data
-          history_dir: #{dir}/legacy-history
-          options_dir: #{dir}/legacy-options
+          history_dir: #{dir}/custom-history
+          options_dir: #{dir}/custom-options
         schedule:
           options_monitor:
             interval_seconds: 300
@@ -48,8 +51,8 @@ RSpec.describe Tickrake::ConfigLoader do
       config = described_class.load(path)
 
       expect(config.data_dir).to eq(File.join(dir, "tickrake-data"))
-      expect(config.history_dir).to eq(File.join(dir, "legacy-history"))
-      expect(config.options_dir).to eq(File.join(dir, "legacy-options"))
+      expect(config.history_dir).to eq(File.join(dir, "custom-history"))
+      expect(config.options_dir).to eq(File.join(dir, "custom-options"))
     end
   end
 
@@ -97,6 +100,34 @@ RSpec.describe Tickrake::ConfigLoader do
         "client_id" => 77
       )
       expect(config.provider_definition("schwab_main").adapter).to eq("schwab")
+    end
+  end
+
+  it "requires providers to be configured" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "missing-providers.yml")
+      File.write(path, <<~YAML)
+        schedule:
+          options_monitor:
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+          eod_candles:
+            run_at: "16:10"
+            days: [mon]
+        options:
+          universe:
+            - symbol: SPY
+        candles:
+          universe:
+            - symbol: SPY
+              start_date: "2020-01-01"
+              frequencies: [day]
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /key not found: "providers"/)
     end
   end
 
@@ -168,6 +199,9 @@ RSpec.describe Tickrake::ConfigLoader do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "bad.yml")
       File.write(path, <<~YAML)
+        providers:
+          schwab:
+            adapter: schwab
         schedule:
           options_monitor:
             interval_seconds: 300
@@ -196,6 +230,9 @@ RSpec.describe Tickrake::ConfigLoader do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "bad-lookback.yml")
       File.write(path, <<~YAML)
+        providers:
+          schwab:
+            adapter: schwab
         schedule:
           options_monitor:
             interval_seconds: 300

@@ -106,28 +106,13 @@ module Tickrake
     end
 
     def load_providers(data)
-      if data.key?("providers")
-        providers = parse_named_providers(data.fetch("providers"))
-        default_provider_name = if data.key?("default_provider")
-          data.fetch("default_provider")
-        else
-          infer_default_provider_name(providers)
-        end
-        [providers, default_provider_name.to_s]
+      providers = parse_named_providers(data.fetch("providers"))
+      default_provider_name = if data.key?("default_provider")
+        data.fetch("default_provider")
       else
-        legacy_provider = data.fetch("provider", "schwab").to_s
-        legacy_settings = stringify_keys(data.fetch("provider_settings", {}))
-        [
-          {
-            legacy_provider => ProviderDefinition.new(
-              name: legacy_provider,
-              adapter: legacy_provider,
-              settings: legacy_settings
-            )
-          },
-          legacy_provider
-        ]
+        infer_default_provider_name(providers)
       end
+      [providers, default_provider_name.to_s]
     end
 
     def parse_named_providers(raw_providers)
@@ -151,7 +136,7 @@ module Tickrake
 
     def stringify_keys(value)
       return {} if value.nil?
-      raise ConfigError, "provider_settings must be a mapping." unless value.is_a?(Hash)
+      raise ConfigError, "provider settings must be a mapping." unless value.is_a?(Hash)
 
       value.each_with_object({}) do |(key, child), hash|
         hash[key.to_s] = child.is_a?(Hash) ? stringify_keys(child) : child
