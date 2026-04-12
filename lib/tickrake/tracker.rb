@@ -2,6 +2,20 @@
 
 module Tickrake
   class Tracker
+    FILE_METADATA_COLUMNS = %w[
+      path
+      dataset_type
+      provider_name
+      ticker
+      frequency
+      row_count
+      first_observed_at
+      last_observed_at
+      file_mtime
+      file_size
+      updated_at
+    ].freeze
+
     def initialize(path)
       @path = Tickrake::PathSupport.expand_path(path)
       FileUtils.mkdir_p(File.dirname(@path))
@@ -55,6 +69,47 @@ module Tickrake
       db.execute("SELECT * FROM fetch_runs ORDER BY id")
     end
 
+    def file_metadata(path)
+      db.get_first_row("SELECT * FROM file_metadata_cache WHERE path = ?", [Tickrake::PathSupport.expand_path(path)])
+    end
+
+    def upsert_file_metadata(attrs)
+      path = Tickrake::PathSupport.expand_path(attrs.fetch(:path))
+      values = {
+        "path" => path,
+        "dataset_type" => attrs.fetch(:dataset_type),
+        "provider_name" => attrs.fetch(:provider_name),
+        "ticker" => attrs.fetch(:ticker),
+        "frequency" => attrs[:frequency],
+        "row_count" => Integer(attrs.fetch(:row_count)),
+        "first_observed_at" => attrs[:first_observed_at],
+        "last_observed_at" => attrs[:last_observed_at],
+        "file_mtime" => attrs.fetch(:file_mtime).to_i,
+        "file_size" => attrs.fetch(:file_size).to_i,
+        "updated_at" => iso(attrs[:updated_at] || Time.now)
+      }
+
+      db.execute(
+        <<~SQL,
+          INSERT INTO file_metadata_cache (
+            #{FILE_METADATA_COLUMNS.join(", ")}
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(path) DO UPDATE SET
+            dataset_type = excluded.dataset_type,
+            provider_name = excluded.provider_name,
+            ticker = excluded.ticker,
+            frequency = excluded.frequency,
+            row_count = excluded.row_count,
+            first_observed_at = excluded.first_observed_at,
+            last_observed_at = excluded.last_observed_at,
+            file_mtime = excluded.file_mtime,
+            file_size = excluded.file_size,
+            updated_at = excluded.updated_at
+        SQL
+        FILE_METADATA_COLUMNS.map { |column| values.fetch(column) }
+      )
+    end
+
     private
 
     def db
@@ -81,6 +136,20 @@ module Tickrake
             status TEXT NOT NULL,
             output_path TEXT,
             error_message TEXT
+          );
+
+          CREATE TABLE IF NOT EXISTS file_metadata_cache (
+            path TEXT PRIMARY KEY,
+            dataset_type TEXT NOT NULL,
+            provider_name TEXT NOT NULL,
+            ticker TEXT NOT NULL,
+            frequency TEXT,
+            row_count INTEGER NOT NULL,
+            first_observed_at TEXT,
+            last_observed_at TEXT,
+            file_mtime INTEGER NOT NULL,
+            file_size INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
           );
         SQL
       )

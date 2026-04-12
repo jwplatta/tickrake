@@ -47,6 +47,8 @@ module Tickrake
         start_subcommand(argv, config_path)
       when "run"
         run_subcommand(argv, config, common_options)
+      when "query"
+        query_command(argv, config)
       else
         @stderr.puts(usage)
         1
@@ -120,6 +122,50 @@ module Tickrake
         end
       end
       parser.order!(argv)
+      options
+    end
+
+    def query_command(argv, config)
+      options = parse_query_options!(argv)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      Tickrake::Query::Engine.new(config: config, tracker: tracker, stdout: @stdout).run(
+        type: options[:type],
+        provider_name: options[:provider],
+        ticker: options[:ticker],
+        frequency: options[:frequency],
+        start_date: options[:start_date],
+        end_date: options[:end_date],
+        format: options[:format]
+      )
+      0
+    end
+
+    def parse_query_options!(argv)
+      options = {
+        type: nil,
+        provider: nil,
+        ticker: nil,
+        frequency: nil,
+        start_date: nil,
+        end_date: nil,
+        format: "text"
+      }
+      parser = OptionParser.new do |opts|
+        opts.on("--type TYPE", "Dataset type: candles or options") { |value| options[:type] = value }
+        opts.on("--provider NAME", "Use the named provider namespace from config") { |value| options[:provider] = value }
+        opts.on("--ticker SYMBOL", "Filter by ticker symbol") { |value| options[:ticker] = value }
+        opts.on("--frequency FREQ", "Filter candle results by frequency") { |value| options[:frequency] = value }
+        opts.on("--start-date YYYY-MM-DD", "Filter by dataset coverage start date") do |value|
+          options[:start_date] = Date.iso8601(value)
+        end
+        opts.on("--end-date YYYY-MM-DD", "Filter by dataset coverage end date") do |value|
+          options[:end_date] = Date.iso8601(value)
+        end
+        opts.on("--format FORMAT", "Output format: text or json") { |value| options[:format] = value }
+      end
+      parser.order!(argv)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+
       options
     end
 
@@ -301,6 +347,7 @@ module Tickrake
           tickrake start candles [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml]
           tickrake run options [--job] [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
           tickrake run candles [--job] [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml] [--verbose]
+          tickrake query [--type candles|options] [--provider NAME] [--ticker SYMBOL] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--format text|json] [--config path/to/tickrake.yml]
           tickrake status
           tickrake stop options|candles|all
           tickrake logs [cli|options|candles] [--tail N]
