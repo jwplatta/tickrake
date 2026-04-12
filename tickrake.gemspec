@@ -28,6 +28,7 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency "schwab_rb", ">= 0.9.0", "< 1.0"
+  spec.add_dependency "ib-api", "~> 972.5"
   spec.add_dependency "sqlite3", ">= 1.6"
 
   spec.add_development_dependency "rake", "~> 13.0"

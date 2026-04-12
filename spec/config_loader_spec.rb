@@ -8,6 +8,7 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.dte_buckets).to include(0, 10, 30)
     expect(config.candle_lookback_days).to eq(7)
     expect(config.provider).to eq("schwab")
+    expect(config.provider_settings).to eq({})
     expect(config.sqlite_path).to eq(File.expand_path("~/.tickrake/tickrake.sqlite3"))
     expect(config.data_dir).to eq(File.expand_path("~/.tickrake/data"))
     expect(config.history_dir).to eq(File.expand_path("~/.tickrake/data/history"))
@@ -49,6 +50,75 @@ RSpec.describe Tickrake::ConfigLoader do
       expect(config.data_dir).to eq(File.join(dir, "tickrake-data"))
       expect(config.history_dir).to eq(File.join(dir, "legacy-history"))
       expect(config.options_dir).to eq(File.join(dir, "legacy-options"))
+    end
+  end
+
+  it "loads ibkr provider settings" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "ibkr.yml")
+      File.write(path, <<~YAML)
+        provider: ibkr
+        provider_settings:
+          host: 10.0.0.5
+          port: 7497
+          client_id: 77
+        schedule:
+          options_monitor:
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+          eod_candles:
+            run_at: "16:10"
+            days: [mon]
+        options:
+          universe:
+            - symbol: SPY
+        candles:
+          universe:
+            - symbol: SPY
+              start_date: "2020-01-01"
+              frequencies: [day]
+      YAML
+
+      config = described_class.load(path)
+
+      expect(config.provider).to eq("ibkr")
+      expect(config.provider_settings).to eq(
+        "host" => "10.0.0.5",
+        "port" => 7497,
+        "client_id" => 77
+      )
+    end
+  end
+
+  it "rejects unsupported providers" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "bad-provider.yml")
+      File.write(path, <<~YAML)
+        provider: fake
+        schedule:
+          options_monitor:
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+          eod_candles:
+            run_at: "16:10"
+            days: [mon]
+        options:
+          universe:
+            - symbol: SPY
+        candles:
+          universe:
+            - symbol: SPY
+              start_date: "2020-01-01"
+              frequencies: [day]
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Unsupported provider/)
     end
   end
 

@@ -1,6 +1,7 @@
 timezone: America/Chicago
 sqlite_path: ~/.tickrake/tickrake.sqlite3
 provider: schwab
+provider_settings: {}
 storage:
   data_dir: ~/.tickrake/data
   history_dir: ~/.tickrake/data/history

@@ -15,6 +15,7 @@ gem install tickrake
 Tickrake requires:
 - Ruby 3.1+
 - `schwab_rb >= 0.9.0`
+- `ib-api ~> 972.5` for IBKR candle collection
 - exported Schwab credentials in the shell environment
 - a valid Schwab token file at `~/.schwab_rb/token.json`
 
@@ -97,12 +98,26 @@ universes, DTE buckets, schedule windows, worker limits, and retry policy.
 Tickrake currently supports:
 
 - `provider: schwab`
+- `provider: ibkr`
 
 Set the provider at the top level of the config:
 
 ```yaml
 provider: schwab
 ```
+
+For IBKR candles:
+
+```yaml
+provider: ibkr
+provider_settings:
+  host: 127.0.0.1
+  port: 4002
+  client_id: 1001
+```
+
+`provider_settings` are passed to the IBKR connection setup. `host`, `port`, and
+`client_id` are the supported keys today.
 
 For storage, prefer setting `storage.data_dir` and let Tickrake derive the history and
 options roots from it:
@@ -115,6 +130,7 @@ storage:
 That produces provider-separated output paths like:
 
 - `~/.tickrake/data/history/schwab/SPY_day.csv`
+- `~/.tickrake/data/history/ibkr/SPY_day.csv`
 - `~/.tickrake/data/options/schwab/SPXW_exp2026-04-11_2026-04-11_10-30-00.csv`
 
 If you need a custom layout, you can still set:
@@ -128,6 +144,15 @@ storage:
 When `history_dir` or `options_dir` are set explicitly, they override the derived
 subdirectories from `data_dir`. Tickrake still appends the provider name underneath
 those roots.
+
+## Provider Status
+
+- `schwab` supports candles and the existing options collection workflow.
+- `ibkr` currently supports candle collection only.
+
+If you set `provider: ibkr`, `tickrake run candles` will use Interactive Brokers
+historical data through `ib-api`. `tickrake run options` still requires
+`provider: schwab` and will raise an error otherwise.
 
 For candle collection, each symbol uses a `frequencies:` array. Supported values are `minute`, `5min`, `10min`, `15min`,
 `30min`, `day`, `week`, and `month`.
