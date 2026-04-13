@@ -32,10 +32,15 @@ module Tickrake
           expiration = resolve_expiration(expiration_chain, bucket, entry.option_root)
           next unless expiration
 
+          resolved_expiration = expiration.date_object || (base_date + bucket)
+          @runtime.logger.info(
+            "Resolved option expiration for #{entry.symbol} bucket=#{bucket} root=#{entry.option_root || '-'} to #{resolved_expiration}"
+          )
+
           {
             symbol: entry.symbol,
             option_root: entry.option_root,
-            expiration_date: expiration.date_object || (base_date + bucket),
+            expiration_date: resolved_expiration,
             requested_buckets: [bucket]
           }
         end
@@ -44,19 +49,15 @@ module Tickrake
 
     def fetch_expiration_chain(client, symbol)
       chain = client.get_option_expiration_chain(symbol)
-      unless chain.respond_to?(:status) && chain.respond_to?(:expiration_list)
-        raise Tickrake::Error, "Unexpected option expiration chain result for #{symbol}: #{chain.class}"
-      end
-      unless chain.status == "SUCCESS"
-        raise Tickrake::Error, "Option expiration chain request failed for #{symbol}: status=#{chain.status.inspect}"
-      end
+      raise Tickrake::Error, "Option expiration chain request returned nil for #{symbol}" if chain.nil?
+      raise Tickrake::Error, "Unexpected option expiration chain result for #{symbol}: #{chain.class}" unless chain.respond_to?(:expiration_list)
 
       chain
     end
 
     def resolve_expiration(expiration_chain, bucket, option_root)
-      expiration = expiration_chain.find_by_days_to_expiration(bucket).find do |candidate|
-        root_matches?(candidate, option_root)
+      expiration = Array(expiration_chain.expiration_list).find do |candidate|
+        candidate.days_to_expiration == bucket && root_matches?(candidate, option_root)
       end
 
       return expiration if expiration
@@ -110,8 +111,9 @@ module Tickrake
     end
 
     def fetch_one(job, client, run_time)
+      requested_bucket = job.fetch(:requested_buckets).join(",")
       @runtime.logger.info(
-        "Fetching option chain for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)} buckets=#{job.fetch(:requested_buckets).join(',')}"
+        "Fetching option chain for #{job.fetch(:symbol)} bucket=#{requested_bucket} resolved_exp=#{job.fetch(:expiration_date)} root=#{job[:option_root] || '-'}"
       )
       id = @runtime.tracker.record_start(
         job_type: "options_monitor",
