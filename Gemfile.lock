@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    tickrake (0.1.1)
+    tickrake (0.1.2)
       ib-api (~> 972.5)
       schwab_rb (>= 0.9.2, < 1.0)
       sqlite3 (>= 1.6)
