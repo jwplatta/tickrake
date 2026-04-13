@@ -2,6 +2,10 @@
 
 module Tickrake
   class OptionsJob
+    def self.option_chain_api_symbol(symbol)
+      SchwabRb::PriceHistory::Downloader.api_symbol(symbol)
+    end
+
     def initialize(runtime)
       @runtime = runtime
     end
@@ -129,17 +133,15 @@ module Tickrake
       retries = 0
       begin
         result = Timeout.timeout(@runtime.config.option_fetch_timeout_seconds) do
-          option_sample_downloader.resolve(
+          write_option_chain(
             client: client,
             symbol: job.fetch(:symbol),
             expiration_date: job.fetch(:expiration_date),
-            directory: @runtime.config.options_dir,
-            format: "csv",
             timestamp: run_time,
             root: job[:option_root]
           )
         end
-        path = extract_output_path(result)
+        path = result.fetch(:path)
         @runtime.logger.info("Wrote option chain for #{job.fetch(:symbol)} to #{path}")
         @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
       rescue StandardError => e
@@ -154,18 +156,82 @@ module Tickrake
       end
     end
 
-    def option_sample_downloader
-      return SchwabRb::OptionSample::Downloader if defined?(SchwabRb::OptionSample::Downloader)
+    def write_option_chain(client:, symbol:, expiration_date:, timestamp:, root:)
+      chain = client.get_option_chain(
+        self.class.option_chain_api_symbol(symbol),
+        contract_type: SchwabRb::Option::ContractTypes::ALL,
+        strike_range: SchwabRb::Option::StrikeRanges::ALL,
+        from_date: expiration_date,
+        to_date: expiration_date
+      )
+      raise Tickrake::Error, "Option chain request returned nil for #{symbol} exp=#{expiration_date}" if chain.nil?
 
-      raise Tickrake::Error,
-            "Installed schwab_rb gem does not provide SchwabRb::OptionSample::Downloader. Upgrade schwab_rb before running option sampling."
+      rows = option_sample_rows(chain, root)
+      path = storage_paths.option_sample_path(
+        provider: @runtime.provider_name,
+        symbol: symbol,
+        expiration_date: expiration_date,
+        timestamp: timestamp,
+        root: root
+      )
+      option_sample_writer.write(path: path, rows: rows)
+
+      { path: path, row_count: rows.length }
     end
 
-    def extract_output_path(result)
-      return result.last if result.is_a?(Array) && result.length >= 2
-      return result if result.is_a?(String)
+    def option_sample_rows(chain, option_root)
+      filtered_options(chain, option_root).sort_by do |option|
+        [
+          option.expiration_date&.iso8601.to_s,
+          option.put_call.to_s,
+          option.strike.to_f
+        ]
+      end.map do |option|
+        Tickrake::Data::OptionSampleRow.new(
+          contract_type: option.put_call,
+          symbol: option.symbol,
+          description: option.description,
+          strike: option.strike,
+          expiration_date: option.expiration_date&.iso8601,
+          mark: option.mark,
+          bid: option.bid,
+          bid_size: option.bid_size,
+          ask: option.ask,
+          ask_size: option.ask_size,
+          last: option.last,
+          last_size: option.last_size,
+          open_interest: option.open_interest,
+          total_volume: option.total_volume,
+          delta: option.delta,
+          gamma: option.gamma,
+          theta: option.theta,
+          vega: option.vega,
+          rho: option.rho,
+          volatility: option.volatility,
+          theoretical_volatility: option.theoretical_volatility,
+          theoretical_option_value: option.theoretical_option_value,
+          intrinsic_value: option.intrinsic_value,
+          extrinsic_value: option.extrinsic_value,
+          underlying_price: chain.underlying_price,
+          source: @runtime.provider_name,
+          fetched_at: Time.now.utc
+        )
+      end
+    end
 
-      raise Tickrake::Error, "Unexpected SchwabRb::OptionSample::Downloader.resolve result: #{result.class}"
+    def filtered_options(chain, option_root)
+      options = Array(chain.call_opts) + Array(chain.put_opts)
+      return options if option_root.nil? || option_root.empty?
+
+      options.select { |option| option.option_root.to_s.upcase == option_root.to_s.upcase }
+    end
+
+    def storage_paths
+      @storage_paths ||= Tickrake::Storage::Paths.new(@runtime.config)
+    end
+
+    def option_sample_writer
+      @option_sample_writer ||= Tickrake::Storage::OptionSampleWriter.new
     end
   end
 end

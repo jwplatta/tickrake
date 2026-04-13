@@ -18,12 +18,17 @@ RSpec.describe "job execution" do
     Dir.mktmpdir do |dir|
       custom = config_with(config, options_dir: dir)
       client = instance_double("client")
-      downloader = Class.new
       expiration_entry = Struct.new(:expiration_date, :days_to_expiration, :option_roots) do
         def date_object
           Date.iso8601(expiration_date)
         end
       end
+      option = Struct.new(
+        :put_call, :symbol, :description, :strike, :expiration_date, :mark, :bid, :bid_size, :ask, :ask_size,
+        :last, :last_size, :open_interest, :total_volume, :delta, :gamma, :theta, :vega, :rho, :volatility,
+        :theoretical_volatility, :theoretical_option_value, :intrinsic_value, :extrinsic_value, :option_root,
+        keyword_init: true
+      )
       expiration_chain = instance_double(
         "SchwabRb::DataObjects::OptionExpirationChain",
         expiration_list: [
@@ -31,33 +36,60 @@ RSpec.describe "job execution" do
           expiration_entry.new("2026-04-07", 1, "SPXW")
         ]
       )
-      stub_const("SchwabRb::OptionSample::Downloader", downloader)
       allow(client).to receive(:get_option_expiration_chain).and_return(expiration_chain)
-      allow(SchwabRb::OptionSample::Downloader).to receive(:resolve) do |**kwargs|
-        path = File.join(
-          kwargs.fetch(:directory),
-          "SPXW_exp#{kwargs.fetch(:expiration_date).iso8601}_#{kwargs.fetch(:timestamp).strftime("%Y-%m-%d_%H-%M-%S")}.csv"
+      allow(client).to receive(:get_option_chain).and_return(
+        instance_double(
+          "SchwabRb::DataObjects::OptionChain",
+          underlying_price: 5100.5,
+          call_opts: [
+            option.new(
+              put_call: "CALL",
+              symbol: "SPXW  260406C05100000",
+              description: "SPXW call",
+              strike: 5100.0,
+              expiration_date: Date.new(2026, 4, 6),
+              mark: 12.5,
+              bid: 12.0,
+              bid_size: 10,
+              ask: 13.0,
+              ask_size: 12,
+              last: 12.4,
+              last_size: 3,
+              open_interest: 100,
+              total_volume: 50,
+              delta: 0.5,
+              gamma: 0.1,
+              theta: -0.2,
+              vega: 0.3,
+              rho: 0.05,
+              volatility: 0.22,
+              theoretical_volatility: 0.21,
+              theoretical_option_value: 12.3,
+              intrinsic_value: 1.0,
+              extrinsic_value: 11.3,
+              option_root: "SPXW"
+            )
+          ],
+          put_opts: []
         )
-        File.write(path, "contract_type,symbol\nCALL,SPXW  260409C05100000\n")
-        [{ symbol: "$SPX", status: "SUCCESS" }, path]
-      end
+      )
       client_factory = instance_double(Tickrake::ClientFactory, build: client)
       runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, client_factory: client_factory, logger: logger)
 
       Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
 
-      expect(Dir.glob(File.join(dir, "*.csv"))).not_to be_empty
+      expected_path = File.join(dir, "schwab", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv")
+      expect(File.exist?(expected_path)).to eq(true)
       expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("success"))
       expect(tracker.fetch_runs.map { |row| row["output_path"] }).to all(end_with(".csv"))
       expect(client).to have_received(:get_option_expiration_chain).with("$SPX").at_least(:once)
-      expect(SchwabRb::OptionSample::Downloader).to have_received(:resolve).with(
+      expect(client).to have_received(:get_option_chain).with(
+        "$SPX",
         hash_including(
-          client: client,
-          symbol: "$SPX",
-          expiration_date: Date.new(2026, 4, 6),
-          directory: dir,
-          format: "csv",
-          root: "SPXW"
+          contract_type: SchwabRb::Option::ContractTypes::ALL,
+          strike_range: SchwabRb::Option::StrikeRanges::ALL,
+          from_date: Date.new(2026, 4, 6),
+          to_date: Date.new(2026, 4, 6)
         )
       ).at_least(:once)
     end
@@ -125,7 +157,6 @@ RSpec.describe "job execution" do
         options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")]
       )
       client = instance_double("client")
-      downloader = Class.new
       expiration_entry = Struct.new(:expiration_date, :days_to_expiration, :option_roots) do
         def date_object
           Date.iso8601(expiration_date)
@@ -135,17 +166,18 @@ RSpec.describe "job execution" do
         "SchwabRb::DataObjects::OptionExpirationChain",
         expiration_list: [expiration_entry.new("2026-04-06", 0, "SPXW")]
       )
-      stub_const("SchwabRb::OptionSample::Downloader", downloader)
       allow(client).to receive(:get_option_expiration_chain).with("$SPX").and_return(expiration_chain)
-      allow(SchwabRb::OptionSample::Downloader).to receive(:resolve).and_return([{ symbol: "$SPX", status: "SUCCESS" }, File.join(dir, "sample.csv")])
+      allow(client).to receive(:get_option_chain).and_return(
+        instance_double("SchwabRb::DataObjects::OptionChain", underlying_price: 5100.5, call_opts: [], put_opts: [])
+      )
 
       runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, client_factory: instance_double(Tickrake::ClientFactory, build: client), logger: logger)
 
       Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
 
-      expect(SchwabRb::OptionSample::Downloader).to have_received(:resolve).once
-      expect(SchwabRb::OptionSample::Downloader).to have_received(:resolve).with(
-        hash_including(expiration_date: Date.new(2026, 4, 6), root: "SPXW")
+      expect(client).to have_received(:get_option_chain).once.with(
+        anything,
+        hash_including(from_date: Date.new(2026, 4, 6), to_date: Date.new(2026, 4, 6))
       )
     end
   end
