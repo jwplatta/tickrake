@@ -22,18 +22,69 @@ module Tickrake
 
     private
 
-    def build_queue(_client, base_date)
+    def build_queue(client, base_date)
       buckets = @runtime.config.dte_buckets.uniq.sort
 
       @runtime.config.options_universe.flat_map do |entry|
-        buckets.map do |bucket|
+        expiration_chain = fetch_expiration_chain(client, entry.symbol)
+
+        buckets.filter_map do |bucket|
+          expiration = resolve_expiration(expiration_chain, bucket, entry.option_root)
+          next unless expiration
+
           {
             symbol: entry.symbol,
             option_root: entry.option_root,
-            expiration_date: base_date + bucket,
+            expiration_date: expiration.date_object || (base_date + bucket),
             requested_buckets: [bucket]
           }
         end
+      end
+    end
+
+    def fetch_expiration_chain(client, symbol)
+      chain = client.get_option_expiration_chain(symbol)
+      unless chain.respond_to?(:status) && chain.respond_to?(:expiration_list)
+        raise Tickrake::Error, "Unexpected option expiration chain result for #{symbol}: #{chain.class}"
+      end
+      unless chain.status == "SUCCESS"
+        raise Tickrake::Error, "Option expiration chain request failed for #{symbol}: status=#{chain.status.inspect}"
+      end
+
+      chain
+    end
+
+    def resolve_expiration(expiration_chain, bucket, option_root)
+      expiration = expiration_chain.find_by_days_to_expiration(bucket).find do |candidate|
+        root_matches?(candidate, option_root)
+      end
+
+      return expiration if expiration
+
+      @runtime.logger.info(
+        "Skipping option fetch bucket=#{bucket} root=#{option_root || '-'} because Schwab reported no matching expiration."
+      )
+      nil
+    end
+
+    def root_matches?(expiration, option_root)
+      return true if option_root.nil? || option_root.empty?
+
+      expiration_roots(expiration).include?(option_root)
+    end
+
+    def expiration_roots(expiration)
+      roots = expiration.respond_to?(:option_roots) ? expiration.option_roots : nil
+
+      case roots
+      when Array
+        roots.map(&:to_s)
+      when String
+        roots.split(",").map(&:strip)
+      when nil
+        []
+      else
+        Array(roots).map(&:to_s)
       end
     end
 
