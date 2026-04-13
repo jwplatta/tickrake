@@ -14,7 +14,7 @@ gem install tickrake
 
 Tickrake requires:
 - Ruby 3.1+
-- `schwab_rb >= 0.9.0`
+- `schwab_rb >= 0.9.2`
 - `ib-api ~> 972.5` for IBKR candle collection
 - exported Schwab credentials in the shell environment
 - a valid Schwab token file at `~/.schwab_rb/token.json`

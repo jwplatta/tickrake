@@ -26,7 +26,6 @@ RSpec.describe "job execution" do
       end
       expiration_chain = instance_double(
         "SchwabRb::DataObjects::OptionExpirationChain",
-        status: "SUCCESS",
         expiration_list: [
           expiration_entry.new("2026-04-06", 0, "SPXW"),
           expiration_entry.new("2026-04-07", 1, "SPXW")
@@ -34,9 +33,6 @@ RSpec.describe "job execution" do
       )
       stub_const("SchwabRb::OptionSample::Downloader", downloader)
       allow(client).to receive(:get_option_expiration_chain).and_return(expiration_chain)
-      allow(expiration_chain).to receive(:find_by_days_to_expiration) do |days|
-        expiration_chain.expiration_list.select { |expiration| expiration.days_to_expiration == days }
-      end
       allow(SchwabRb::OptionSample::Downloader).to receive(:resolve) do |**kwargs|
         path = File.join(
           kwargs.fetch(:directory),
@@ -137,15 +133,10 @@ RSpec.describe "job execution" do
       end
       expiration_chain = instance_double(
         "SchwabRb::DataObjects::OptionExpirationChain",
-        status: "SUCCESS",
         expiration_list: [expiration_entry.new("2026-04-06", 0, "SPXW")]
       )
-
       stub_const("SchwabRb::OptionSample::Downloader", downloader)
       allow(client).to receive(:get_option_expiration_chain).with("$SPX").and_return(expiration_chain)
-      allow(expiration_chain).to receive(:find_by_days_to_expiration) do |days|
-        expiration_chain.expiration_list.select { |expiration| expiration.days_to_expiration == days }
-      end
       allow(SchwabRb::OptionSample::Downloader).to receive(:resolve).and_return([{ symbol: "$SPX", status: "SUCCESS" }, File.join(dir, "sample.csv")])
 
       runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, client_factory: instance_double(Tickrake::ClientFactory, build: client), logger: logger)
