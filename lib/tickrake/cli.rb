@@ -17,6 +17,9 @@ module Tickrake
         status_command(argv)
       when "stop"
         stop_command(argv)
+      when "restart"
+        common_options = parse_common_options!(argv)
+        restart_command(argv, common_options)
       when "logs"
         logs_command(argv)
       when nil
@@ -192,24 +195,50 @@ module Tickrake
       raise OptionParser::InvalidOption, argv.first if argv.any?
 
       registry = Tickrake::JobRegistry.new
-      targets = target == "all" ? Tickrake::JobRegistry::JOB_NAMES : [target]
+      targets = resolve_job_targets(target)
 
       targets.each do |name|
-        unless Tickrake::JobRegistry::JOB_NAMES.include?(name)
-          raise Tickrake::Error, "Unknown job `#{name}`."
-        end
-
         stop_one(registry, name)
       end
       0
     end
 
-    def stop_one(registry, name)
+    def restart_command(argv, common_options)
+      target = argv.shift
+      raise OptionParser::MissingArgument, "job name" if target.nil?
+
+      options = parse_run_options!(argv)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+
+      registry = Tickrake::JobRegistry.new
+      starter = Tickrake::BackgroundProcess.new(stdout: @stdout)
+      targets = resolve_job_targets(target)
+
+      targets.each do |name|
+        metadata = registry.read(name) || {}
+        stop_one(registry, name, timeout_seconds: nil, waiting_message: restart_waiting_message(name))
+        starter.start(
+          job_name: name,
+          config_path: restart_config_path(common_options, metadata),
+          from_config_start: restart_from_config_start(name, options, metadata),
+          provider_name: restart_provider_name(options, metadata)
+        )
+      end
+      0
+    end
+
+    def stop_one(registry, name, timeout_seconds: 5, waiting_message: nil)
       job = registry.status(name)
       case job[:state]
       when "running"
         Process.kill("TERM", Integer(job[:pid]))
-        wait_for_stop(registry, name, Integer(job[:pid]))
+        wait_for_stop(
+          registry,
+          name,
+          Integer(job[:pid]),
+          timeout_seconds: timeout_seconds,
+          waiting_message: waiting_message
+        )
       when "stale"
         registry.delete(name)
         @stdout.puts("Removed stale #{name} job metadata for pid #{job[:pid]}.")
@@ -218,19 +247,53 @@ module Tickrake
       end
     end
 
-    def wait_for_stop(registry, name, pid)
-      deadline = Time.now + 5
-      while Time.now < deadline
+    def wait_for_stop(registry, name, pid, timeout_seconds: 5, waiting_message: nil)
+      deadline = timeout_seconds && (Time.now + timeout_seconds)
+      @stdout.puts(waiting_message) if waiting_message
+      loop do
         unless registry.pid_alive?(pid)
           registry.delete(name)
           @stdout.puts("Stopped #{name} job (pid #{pid}).")
           return
         end
 
+        break if deadline && Time.now >= deadline
+
         sleep 0.2
       end
 
       @stdout.puts("Sent TERM to #{name} job (pid #{pid}); waiting for shutdown.")
+    end
+
+    def restart_waiting_message(name)
+      "Waiting for #{name} job to finish its current work before restarting. This can take a bit."
+    end
+
+    def resolve_job_targets(target)
+      targets = target == "all" ? Tickrake::JobRegistry::JOB_NAMES : [target]
+      invalid = targets.reject { |name| Tickrake::JobRegistry::JOB_NAMES.include?(name) }
+      raise Tickrake::Error, "Unknown job `#{invalid.first}`." if invalid.any?
+
+      targets
+    end
+
+    def restart_config_path(common_options, metadata)
+      explicit = common_options[:config_path]
+      default = Tickrake::PathSupport.config_path
+      return explicit if explicit != default
+
+      metadata[:config_path] || explicit
+    end
+
+    def restart_provider_name(options, metadata)
+      options[:provider] || metadata[:provider_name]
+    end
+
+    def restart_from_config_start(name, options, metadata)
+      return false unless name == "candles"
+      return true if options[:from_config_start]
+
+      metadata[:from_config_start] == true
     end
 
     def logs_command(argv)
@@ -345,6 +408,9 @@ module Tickrake
           tickrake validate-config [--config path/to/tickrake.yml] [--verbose]
           tickrake start options [--provider NAME] [--config path/to/tickrake.yml]
           tickrake start candles [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml]
+          tickrake restart options [--provider NAME]
+          tickrake restart candles [--provider NAME] [--from-config-start]
+          tickrake restart all [--provider NAME] [--from-config-start]
           tickrake run options [--job] [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
           tickrake run candles [--job] [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml] [--verbose]
           tickrake query [--type candles|options] [--provider NAME] [--ticker SYMBOL] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--format text|json] [--config path/to/tickrake.yml]

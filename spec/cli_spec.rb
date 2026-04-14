@@ -105,6 +105,71 @@ RSpec.describe Tickrake::CLI do
     expect(exit_code).to eq(0)
   end
 
+  it "restarts a running job with recorded settings" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    registry = instance_double(Tickrake::JobRegistry)
+    starter = instance_double(Tickrake::BackgroundProcess)
+
+    allow(Tickrake::JobRegistry).to receive(:new).and_return(registry)
+    allow(Tickrake::BackgroundProcess).to receive(:new).with(stdout: stdout).and_return(starter)
+    allow(registry).to receive(:read).with("candles").and_return(
+      config_path: "/tmp/custom.yml",
+      provider_name: "ib_paper",
+      from_config_start: true
+    )
+    allow(registry).to receive(:status).with("candles").and_return({ name: "candles", state: "running", pid: 432 })
+    allow(registry).to receive(:pid_alive?).with(432).and_return(true, true, false)
+    allow(registry).to receive(:delete).with("candles")
+    allow(Process).to receive(:kill).with("TERM", 432)
+    allow_any_instance_of(Tickrake::CLI).to receive(:sleep)
+    allow(starter).to receive(:start).with(
+      job_name: "candles",
+      config_path: "/tmp/custom.yml",
+      from_config_start: true,
+      provider_name: "ib_paper"
+    )
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["restart", "candles"])
+
+    expect(exit_code).to eq(0)
+    expect(stdout.string).to include("Waiting for candles job to finish its current work before restarting. This can take a bit.")
+    expect(stdout.string).to include("Stopped candles job")
+  end
+
+  it "lets restart flags override recorded job settings" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    registry = instance_double(Tickrake::JobRegistry)
+    starter = instance_double(Tickrake::BackgroundProcess)
+
+    allow(Tickrake::JobRegistry).to receive(:new).and_return(registry)
+    allow(Tickrake::BackgroundProcess).to receive(:new).with(stdout: stdout).and_return(starter)
+    allow(registry).to receive(:read).with("candles").and_return(
+      config_path: "/tmp/custom.yml",
+      provider_name: "old_provider",
+      from_config_start: false
+    )
+    allow(registry).to receive(:status).with("candles").and_return({ name: "candles", state: "stopped" })
+    allow(starter).to receive(:start).with(
+      job_name: "candles",
+      config_path: "/tmp/override.yml",
+      from_config_start: true,
+      provider_name: "new_provider"
+    )
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "restart",
+      "candles",
+      "--provider", "new_provider",
+      "--from-config-start",
+      "--config", "/tmp/override.yml"
+    ])
+
+    expect(exit_code).to eq(0)
+    expect(stdout.string).to include("candles job is not running.")
+  end
+
   it "reports job status" do
     stdout = StringIO.new
     stderr = StringIO.new
