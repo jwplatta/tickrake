@@ -182,6 +182,39 @@ RSpec.describe "job execution" do
     end
   end
 
+  it "uses an explicit expiration date for direct option runs" do
+    Dir.mktmpdir do |dir|
+      custom = config_with(
+        config,
+        options_dir: dir,
+        options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")]
+      )
+      client = instance_double("client")
+      allow(client).to receive(:get_option_expiration_chain)
+      allow(client).to receive(:get_option_chain).and_return(
+        instance_double("SchwabRb::DataObjects::OptionChain", underlying_price: 5100.5, call_opts: [], put_opts: [])
+      )
+      runtime = Tickrake::Runtime.new(
+        config: custom,
+        tracker: tracker,
+        client_factory: instance_double(Tickrake::ClientFactory, build: client),
+        logger: logger
+      )
+
+      Tickrake::OptionsJob.new(
+        runtime,
+        universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")],
+        expiration_date: Date.new(2026, 4, 11)
+      ).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
+
+      expect(client).not_to have_received(:get_option_expiration_chain)
+      expect(client).to have_received(:get_option_chain).with(
+        "$SPX",
+        hash_including(from_date: Date.new(2026, 4, 11), to_date: Date.new(2026, 4, 11))
+      )
+    end
+  end
+
   it "uses the configured lookback window when a candle file already exists" do
     Dir.mktmpdir do |dir|
       candle_entry = Tickrake::CandleSymbol.new(
@@ -205,6 +238,38 @@ RSpec.describe "job execution" do
 
       expect(provider).to have_received(:fetch_bars).with(
         hash_including(start_date: Date.new(2026, 4, 3), end_date: Date.new(2026, 4, 7))
+      )
+    end
+  end
+
+  it "uses explicit candle date overrides for direct runs even when a file already exists" do
+    Dir.mktmpdir do |dir|
+      candle_entry = Tickrake::CandleSymbol.new(
+        symbol: "SPY",
+        frequencies: ["day"],
+        start_date: Date.iso8601("2020-01-01"),
+        need_extended_hours_data: false,
+        need_previous_close: false
+      )
+      custom = config_with(config, history_dir: dir, candles_universe: [candle_entry], candle_lookback_days: 3)
+      existing_dir = File.join(dir, "schwab")
+      FileUtils.mkdir_p(existing_dir)
+      existing_path = File.join(existing_dir, "SPY_day.csv")
+      File.write(existing_path, "datetime,open,high,low,close,volume\n")
+      provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
+      provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
+      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger, provider_name: "schwab")
+      allow(provider).to receive(:fetch_bars).and_return([])
+
+      Tickrake::CandlesJob.new(
+        runtime,
+        universe: [candle_entry],
+        start_date_override: Date.new(2026, 4, 1),
+        end_date_override: Date.new(2026, 4, 6)
+      ).run(now: Time.utc(2026, 4, 10, 21, 10, 0))
+
+      expect(provider).to have_received(:fetch_bars).with(
+        hash_including(start_date: Date.new(2026, 4, 1), end_date: Date.new(2026, 4, 7), frequency: "day")
       )
     end
   end

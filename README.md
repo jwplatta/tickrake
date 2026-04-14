@@ -78,6 +78,8 @@ tickrake run candles --from-config-start
 tickrake run options --job
 tickrake run candles --job
 tickrake run options --verbose
+tickrake run candles --provider ibkr-paper --ticker SPY --start-date 2026-04-01 --end-date 2026-04-11 --frequency minute
+tickrake run options --provider schwab --ticker '$SPX' --expiration-date 2026-04-11 --option-root SPXW
 tickrake query --provider schwab
 tickrake query --type candles --provider ibkr-paper --ticker SPY
 tickrake query --type options --provider schwab --ticker '$SPX' --format json
@@ -130,6 +132,8 @@ Then select which configured provider to use on each command:
 ```bash
 tickrake run candles --provider ibkr-paper
 tickrake run options --provider schwab
+tickrake run candles --provider ibkr-paper --ticker SPY --start-date 2026-04-01 --end-date 2026-04-11 --frequency 30min
+tickrake run options --provider schwab --ticker '$SPX' --expiration-date 2026-04-11 --option-root SPXW
 tickrake start candles --provider ibkr-paper
 tickrake query --provider ibkr-paper
 ```
@@ -203,6 +207,11 @@ still requires a `schwab` provider and will raise an error otherwise.
 
 For candle collection, each symbol uses a `frequencies:` array. Supported values are `minute`, `5min`, `10min`, `15min`,
 `30min`, `day`, `week`, and `month`.
+
+For one-off direct candle fetches, you can bypass the configured candle universe and run a
+single request with `--ticker`, `--start-date`, `--end-date`, and `--frequency`.
+For one-off direct option fetches, you can bypass the configured options universe with
+`--ticker` and `--expiration-date`, plus optional `--option-root`.
 
 `candles.lookback_days` controls the normal recurring candle request window for
 existing files. If a symbol/frequency has no existing CSV yet, Tickrake uses the

@@ -2,15 +2,18 @@
 
 module Tickrake
   class CandlesJob
-    def initialize(runtime, from_config_start: false)
+    def initialize(runtime, from_config_start: false, universe: nil, start_date_override: nil, end_date_override: nil)
       @runtime = runtime
       @from_config_start = from_config_start
+      @universe = universe
+      @start_date_override = start_date_override
+      @end_date_override = end_date_override
     end
 
     def run(now: Time.now)
       @runtime.logger.info("Starting candle scrape at #{now.utc.iso8601}")
       provider = @runtime.provider_factory.build
-      @runtime.config.candles_universe.each do |entry|
+      selected_universe.each do |entry|
         entry.frequencies.each do |frequency|
           fetch_one(entry, frequency, provider, now)
         end
@@ -34,7 +37,7 @@ module Tickrake
       retries = 0
       begin
         start_date = request_start_date(entry, frequency, scheduled_for)
-        end_date = scheduled_for.to_date + 1
+        end_date = request_end_date(scheduled_for)
         path = storage_paths.candle_path(provider: provider.provider_name, symbol: entry.symbol, frequency: frequency)
         ranges = request_ranges(provider: provider, frequency: frequency, start_date: start_date, end_date: end_date)
         total_candles = 0
@@ -75,6 +78,7 @@ module Tickrake
     end
 
     def request_start_date(entry, frequency, scheduled_for)
+      return @start_date_override if @start_date_override
       return entry.start_date if @from_config_start
       return lookback_start_date(entry, scheduled_for) if ibkr_intraday_frequency?(frequency)
       return entry.start_date unless File.exist?(history_path(entry, frequency))
@@ -88,6 +92,10 @@ module Tickrake
 
     def storage_paths
       @storage_paths ||= Storage::Paths.new(@runtime.config)
+    end
+
+    def selected_universe
+      @universe || @runtime.config.candles_universe
     end
 
     def candle_reconciler
@@ -130,6 +138,12 @@ module Tickrake
         "week" => 365,
         "month" => 365
       }.fetch(frequency, nil)
+    end
+
+    def request_end_date(scheduled_for)
+      return @end_date_override + 1 if @end_date_override
+
+      scheduled_for.to_date + 1
     end
   end
 end
