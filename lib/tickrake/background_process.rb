@@ -41,6 +41,8 @@ module Tickrake
         command: args.join(" "),
         started_at: Time.now.utc.iso8601,
         config_path: Tickrake::PathSupport.expand_path(config_path),
+        provider_name: provider_name,
+        from_config_start: from_config_start,
         log_path: log_path
       )
 

@@ -63,6 +63,8 @@ tickrake init
 tickrake validate-config
 tickrake start options
 tickrake start candles
+tickrake restart options
+tickrake restart candles
 tickrake status
 tickrake stop options
 tickrake stop candles
@@ -228,6 +230,11 @@ Use `tickrake status` to see whether the `options` and `candles` jobs are runnin
 `tickrake stop options`, `tickrake stop candles`, or `tickrake stop all` to request a
 graceful shutdown. The long-running runners trap `TERM` and `INT`, finish the current
 iteration, and then exit.
+
+Use `tickrake restart options`, `tickrake restart candles`, or `tickrake restart all`
+to stop and relaunch background jobs. Restart reuses the last recorded config path,
+provider, and candle backfill flag for that job unless you pass explicit flags such as
+`--config`, `--provider`, or `--from-config-start`.
 
 Use `tickrake logs cli`, `tickrake logs options`, or `tickrake logs candles` to print
 the relevant log stream, and add `--tail 100` to inspect just the most recent lines.
