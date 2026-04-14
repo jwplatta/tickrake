@@ -6,8 +6,10 @@ module Tickrake
       SchwabRb::PriceHistory::Downloader.api_symbol(symbol)
     end
 
-    def initialize(runtime)
+    def initialize(runtime, universe: nil, expiration_date: nil)
       @runtime = runtime
+      @universe = universe
+      @expiration_date = expiration_date
     end
 
     def run(now: Time.now)
@@ -27,9 +29,11 @@ module Tickrake
     private
 
     def build_queue(client, base_date)
+      return build_direct_queue(base_date) if @expiration_date
+
       buckets = @runtime.config.dte_buckets.uniq.sort
 
-      @runtime.config.options_universe.flat_map do |entry|
+      selected_universe.flat_map do |entry|
         expiration_chain = fetch_expiration_chain(client, entry.symbol)
 
         buckets.filter_map do |bucket|
@@ -48,6 +52,19 @@ module Tickrake
             requested_buckets: [bucket]
           }
         end
+      end
+    end
+
+    def build_direct_queue(base_date)
+      requested_bucket = (@expiration_date - base_date).to_i
+
+      selected_universe.map do |entry|
+        {
+          symbol: entry.symbol,
+          option_root: entry.option_root,
+          expiration_date: @expiration_date,
+          requested_buckets: [requested_bucket]
+        }
       end
     end
 
@@ -112,6 +129,10 @@ module Tickrake
           end
         end
       end.each(&:join)
+    end
+
+    def selected_universe
+      @universe || @runtime.config.options_universe
     end
 
     def fetch_one(job, client, run_time)
@@ -227,11 +248,11 @@ module Tickrake
     end
 
     def storage_paths
-      @storage_paths ||= Tickrake::Storage::Paths.new(@runtime.config)
+      @storage_paths ||= Storage::Paths.new(@runtime.config)
     end
 
     def option_sample_writer
-      @option_sample_writer ||= Tickrake::Storage::OptionSampleWriter.new
+      @option_sample_writer ||= Storage::OptionSampleWriter.new
     end
   end
 end

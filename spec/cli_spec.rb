@@ -40,9 +40,55 @@ RSpec.describe Tickrake::CLI do
       stdout: stdout,
       log_path: Tickrake::PathSupport.candles_log_path
     ).and_return(runtime)
-    allow(Tickrake::CandlesJob).to receive(:new).with(runtime, from_config_start: false).and_return(job)
+    allow(Tickrake::CandlesJob).to receive(:new).with(
+      runtime,
+      from_config_start: false,
+      universe: nil,
+      start_date_override: nil,
+      end_date_override: nil
+    ).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles"])
+
+    expect(exit_code).to eq(0)
+    expect(stdout.string).to include("Completed one-off candle scrape.")
+  end
+
+  it "runs candles directly from explicit ticker arguments" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    runtime = instance_double(Tickrake::Runtime)
+    job = instance_double(Tickrake::CandlesJob, run: true)
+    config = instance_double(Tickrake::Config)
+
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
+    allow(Tickrake::Runtime).to receive(:new).with(
+      config: config,
+      provider_name: "ib_paper",
+      verbose: false,
+      stdout: stdout,
+      log_path: Tickrake::PathSupport.candles_log_path
+    ).and_return(runtime)
+    allow(Tickrake::CandlesJob).to receive(:new) do |_, **kwargs|
+      universe = kwargs.fetch(:universe)
+      expect(kwargs[:from_config_start]).to eq(false)
+      expect(kwargs[:start_date_override]).to eq(Date.new(2026, 4, 1))
+      expect(kwargs[:end_date_override]).to eq(Date.new(2026, 4, 11))
+      expect(universe.length).to eq(1)
+      expect(universe.first.symbol).to eq("SPY")
+      expect(universe.first.frequencies).to eq(["1min"])
+      job
+    end
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "run",
+      "candles",
+      "--provider", "ib_paper",
+      "--ticker", "SPY",
+      "--start-date", "2026-04-01",
+      "--end-date", "2026-04-11",
+      "--frequency", "minute"
+    ])
 
     expect(exit_code).to eq(0)
     expect(stdout.string).to include("Completed one-off candle scrape.")
@@ -62,7 +108,13 @@ RSpec.describe Tickrake::CLI do
       stdout: stdout,
       log_path: Tickrake::PathSupport.candles_log_path
     ).and_return(runtime)
-    allow(Tickrake::CandlesJob).to receive(:new).with(runtime, from_config_start: true).and_return(job)
+    allow(Tickrake::CandlesJob).to receive(:new).with(
+      runtime,
+      from_config_start: true,
+      universe: nil,
+      start_date_override: nil,
+      end_date_override: nil
+    ).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles", "--from-config-start"])
 
@@ -88,6 +140,43 @@ RSpec.describe Tickrake::CLI do
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "options", "--job"])
 
     expect(exit_code).to eq(0)
+  end
+
+  it "runs options directly from explicit ticker arguments" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    runtime = instance_double(Tickrake::Runtime)
+    job = instance_double(Tickrake::OptionsJob, run: true)
+    config = instance_double(Tickrake::Config)
+
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
+    allow(Tickrake::Runtime).to receive(:new).with(
+      config: config,
+      provider_name: "schwab",
+      verbose: false,
+      stdout: stdout,
+      log_path: Tickrake::PathSupport.options_log_path
+    ).and_return(runtime)
+    allow(Tickrake::OptionsJob).to receive(:new) do |_, **kwargs|
+      universe = kwargs.fetch(:universe)
+      expect(kwargs[:expiration_date]).to eq(Date.new(2026, 4, 11))
+      expect(universe.length).to eq(1)
+      expect(universe.first.symbol).to eq("$SPX")
+      expect(universe.first.option_root).to eq("SPXW")
+      job
+    end
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "run",
+      "options",
+      "--provider", "schwab",
+      "--ticker", "$SPX",
+      "--expiration-date", "2026-04-11",
+      "--option-root", "SPXW"
+    ])
+
+    expect(exit_code).to eq(0)
+    expect(stdout.string).to include("Completed one-off options scrape.")
   end
 
   it "starts the options background job" do
@@ -234,7 +323,13 @@ RSpec.describe Tickrake::CLI do
       stdout: stdout,
       log_path: Tickrake::PathSupport.candles_log_path
     ).and_return(runtime)
-    allow(Tickrake::CandlesJob).to receive(:new).with(runtime, from_config_start: false).and_return(job)
+    allow(Tickrake::CandlesJob).to receive(:new).with(
+      runtime,
+      from_config_start: false,
+      universe: nil,
+      start_date_override: nil,
+      end_date_override: nil
+    ).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles", "--verbose"])
 
@@ -256,7 +351,13 @@ RSpec.describe Tickrake::CLI do
       stdout: stdout,
       log_path: Tickrake::PathSupport.candles_log_path
     ).and_return(runtime)
-    allow(Tickrake::CandlesJob).to receive(:new).with(runtime, from_config_start: false).and_return(job)
+    allow(Tickrake::CandlesJob).to receive(:new).with(
+      runtime,
+      from_config_start: false,
+      universe: nil,
+      start_date_override: nil,
+      end_date_override: nil
+    ).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles", "--provider", "ib_paper"])
 
