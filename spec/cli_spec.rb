@@ -179,6 +179,27 @@ RSpec.describe Tickrake::CLI do
     expect(stdout.string).to include("Completed one-off options scrape.")
   end
 
+  it "renders storage stats from configured paths" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    config = instance_double(
+      Tickrake::Config,
+      data_dir: "/tmp/data",
+      history_dir: "/tmp/data/history",
+      options_dir: "/tmp/data/options",
+      sqlite_path: "/tmp/tickrake.sqlite3"
+    )
+    report = instance_double(Tickrake::Storage::StatsReport, render: "stats output")
+
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
+    allow(Tickrake::Storage::StatsReport).to receive(:new).with(config).and_return(report)
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["storage-stats"])
+
+    expect(exit_code).to eq(0)
+    expect(stdout.string).to include("stats output")
+  end
+
   it "starts the options background job" do
     stdout = StringIO.new
     stderr = StringIO.new
