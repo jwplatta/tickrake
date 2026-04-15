@@ -46,6 +46,8 @@ module Tickrake
       when "validate-config"
         @stdout.puts("Config valid: #{config_path}")
         0
+      when "storage-stats"
+        storage_stats_command(argv, config)
       when "start"
         start_subcommand(argv, config_path)
       when "run"
@@ -269,6 +271,13 @@ module Tickrake
         end_date: options[:end_date],
         format: options[:format]
       )
+      0
+    end
+
+    def storage_stats_command(argv, config)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+
+      @stdout.puts(Tickrake::Storage::StatsReport.new(config).render)
       0
     end
 
@@ -543,6 +552,7 @@ module Tickrake
           tickrake run options [--job] [--provider NAME] [--ticker SYMBOL --expiration-date YYYY-MM-DD [--option-root ROOT]] [--config path/to/tickrake.yml] [--verbose]
           tickrake run candles [--job] [--provider NAME] [--from-config-start] [--ticker SYMBOL --start-date YYYY-MM-DD --end-date YYYY-MM-DD --frequency FREQ] [--config path/to/tickrake.yml] [--verbose]
           tickrake query [--type candles|options] [--provider NAME] [--ticker SYMBOL] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--format text|json] [--config path/to/tickrake.yml]
+          tickrake storage-stats [--config path/to/tickrake.yml]
           tickrake status
           tickrake stop options|candles|all
           tickrake logs [cli|options|candles] [--tail N]
