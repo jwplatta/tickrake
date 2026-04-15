@@ -7,11 +7,10 @@ module Tickrake
         :dataset_type,
         :provider_name,
         :ticker,
-        :snapshot_count,
-        :first_observed_at,
-        :last_observed_at,
-        :latest_path,
-        :coverage,
+        :root_symbol,
+        :expiration_date,
+        :sample_datetime,
+        :file_path,
         keyword_init: true
       )
 
@@ -22,15 +21,15 @@ module Tickrake
       end
 
       def scan(provider_name: nil, ticker: nil, start_date: nil, end_date: nil)
-        requested_canonical = ticker && @symbol_normalizer.canonical(ticker)
+        requested_aliases = ticker && requested_aliases_for(ticker)
         provider_names(provider_name).flat_map do |selected_provider|
-          grouped_results_for(
+          snapshot_results_for(
             provider_name: selected_provider,
-            requested_canonical: requested_canonical,
+            requested_aliases: requested_aliases,
             start_date: start_date,
             end_date: end_date
           )
-        end.sort_by { |result| [result.provider_name, result.ticker] }
+        end.sort_by { |result| [result.provider_name, result.ticker, result.expiration_date, result.sample_datetime] }
       end
 
       private
@@ -41,36 +40,25 @@ module Tickrake
         @config.providers.keys.sort
       end
 
-      def grouped_results_for(provider_name:, requested_canonical:, start_date:, end_date:)
-        grouped = Hash.new { |hash, key| hash[key] = [] }
-
-        option_paths_for(provider_name).each do |path|
+      def snapshot_results_for(provider_name:, requested_aliases:, start_date:, end_date:)
+        option_paths_for(provider_name).filter_map do |path|
           metadata = metadata_for(path, provider_name: provider_name)
           next unless metadata
 
           canonical_ticker = resolve_canonical_ticker(metadata.fetch("ticker"))
-          next if requested_canonical && canonical_ticker != requested_canonical
+          next if requested_aliases && !requested_aliases.include?(canonical_ticker)
 
           observed_at = metadata["last_observed_at"]
           next unless within_window?(observed_at, start_date: start_date, end_date: end_date)
 
-          grouped[canonical_ticker] << {
-            path: path,
-            observed_at: observed_at
-          }
-        end
-
-        grouped.map do |canonical_ticker, samples|
-          sorted = samples.sort_by { |sample| sample.fetch(:observed_at) }
           Result.new(
             dataset_type: "options",
             provider_name: provider_name,
             ticker: canonical_ticker,
-            snapshot_count: samples.length,
-            first_observed_at: sorted.first.fetch(:observed_at),
-            last_observed_at: sorted.last.fetch(:observed_at),
-            latest_path: sorted.last.fetch(:path),
-            coverage: coverage_for(start_date: start_date, end_date: end_date, samples: sorted)
+            root_symbol: resolve_root_symbol(metadata.fetch("ticker")),
+            expiration_date: metadata.fetch("expiration_date"),
+            sample_datetime: observed_at,
+            file_path: path
           )
         end
       end
@@ -84,14 +72,17 @@ module Tickrake
 
       def metadata_for(path, provider_name:)
         stat = File.stat(path)
+        parsed = parse_path(path)
+        return nil unless parsed
+
         cached = @tracker.file_metadata(path)
-        return cached if cache_hit?(cached, stat)
+        if cache_hit?(cached, stat)
+          return cached.merge(
+            "expiration_date" => parsed.fetch(:expiration_date)
+          )
+        end
 
-        basename = File.basename(path, ".csv")
-        match = /\A(?<ticker>.+)_exp\d{4}-\d{2}-\d{2}_(?<sampled_at>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\z/.match(basename)
-        return nil unless match
-
-        sampled_at = DateTime.strptime(match[:sampled_at], "%Y-%m-%d_%H-%M-%S")
+        sampled_at = parsed.fetch(:sampled_at)
         observed_at = Time.utc(
           sampled_at.year,
           sampled_at.month,
@@ -104,7 +95,7 @@ module Tickrake
           path: path,
           dataset_type: "options",
           provider_name: provider_name,
-          ticker: match[:ticker],
+          ticker: parsed.fetch(:ticker),
           frequency: nil,
           row_count: 1,
           first_observed_at: observed_at,
@@ -113,7 +104,9 @@ module Tickrake
           file_size: stat.size,
           updated_at: Time.now
         )
-        @tracker.file_metadata(path)
+        @tracker.file_metadata(path).merge(
+          "expiration_date" => parsed.fetch(:expiration_date)
+        )
       end
 
       def cache_hit?(cached, stat)
@@ -133,6 +126,43 @@ module Tickrake
         token
       end
 
+      def resolve_root_symbol(storage_token)
+        token = storage_token.to_s.upcase
+        matched = @config.options_universe.find do |entry|
+          @symbol_normalizer.storage_token(entry.symbol) == token ||
+            (entry.option_root && @symbol_normalizer.storage_token(entry.option_root) == token)
+        end
+        return @symbol_normalizer.canonical(matched.option_root) if matched&.option_root
+
+        token
+      end
+
+      def parse_path(path)
+        basename = File.basename(path, ".csv")
+        match = /\A(?<ticker>.+)_exp(?<expiration_date>\d{4}-\d{2}-\d{2})_(?<sampled_at>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\z/.match(basename)
+        return nil unless match
+
+        {
+          ticker: match[:ticker],
+          expiration_date: match[:expiration_date],
+          sampled_at: DateTime.strptime(match[:sampled_at], "%Y-%m-%d_%H-%M-%S")
+        }
+      end
+
+      def requested_aliases_for(ticker)
+        canonical = @symbol_normalizer.canonical(ticker)
+        aliases = [canonical]
+        matched = @config.options_universe.find do |entry|
+          @symbol_normalizer.same_symbol?(entry.symbol, ticker) ||
+            (entry.option_root && @symbol_normalizer.same_symbol?(entry.option_root, ticker))
+        end
+        if matched
+          aliases << @symbol_normalizer.canonical(matched.symbol)
+          aliases << @symbol_normalizer.canonical(matched.option_root) if matched.option_root
+        end
+        aliases.compact.uniq
+      end
+
       def within_window?(observed_at, start_date:, end_date:)
         return true unless start_date || end_date
 
@@ -141,19 +171,6 @@ module Tickrake
         return false if end_date && observed_date > end_date
 
         true
-      end
-
-      def coverage_for(start_date:, end_date:, samples:)
-        return "all" unless start_date || end_date
-
-        first_date = Time.iso8601(samples.first.fetch(:observed_at)).utc.to_date
-        last_date = Time.iso8601(samples.last.fetch(:observed_at)).utc.to_date
-        requested_start = start_date || first_date
-        requested_end = end_date || last_date
-
-        return "full" if first_date <= requested_start && last_date >= requested_end
-
-        "partial"
       end
     end
   end
