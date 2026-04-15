@@ -86,6 +86,77 @@ tickrake query --type options --provider schwab --ticker '$SPX' --format json
 tickrake storage-stats
 ```
 
+## MCP Server
+
+`tickrake` now includes a simple stdio MCP server so MCP clients such as Claude can inspect
+the local Tickrake installation without shelling out to the CLI.
+
+Start it with:
+
+```bash
+bundle exec exe/tickrake_mcp
+```
+
+The initial MCP tool surface is intentionally small and mostly read-only:
+
+- `help_tool`
+- `validate_config_tool`
+- `status_tool`
+- `search_datasets_tool`
+- `storage_stats_tool`
+- `logs_tool`
+- `start_job_tool`
+- `stop_job_tool`
+- `restart_job_tool`
+
+These tools map to the same underlying library code used by the CLI for config loading,
+job inspection, dataset discovery, storage summaries, log access, and scheduler lifecycle
+management. `search_datasets_tool` returns dataset metadata only; it does not return raw
+market data rows.
+
+Typical workflow:
+
+1. Start the server with `bundle exec exe/tickrake_mcp`.
+2. Call `validate_config_tool` to confirm the active config and storage paths.
+3. Use `search_datasets_tool` to discover candle files or option snapshots.
+4. Use `status_tool`, `logs_tool`, `start_job_tool`, `stop_job_tool`, and `restart_job_tool` to manage the schedulers.
+
+Example MCP calls:
+
+```json
+{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"validate_config_tool","arguments":{}}}
+```
+
+```json
+{"jsonrpc":"2.0","id":"2","method":"tools/call","params":{"name":"search_datasets_tool","arguments":{"type":"candles","provider":"ibkr-paper","ticker":"SPX","frequency":"all"}}}
+```
+
+```json
+{"jsonrpc":"2.0","id":"3","method":"tools/call","params":{"name":"search_datasets_tool","arguments":{"type":"options","provider":"schwab","ticker":"SPXW"}}}
+```
+
+```json
+{"jsonrpc":"2.0","id":"4","method":"tools/call","params":{"name":"status_tool","arguments":{}}}
+```
+
+```json
+{"jsonrpc":"2.0","id":"5","method":"tools/call","params":{"name":"logs_tool","arguments":{"target":"options"}}}
+```
+
+Example Claude Desktop MCP entry:
+
+```json
+{
+  "mcpServers": {
+    "tickrake": {
+      "command": "bundle",
+      "args": ["exec", "exe/tickrake_mcp"],
+      "cwd": "/Users/jplatta/repos/tickrake"
+    }
+  }
+}
+```
+
 ## Storage
 
 - Market data root: `~/.tickrake/data`

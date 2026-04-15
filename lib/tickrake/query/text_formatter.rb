@@ -37,11 +37,12 @@ module Tickrake
               lines << ""
             end
           else
-            result = grouped.first
-            lines << "- snapshots: #{result.snapshot_count}"
-            lines << "  available: #{result.first_observed_at} -> #{result.last_observed_at}"
-            lines << "  latest_path: #{result.latest_path}"
-            lines << ""
+            grouped.each do |result|
+              lines << "- #{result.root_symbol} exp #{result.expiration_date}"
+              lines << "  sample_datetime: #{result.sample_datetime}"
+              lines << "  file_path: #{result.file_path}"
+              lines << ""
+            end
           end
         end
 

@@ -77,7 +77,7 @@ RSpec.describe "query engine" do
     end
   end
 
-  it "groups option snapshot files by canonical ticker through option-root aliases" do
+  it "lists option snapshots with parsed metadata through option-root aliases" do
     Dir.mktmpdir do |dir|
       history_dir = File.join(dir, "history")
       options_dir = File.join(dir, "options")
@@ -91,11 +91,33 @@ RSpec.describe "query engine" do
 
       results = scanner.scan(provider_name: "schwab", ticker: "$SPX")
 
+      expect(results.length).to eq(2)
+      expect(results.first.ticker).to eq("SPX")
+      expect(results.first.root_symbol).to eq("SPXW")
+      expect(results.first.expiration_date).to eq("2026-04-17")
+      expect(results.first.sample_datetime).to eq("2026-04-10T14:30:00Z")
+      expect(results.first.file_path).to include("SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
+      expect(results.last.expiration_date).to eq("2026-04-18")
+    end
+  end
+
+  it "allows option searches by option-root alias" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      File.write(File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
+      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      scanner = Tickrake::Query::OptionsScanner.new(config: config, tracker: tracker)
+
+      results = scanner.scan(provider_name: "schwab", ticker: "SPXW")
+
       expect(results.length).to eq(1)
       expect(results.first.ticker).to eq("SPX")
-      expect(results.first.snapshot_count).to eq(2)
-      expect(results.first.first_observed_at).to eq("2026-04-10T14:30:00Z")
-      expect(results.first.last_observed_at).to eq("2026-04-11T14:30:00Z")
+      expect(results.first.root_symbol).to eq("SPXW")
+      expect(results.first.expiration_date).to eq("2026-04-17")
     end
   end
 
@@ -131,16 +153,15 @@ RSpec.describe "query engine" do
     expect(JSON.parse(json).fetch("results").first.fetch("path")).to eq("/tmp/SPY_1min.csv")
   end
 
-  it "omits coverage from text-formatted options summaries" do
+  it "formats snapshot-level options metadata without coverage" do
     option_result = Tickrake::Query::OptionsScanner::Result.new(
       dataset_type: "options",
       provider_name: "schwab",
       ticker: "SPX",
-      snapshot_count: 12,
-      first_observed_at: "2026-04-01T14:30:00Z",
-      last_observed_at: "2026-04-10T20:04:33Z",
-      latest_path: "/tmp/SPXW_exp2026-04-10_2026-04-10_20-04-33.csv",
-      coverage: "all"
+      root_symbol: "SPXW",
+      expiration_date: "2026-04-10",
+      sample_datetime: "2026-04-10T20:04:33Z",
+      file_path: "/tmp/SPXW_exp2026-04-10_2026-04-10_20-04-33.csv"
     )
 
     text = Tickrake::Query::TextFormatter.new.format(
@@ -151,7 +172,9 @@ RSpec.describe "query engine" do
     expect(text).to include("Provider: schwab")
     expect(text).to include("Type: options")
     expect(text).to include("Ticker: SPX")
-    expect(text).to include("- snapshots: 12")
+    expect(text).to include("- SPXW exp 2026-04-10")
+    expect(text).to include("sample_datetime: 2026-04-10T20:04:33Z")
+    expect(text).to include("file_path: /tmp/SPXW_exp2026-04-10_2026-04-10_20-04-33.csv")
     expect(text).not_to include("coverage:")
   end
 end
