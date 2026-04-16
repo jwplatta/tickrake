@@ -89,10 +89,12 @@ module Tickrake
 
         Tickrake::OptionsMonitorRunner.new(runtime).run
       else
+        progress_reporter = build_options_progress_reporter(runtime, options)
         job = Tickrake::OptionsJob.new(
           runtime,
           universe: direct_options_universe(options),
-          expiration_date: options[:expiration_date]
+          expiration_date: options[:expiration_date],
+          progress_reporter: progress_reporter
         )
         job.run
         @stdout.puts("Completed one-off options scrape.")
@@ -120,7 +122,8 @@ module Tickrake
           from_config_start: options[:from_config_start],
           universe: direct_candles_universe(options),
           start_date_override: options[:start_date],
-          end_date_override: options[:end_date]
+          end_date_override: options[:end_date],
+          progress_output: @stdout
         )
         job.run
         @stdout.puts("Completed one-off candle scrape.")
@@ -257,6 +260,13 @@ module Tickrake
         need_extended_hours_data: false,
         need_previous_close: false
       )]
+    end
+
+    def build_options_progress_reporter(runtime, options)
+      return if direct_options_run?(options)
+
+      total = runtime.config.options_universe.length * runtime.config.dte_buckets.uniq.length
+      Tickrake::ProgressReporter.build(total: total, title: "Options", output: @stdout)
     end
 
     def query_command(argv, config)

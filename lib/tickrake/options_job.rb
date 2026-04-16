@@ -6,10 +6,11 @@ module Tickrake
       SchwabRb::PriceHistory::Downloader.api_symbol(symbol)
     end
 
-    def initialize(runtime, universe: nil, expiration_date: nil)
+    def initialize(runtime, universe: nil, expiration_date: nil, progress_reporter: nil)
       @runtime = runtime
       @universe = universe
       @expiration_date = expiration_date
+      @progress_reporter = progress_reporter
     end
 
     def run(now: Time.now)
@@ -23,6 +24,7 @@ module Tickrake
       queue = build_queue(client, run_time.to_date)
       @runtime.logger.info("Resolved #{queue.length} option fetch tasks.")
       process_queue(queue, client, run_time)
+      @progress_reporter&.finish
       @runtime.logger.info("Completed options scrape at #{Time.now.utc.iso8601}")
     end
 
@@ -165,6 +167,7 @@ module Tickrake
         path = result.fetch(:path)
         @runtime.logger.info("Wrote option chain for #{job.fetch(:symbol)} to #{path}")
         @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
+        @progress_reporter&.advance(title: option_progress_title(job))
       rescue StandardError => e
         retries += 1
         if retries <= @runtime.config.retry_count
@@ -174,7 +177,12 @@ module Tickrake
         end
         @runtime.logger.error("Failed option fetch for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}: #{e.message}")
         @runtime.tracker.record_finish(id: id, status: "failed", finished_at: Time.now, error_message: e.message)
+        @progress_reporter&.advance(title: "#{option_progress_title(job)} failed")
       end
+    end
+
+    def option_progress_title(job)
+      [job.fetch(:symbol), job[:option_root], job.fetch(:expiration_date).iso8601].compact.reject(&:empty?).join(" ")
     end
 
     def write_option_chain(client:, symbol:, expiration_date:, timestamp:, root:)

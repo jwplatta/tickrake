@@ -31,10 +31,11 @@ RSpec.describe Tickrake::CLI do
     stderr = StringIO.new
     runtime = instance_double(Tickrake::Runtime)
     job = instance_double(Tickrake::CandlesJob, run: true)
+    config = instance_double(Tickrake::Config)
 
-    allow(Tickrake::ConfigLoader).to receive(:load).and_return(instance_double(Tickrake::Config))
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
     allow(Tickrake::Runtime).to receive(:new).with(
-      config: anything,
+      config: config,
       provider_name: nil,
       verbose: false,
       stdout: stdout,
@@ -45,7 +46,8 @@ RSpec.describe Tickrake::CLI do
       from_config_start: false,
       universe: nil,
       start_date_override: nil,
-      end_date_override: nil
+      end_date_override: nil,
+      progress_output: stdout
     ).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles"])
@@ -74,6 +76,7 @@ RSpec.describe Tickrake::CLI do
       expect(kwargs[:from_config_start]).to eq(false)
       expect(kwargs[:start_date_override]).to eq(Date.new(2026, 4, 1))
       expect(kwargs[:end_date_override]).to eq(Date.new(2026, 4, 11))
+      expect(kwargs[:progress_output]).to eq(stdout)
       expect(universe.length).to eq(1)
       expect(universe.first.symbol).to eq("SPY")
       expect(universe.first.frequencies).to eq(["1min"])
@@ -99,10 +102,11 @@ RSpec.describe Tickrake::CLI do
     stderr = StringIO.new
     runtime = instance_double(Tickrake::Runtime)
     job = instance_double(Tickrake::CandlesJob, run: true)
+    config = instance_double(Tickrake::Config)
 
-    allow(Tickrake::ConfigLoader).to receive(:load).and_return(instance_double(Tickrake::Config))
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
     allow(Tickrake::Runtime).to receive(:new).with(
-      config: anything,
+      config: config,
       provider_name: nil,
       verbose: false,
       stdout: stdout,
@@ -113,7 +117,8 @@ RSpec.describe Tickrake::CLI do
       from_config_start: true,
       universe: nil,
       start_date_override: nil,
-      end_date_override: nil
+      end_date_override: nil,
+      progress_output: stdout
     ).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles", "--from-config-start"])
@@ -157,9 +162,11 @@ RSpec.describe Tickrake::CLI do
       stdout: stdout,
       log_path: Tickrake::PathSupport.options_log_path
     ).and_return(runtime)
+    expect(Tickrake::ProgressReporter).not_to receive(:build)
     allow(Tickrake::OptionsJob).to receive(:new) do |_, **kwargs|
       universe = kwargs.fetch(:universe)
       expect(kwargs[:expiration_date]).to eq(Date.new(2026, 4, 11))
+      expect(kwargs[:progress_reporter]).to be_nil
       expect(universe.length).to eq(1)
       expect(universe.first.symbol).to eq("$SPX")
       expect(universe.first.option_root).to eq("SPXW")
@@ -349,7 +356,8 @@ RSpec.describe Tickrake::CLI do
       from_config_start: false,
       universe: nil,
       start_date_override: nil,
-      end_date_override: nil
+      end_date_override: nil,
+      progress_output: stdout
     ).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles", "--verbose"])
@@ -377,10 +385,45 @@ RSpec.describe Tickrake::CLI do
       from_config_start: false,
       universe: nil,
       start_date_override: nil,
-      end_date_override: nil
+      end_date_override: nil,
+      progress_output: stdout
     ).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles", "--provider", "ib_paper"])
+
+    expect(exit_code).to eq(0)
+  end
+
+  it "builds aggregate options progress only for full one-off runs" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    runtime = instance_double(Tickrake::Runtime)
+    progress_reporter = instance_double(Tickrake::ProgressReporter)
+    job = instance_double(Tickrake::OptionsJob, run: true)
+    config = instance_double(
+      Tickrake::Config,
+      options_universe: [double("opt1"), double("opt2")],
+      dte_buckets: [0, 1, 1]
+    )
+
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
+    allow(Tickrake::Runtime).to receive(:new).with(
+      config: config,
+      provider_name: nil,
+      verbose: false,
+      stdout: stdout,
+      log_path: Tickrake::PathSupport.options_log_path
+    ).and_return(runtime)
+    allow(runtime).to receive(:config).and_return(config)
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 4, title: "Options", output: stdout).and_return(progress_reporter)
+    allow(Tickrake::OptionsJob).to receive(:new).with(
+      runtime,
+      universe: nil,
+      expiration_date: nil,
+      progress_reporter: progress_reporter
+    ).and_return(job)
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "options"])
 
     expect(exit_code).to eq(0)
   end
