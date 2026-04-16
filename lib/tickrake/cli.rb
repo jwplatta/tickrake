@@ -89,10 +89,12 @@ module Tickrake
 
         Tickrake::OptionsMonitorRunner.new(runtime).run
       else
+        progress_reporter = build_options_progress_reporter(runtime, options)
         job = Tickrake::OptionsJob.new(
           runtime,
           universe: direct_options_universe(options),
-          expiration_date: options[:expiration_date]
+          expiration_date: options[:expiration_date],
+          progress_reporter: progress_reporter
         )
         job.run
         @stdout.puts("Completed one-off options scrape.")
@@ -115,12 +117,14 @@ module Tickrake
 
         Tickrake::EodCandlesRunner.new(runtime, from_config_start: options[:from_config_start]).run
       else
+        progress_reporter = build_candles_progress_reporter(config, options)
         job = Tickrake::CandlesJob.new(
           runtime,
           from_config_start: options[:from_config_start],
           universe: direct_candles_universe(options),
           start_date_override: options[:start_date],
-          end_date_override: options[:end_date]
+          end_date_override: options[:end_date],
+          progress_reporter: progress_reporter
         )
         job.run
         @stdout.puts("Completed one-off candle scrape.")
@@ -257,6 +261,22 @@ module Tickrake
         need_extended_hours_data: false,
         need_previous_close: false
       )]
+    end
+
+    def build_options_progress_reporter(runtime, options)
+      total =
+        if direct_options_run?(options)
+          direct_options_universe(options).length
+        else
+          runtime.config.options_universe.length * runtime.config.dte_buckets.uniq.length
+        end
+      Tickrake::ProgressReporter.build(total: total, title: "Options", output: @stdout)
+    end
+
+    def build_candles_progress_reporter(config, options)
+      universe = direct_candles_universe(options) || config.candles_universe
+      total = universe.sum { |entry| entry.frequencies.length }
+      Tickrake::ProgressReporter.build(total: total, title: "Candles", output: @stdout)
     end
 
     def query_command(argv, config)

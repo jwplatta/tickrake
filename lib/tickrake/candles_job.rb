@@ -2,12 +2,13 @@
 
 module Tickrake
   class CandlesJob
-    def initialize(runtime, from_config_start: false, universe: nil, start_date_override: nil, end_date_override: nil)
+    def initialize(runtime, from_config_start: false, universe: nil, start_date_override: nil, end_date_override: nil, progress_reporter: nil)
       @runtime = runtime
       @from_config_start = from_config_start
       @universe = universe
       @start_date_override = start_date_override
       @end_date_override = end_date_override
+      @progress_reporter = progress_reporter
     end
 
     def run(now: Time.now)
@@ -18,6 +19,7 @@ module Tickrake
           fetch_one(entry, frequency, provider, now)
         end
       end
+      @progress_reporter&.finish
       @runtime.logger.info("Completed candle scrape at #{Time.now.utc.iso8601}")
     end
 
@@ -65,6 +67,7 @@ module Tickrake
           "Wrote #{frequency} candles for #{entry.symbol} to #{path} (requested #{start_date.iso8601} to #{end_date.iso8601}, #{total_candles} rows)"
         )
         @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
+        @progress_reporter&.advance(title: "#{entry.symbol} #{frequency}")
       rescue StandardError => e
         retries += 1
         if retries <= @runtime.config.retry_count
@@ -74,6 +77,7 @@ module Tickrake
         end
         @runtime.logger.error("Failed candle fetch for #{entry.symbol} #{frequency}: #{e.message}")
         @runtime.tracker.record_finish(id: id, status: "failed", finished_at: Time.now, error_message: e.message)
+        @progress_reporter&.advance(title: "#{entry.symbol} #{frequency} failed")
       end
     end
 

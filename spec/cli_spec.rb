@@ -31,21 +31,25 @@ RSpec.describe Tickrake::CLI do
     stderr = StringIO.new
     runtime = instance_double(Tickrake::Runtime)
     job = instance_double(Tickrake::CandlesJob, run: true)
+    progress_reporter = instance_double(Tickrake::ProgressReporter)
+    config = instance_double(Tickrake::Config, candles_universe: [])
 
-    allow(Tickrake::ConfigLoader).to receive(:load).and_return(instance_double(Tickrake::Config))
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
     allow(Tickrake::Runtime).to receive(:new).with(
-      config: anything,
+      config: config,
       provider_name: nil,
       verbose: false,
       stdout: stdout,
       log_path: Tickrake::PathSupport.candles_log_path
     ).and_return(runtime)
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 0, title: "Candles", output: stdout).and_return(progress_reporter)
     allow(Tickrake::CandlesJob).to receive(:new).with(
       runtime,
       from_config_start: false,
       universe: nil,
       start_date_override: nil,
-      end_date_override: nil
+      end_date_override: nil,
+      progress_reporter: progress_reporter
     ).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles"])
@@ -60,6 +64,7 @@ RSpec.describe Tickrake::CLI do
     runtime = instance_double(Tickrake::Runtime)
     job = instance_double(Tickrake::CandlesJob, run: true)
     config = instance_double(Tickrake::Config)
+    progress_reporter = instance_double(Tickrake::ProgressReporter)
 
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
     allow(Tickrake::Runtime).to receive(:new).with(
@@ -69,11 +74,13 @@ RSpec.describe Tickrake::CLI do
       stdout: stdout,
       log_path: Tickrake::PathSupport.candles_log_path
     ).and_return(runtime)
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 1, title: "Candles", output: stdout).and_return(progress_reporter)
     allow(Tickrake::CandlesJob).to receive(:new) do |_, **kwargs|
       universe = kwargs.fetch(:universe)
       expect(kwargs[:from_config_start]).to eq(false)
       expect(kwargs[:start_date_override]).to eq(Date.new(2026, 4, 1))
       expect(kwargs[:end_date_override]).to eq(Date.new(2026, 4, 11))
+      expect(kwargs[:progress_reporter]).to eq(progress_reporter)
       expect(universe.length).to eq(1)
       expect(universe.first.symbol).to eq("SPY")
       expect(universe.first.frequencies).to eq(["1min"])
@@ -99,21 +106,25 @@ RSpec.describe Tickrake::CLI do
     stderr = StringIO.new
     runtime = instance_double(Tickrake::Runtime)
     job = instance_double(Tickrake::CandlesJob, run: true)
+    progress_reporter = instance_double(Tickrake::ProgressReporter)
+    config = instance_double(Tickrake::Config, candles_universe: [])
 
-    allow(Tickrake::ConfigLoader).to receive(:load).and_return(instance_double(Tickrake::Config))
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
     allow(Tickrake::Runtime).to receive(:new).with(
-      config: anything,
+      config: config,
       provider_name: nil,
       verbose: false,
       stdout: stdout,
       log_path: Tickrake::PathSupport.candles_log_path
     ).and_return(runtime)
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 0, title: "Candles", output: stdout).and_return(progress_reporter)
     allow(Tickrake::CandlesJob).to receive(:new).with(
       runtime,
       from_config_start: true,
       universe: nil,
       start_date_override: nil,
-      end_date_override: nil
+      end_date_override: nil,
+      progress_reporter: progress_reporter
     ).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles", "--from-config-start"])
@@ -148,6 +159,7 @@ RSpec.describe Tickrake::CLI do
     runtime = instance_double(Tickrake::Runtime)
     job = instance_double(Tickrake::OptionsJob, run: true)
     config = instance_double(Tickrake::Config)
+    progress_reporter = instance_double(Tickrake::ProgressReporter)
 
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
     allow(Tickrake::Runtime).to receive(:new).with(
@@ -157,9 +169,11 @@ RSpec.describe Tickrake::CLI do
       stdout: stdout,
       log_path: Tickrake::PathSupport.options_log_path
     ).and_return(runtime)
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 1, title: "Options", output: stdout).and_return(progress_reporter)
     allow(Tickrake::OptionsJob).to receive(:new) do |_, **kwargs|
       universe = kwargs.fetch(:universe)
       expect(kwargs[:expiration_date]).to eq(Date.new(2026, 4, 11))
+      expect(kwargs[:progress_reporter]).to eq(progress_reporter)
       expect(universe.length).to eq(1)
       expect(universe.first.symbol).to eq("$SPX")
       expect(universe.first.option_root).to eq("SPXW")
@@ -334,7 +348,8 @@ RSpec.describe Tickrake::CLI do
     stderr = StringIO.new
     runtime = instance_double(Tickrake::Runtime)
     job = instance_double(Tickrake::CandlesJob, run: true)
-    config = instance_double(Tickrake::Config)
+    config = instance_double(Tickrake::Config, candles_universe: [])
+    progress_reporter = instance_double(Tickrake::ProgressReporter)
 
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
     allow(Tickrake::Runtime).to receive(:new).with(
@@ -344,12 +359,14 @@ RSpec.describe Tickrake::CLI do
       stdout: stdout,
       log_path: Tickrake::PathSupport.candles_log_path
     ).and_return(runtime)
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 0, title: "Candles", output: stdout).and_return(progress_reporter)
     allow(Tickrake::CandlesJob).to receive(:new).with(
       runtime,
       from_config_start: false,
       universe: nil,
       start_date_override: nil,
-      end_date_override: nil
+      end_date_override: nil,
+      progress_reporter: progress_reporter
     ).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles", "--verbose"])
@@ -362,7 +379,8 @@ RSpec.describe Tickrake::CLI do
     stderr = StringIO.new
     runtime = instance_double(Tickrake::Runtime)
     job = instance_double(Tickrake::CandlesJob, run: true)
-    config = instance_double(Tickrake::Config)
+    config = instance_double(Tickrake::Config, candles_universe: [])
+    progress_reporter = instance_double(Tickrake::ProgressReporter)
 
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
     allow(Tickrake::Runtime).to receive(:new).with(
@@ -372,12 +390,14 @@ RSpec.describe Tickrake::CLI do
       stdout: stdout,
       log_path: Tickrake::PathSupport.candles_log_path
     ).and_return(runtime)
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 0, title: "Candles", output: stdout).and_return(progress_reporter)
     allow(Tickrake::CandlesJob).to receive(:new).with(
       runtime,
       from_config_start: false,
       universe: nil,
       start_date_override: nil,
-      end_date_override: nil
+      end_date_override: nil,
+      progress_reporter: progress_reporter
     ).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "candles", "--provider", "ib_paper"])
