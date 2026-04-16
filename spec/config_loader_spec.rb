@@ -104,6 +104,56 @@ RSpec.describe Tickrake::ConfigLoader do
     end
   end
 
+  it "loads per-symbol provider overrides" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "overrides.yml")
+      File.write(path, <<~YAML)
+        default_provider: ibkr-paper
+        providers:
+          schwab:
+            adapter: schwab
+          ibkr-paper:
+            adapter: ibkr
+            settings:
+              host: 127.0.0.1
+        schedule:
+          options_monitor:
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+          eod_candles:
+            run_at: "16:10"
+            days: [mon]
+        options:
+          universe:
+            - symbol: $SPX
+              option_root: SPXW
+              provider: schwab
+            - symbol: SPY
+        candles:
+          universe:
+            - symbol: /ES
+              provider: schwab
+              start_date: "2020-01-01"
+              frequencies: [day]
+            - symbol: SPY
+              start_date: "2020-01-01"
+              frequencies: [day]
+      YAML
+
+      config = described_class.load(path)
+
+      expect(config.options_universe.map(&:provider)).to eq(["schwab", nil])
+      expect(config.candles_universe.map(&:provider)).to eq(["schwab", nil])
+      expect(config.provider_name_for_entry(config.options_universe.first)).to eq("schwab")
+      expect(config.provider_name_for_entry(config.options_universe.last)).to eq("ibkr-paper")
+      expect(config.provider_name_for_entry(config.candles_universe.first)).to eq("schwab")
+      expect(config.provider_name_for_entry(config.candles_universe.last)).to eq("ibkr-paper")
+    end
+  end
+
   it "loads per-provider symbol maps" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "symbols.yml")
@@ -305,6 +355,39 @@ RSpec.describe Tickrake::ConfigLoader do
       YAML
 
       expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /default_provider/)
+    end
+  end
+
+  it "rejects unknown per-symbol provider overrides" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "unknown-entry-provider.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        schedule:
+          options_monitor:
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+          eod_candles:
+            run_at: "16:10"
+            days: [mon]
+        options:
+          universe:
+            - symbol: SPY
+              provider: ibkr-paper
+        candles:
+          universe:
+            - symbol: SPY
+              start_date: "2020-01-01"
+              frequencies: [day]
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Unknown provider `ibkr-paper`/)
     end
   end
 

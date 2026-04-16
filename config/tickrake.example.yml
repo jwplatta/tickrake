@@ -52,12 +52,14 @@ options:
   universe:
     - symbol: $SPX
       option_root: SPXW
+      provider: schwab
     - symbol: SPY
     - symbol: QQQ
 candles:
   lookback_days: 7
   universe:
     - symbol: $SPX
+      provider: ibkr-paper
       start_date: "2020-01-01"
       frequencies: [day, 30min, 10min, 5min, minute]
     - symbol: SPY

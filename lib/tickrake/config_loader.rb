@@ -45,12 +45,13 @@ module Tickrake
       end
 
       options_universe = Array(dig(data, "options", "universe", [])).map do |row|
-        OptionSymbol.new(symbol: row.fetch("symbol"), option_root: row["option_root"])
+        OptionSymbol.new(symbol: row.fetch("symbol"), option_root: row["option_root"], provider: row["provider"])
       end
 
       candles_universe = Array(candles_config.fetch("universe", [])).map do |row|
         CandleSymbol.new(
           symbol: row.fetch("symbol"),
+          provider: row["provider"],
           frequencies: Array(row.fetch("frequencies")).map { |value| normalize_frequency(value) }.uniq,
           start_date: Date.iso8601(row.fetch("start_date")),
           need_extended_hours_data: !!row.fetch("need_extended_hours_data", false),
@@ -97,6 +98,8 @@ module Tickrake
         raise ConfigError, "Unsupported provider adapter: #{provider.adapter}" unless VALID_ADAPTERS.include?(provider.adapter)
       end
       config.provider_definition(config.default_provider_name)
+      config.options_universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
+      config.candles_universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
       raise ConfigError, "At least one options monitor window is required." if config.options_windows.empty?
       raise ConfigError, "At least one options universe symbol is required." if config.options_universe.empty?
       raise ConfigError, "At least one candle universe symbol is required." if config.candles_universe.empty?

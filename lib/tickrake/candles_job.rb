@@ -13,10 +13,11 @@ module Tickrake
 
     def run(now: Time.now)
       @runtime.logger.info("Starting candle scrape at #{now.utc.iso8601}")
-      provider = @runtime.provider_factory.build
       selected_universe.each do |entry|
+        provider = provider_for(entry)
+        provider_definition = provider_definition_for(entry)
         entry.frequencies.each do |frequency|
-          fetch_one(entry, frequency, provider, now)
+          fetch_one(entry, frequency, provider, provider_definition, now)
         end
       end
       @runtime.logger.info("Completed candle scrape at #{Time.now.utc.iso8601}")
@@ -24,8 +25,8 @@ module Tickrake
 
     private
 
-    def fetch_one(entry, frequency, provider, scheduled_for)
-      canonical_symbol = canonical_symbol_for(entry.symbol)
+    def fetch_one(entry, frequency, provider, provider_definition, scheduled_for)
+      canonical_symbol = canonical_symbol_for(entry.symbol, provider_definition)
       @runtime.logger.info("Fetching #{frequency} candles for #{entry.symbol}")
       id = @runtime.tracker.record_start(
         job_type: "eod_candles",
@@ -38,7 +39,7 @@ module Tickrake
 
       retries = 0
       begin
-        start_date = request_start_date(entry, frequency, scheduled_for)
+        start_date = request_start_date(entry, frequency, provider_definition, scheduled_for)
         end_date = request_end_date(scheduled_for)
         path = storage_paths.candle_path(provider: provider.provider_name, symbol: canonical_symbol, frequency: frequency)
         ranges = request_ranges(provider: provider, frequency: frequency, start_date: start_date, end_date: end_date)
@@ -100,25 +101,29 @@ module Tickrake
       "#{base} chunk #{index + 1}/#{total}"
     end
 
-    def request_start_date(entry, frequency, scheduled_for)
+    def request_start_date(entry, frequency, provider_definition, scheduled_for)
       return @start_date_override if @start_date_override
       return entry.start_date if @from_config_start
-      return lookback_start_date(entry, scheduled_for) if ibkr_intraday_frequency?(frequency)
-      return entry.start_date unless File.exist?(history_path(entry, frequency))
+      return lookback_start_date(entry, scheduled_for) if ibkr_intraday_frequency?(frequency, provider_definition)
+      return entry.start_date unless File.exist?(history_path(entry, frequency, provider_definition))
 
       lookback_start_date(entry, scheduled_for)
     end
 
-    def history_path(entry, frequency)
-      storage_paths.candle_path(provider: @runtime.provider_name, symbol: canonical_symbol_for(entry.symbol), frequency: frequency)
+    def history_path(entry, frequency, provider_definition)
+      storage_paths.candle_path(
+        provider: provider_name_for(entry),
+        symbol: canonical_symbol_for(entry.symbol, provider_definition),
+        frequency: frequency
+      )
     end
 
     def storage_paths
       @storage_paths ||= Storage::Paths.new(@runtime.config)
     end
 
-    def canonical_symbol_for(symbol)
-      symbol_normalizer.canonical(symbol, provider_definition: @runtime.provider_definition)
+    def canonical_symbol_for(symbol, provider_definition)
+      symbol_normalizer.canonical(symbol, provider_definition: provider_definition)
     end
 
     def symbol_normalizer
@@ -138,8 +143,8 @@ module Tickrake
       [entry.start_date, lookback_start].max
     end
 
-    def ibkr_intraday_frequency?(frequency)
-      @runtime.provider_definition.adapter == "ibkr" && !%w[day week month].include?(frequency)
+    def ibkr_intraday_frequency?(frequency, provider_definition)
+      provider_definition.adapter == "ibkr" && !%w[day week month].include?(frequency)
     end
 
     def request_ranges(provider:, frequency:, start_date:, end_date:)
@@ -175,6 +180,31 @@ module Tickrake
       return @end_date_override + 1 if @end_date_override
 
       scheduled_for.to_date + 1
+    end
+
+    def provider_definition_for(entry)
+      @runtime.config.provider_definition(provider_name_for(entry))
+    end
+
+    def provider_for(entry)
+      provider_name = provider_name_for(entry)
+      @providers ||= {}
+      return @providers[provider_name] if @providers.key?(provider_name)
+
+      @providers[provider_name] =
+        if provider_name == @runtime.provider_name
+          @runtime.provider_factory.build
+        else
+          Tickrake::ProviderFactory.new(
+            @runtime.config,
+            provider_name: provider_name,
+            client_factory: @runtime.client_factory
+          ).build
+        end
+    end
+
+    def provider_name_for(entry)
+      @runtime.config.provider_name_for_entry_with_override(@runtime.provider_name, entry)
     end
   end
 end
