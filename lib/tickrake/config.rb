@@ -2,10 +2,11 @@
 
 module Tickrake
   SchedulerWindow = Struct.new(:days, :start_time, :end_time, keyword_init: true)
-  OptionSymbol = Struct.new(:symbol, :option_root, keyword_init: true)
+  OptionSymbol = Struct.new(:symbol, :option_root, :provider, keyword_init: true)
   ProviderDefinition = Struct.new(:name, :adapter, :settings, :symbol_map, keyword_init: true)
   CandleSymbol = Struct.new(
     :symbol,
+    :provider,
     :frequencies,
     :start_date,
     :need_extended_hours_data,
@@ -65,11 +66,26 @@ module Tickrake
     end
 
     def provider_definition(name = nil)
-      selected_name = (name || default_provider_name).to_s
+      selected_name = provider_name_for(name)
       provider = @providers.fetch(selected_name, nil)
       raise ConfigError, "Unknown provider `#{selected_name}`." unless provider
 
       provider
+    end
+
+    def provider_name_for(name_or_entry = nil, fallback: default_provider_name)
+      raw_name =
+        if name_or_entry.respond_to?(:provider)
+          name_or_entry.provider
+        else
+          name_or_entry
+        end
+
+      (raw_name || fallback).to_s
+    end
+
+    def provider_name_with_override(override_name, entry = nil)
+      provider_name_for(override_name || entry)
     end
   end
 end

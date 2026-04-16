@@ -14,28 +14,24 @@ module Tickrake
     end
 
     def run(now: Time.now)
-      unless @runtime.provider_definition.adapter == "schwab"
-        raise Tickrake::Error, "OptionsJob currently supports provider=schwab only."
-      end
-
       @runtime.logger.info("Starting options scrape at #{now.utc.iso8601}")
-      client = @runtime.client_factory.build
       run_time = now
-      queue = build_queue(client, run_time.to_date)
+      queue = build_queue(run_time.to_date)
       @runtime.logger.info("Resolved #{queue.length} option fetch tasks.")
-      process_queue(queue, client, run_time)
+      process_queue(queue, run_time)
       @progress_reporter&.finish
       @runtime.logger.info("Completed options scrape at #{Time.now.utc.iso8601}")
     end
 
     private
 
-    def build_queue(client, base_date)
+    def build_queue(base_date)
       return build_direct_queue(base_date) if @expiration_date
 
       buckets = @runtime.config.dte_buckets.uniq.sort
 
       selected_universe.flat_map do |entry|
+        provider_name = provider_name_for(entry)
         expiration_chain = fetch_expiration_chain(client, entry.symbol)
 
         buckets.filter_map do |bucket|
@@ -50,6 +46,7 @@ module Tickrake
           {
             symbol: entry.symbol,
             option_root: entry.option_root,
+            provider_name: provider_name,
             expiration_date: resolved_expiration,
             requested_buckets: [bucket]
           }
@@ -64,6 +61,7 @@ module Tickrake
         {
           symbol: entry.symbol,
           option_root: entry.option_root,
+          provider_name: provider_name_for(entry),
           expiration_date: @expiration_date,
           requested_buckets: [requested_bucket]
         }
@@ -112,7 +110,7 @@ module Tickrake
       end
     end
 
-    def process_queue(queue, client, run_time)
+    def process_queue(queue, run_time)
       index = 0
       mutex = Mutex.new
       worker_count = [@runtime.config.max_workers, queue.length].min
@@ -127,7 +125,7 @@ module Tickrake
             end
             break unless job
 
-            fetch_one(job, client, run_time)
+            fetch_one(job, run_time)
           end
         end
       end.each(&:join)
@@ -137,10 +135,10 @@ module Tickrake
       @universe || @runtime.config.options_universe
     end
 
-    def fetch_one(job, client, run_time)
+    def fetch_one(job, run_time)
       requested_bucket = job.fetch(:requested_buckets).join(",")
       @runtime.logger.info(
-        "Fetching option chain for #{job.fetch(:symbol)} bucket=#{requested_bucket} resolved_exp=#{job.fetch(:expiration_date)} root=#{job[:option_root] || '-'}"
+        "Fetching option chain for #{job.fetch(:symbol)} provider=#{job.fetch(:provider_name)} bucket=#{requested_bucket} resolved_exp=#{job.fetch(:expiration_date)} root=#{job[:option_root] || '-'}"
       )
       id = @runtime.tracker.record_start(
         job_type: "options_monitor",
@@ -158,6 +156,7 @@ module Tickrake
         result = Timeout.timeout(@runtime.config.option_fetch_timeout_seconds) do
           write_option_chain(
             client: client,
+            provider_name: job.fetch(:provider_name),
             symbol: job.fetch(:symbol),
             expiration_date: job.fetch(:expiration_date),
             timestamp: run_time,
@@ -185,7 +184,7 @@ module Tickrake
       [job.fetch(:symbol), job[:option_root], job.fetch(:expiration_date).iso8601].compact.reject(&:empty?).join(" ")
     end
 
-    def write_option_chain(client:, symbol:, expiration_date:, timestamp:, root:)
+    def write_option_chain(client:, provider_name:, symbol:, expiration_date:, timestamp:, root:)
       chain = client.get_option_chain(
         self.class.option_chain_api_symbol(symbol),
         contract_type: SchwabRb::Option::ContractTypes::ALL,
@@ -195,9 +194,9 @@ module Tickrake
       )
       raise Tickrake::Error, "Option chain request returned nil for #{symbol} exp=#{expiration_date}" if chain.nil?
 
-      rows = option_sample_rows(chain, root)
+      rows = option_sample_rows(chain, root, provider_name)
       path = storage_paths.option_sample_path(
-        provider: @runtime.provider_name,
+        provider: provider_name,
         symbol: symbol,
         expiration_date: expiration_date,
         timestamp: timestamp,
@@ -208,7 +207,7 @@ module Tickrake
       { path: path, row_count: rows.length }
     end
 
-    def option_sample_rows(chain, option_root)
+    def option_sample_rows(chain, option_root, provider_name)
       filtered_options(chain, option_root).sort_by do |option|
         [
           option.expiration_date&.iso8601.to_s,
@@ -242,7 +241,7 @@ module Tickrake
           intrinsic_value: option.intrinsic_value,
           extrinsic_value: option.extrinsic_value,
           underlying_price: chain.underlying_price,
-          source: @runtime.provider_name,
+          source: provider_name,
           fetched_at: Time.now.utc
         )
       end
@@ -261,6 +260,20 @@ module Tickrake
 
     def option_sample_writer
       @option_sample_writer ||= Storage::OptionSampleWriter.new
+    end
+
+    def provider_name_for(entry)
+      provider_name = @runtime.config.provider_name_with_override(@runtime.provider_name, entry)
+      provider_definition = @runtime.config.provider_definition(provider_name)
+      unless provider_definition.adapter == "schwab"
+        raise Tickrake::Error, "OptionsJob currently supports provider=schwab only (got #{provider_name})."
+      end
+
+      provider_name
+    end
+
+    def client
+      @client ||= @runtime.client_factory.build
     end
   end
 end

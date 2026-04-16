@@ -99,13 +99,98 @@ RSpec.describe "job execution" do
     custom = config_with(
       config,
       providers: { "ibkr" => Tickrake::ProviderDefinition.new(name: "ibkr", adapter: "ibkr", settings: { "host" => "127.0.0.1" }) },
-      default_provider_name: "ibkr"
+      default_provider_name: "ibkr",
+      options_universe: [Tickrake::OptionSymbol.new(symbol: "SPY", option_root: nil)]
     )
     runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, logger: logger)
 
     expect do
       Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
     end.to raise_error(Tickrake::Error, /provider=schwab only/)
+  end
+
+  it "uses the runtime provider for options storage even when the symbol config names another provider" do
+    Dir.mktmpdir do |dir|
+      custom = config_with(
+        config,
+        options_dir: dir,
+        providers: {
+          "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}),
+          "ibkr-paper" => Tickrake::ProviderDefinition.new(name: "ibkr-paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" })
+        },
+        default_provider_name: "ibkr-paper",
+        options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW", provider: "schwab")]
+      )
+      client = instance_double("client")
+      expiration_entry = Struct.new(:expiration_date, :days_to_expiration, :option_roots) do
+        def date_object
+          Date.iso8601(expiration_date)
+        end
+      end
+      expiration_chain = instance_double(
+        "SchwabRb::DataObjects::OptionExpirationChain",
+        expiration_list: [expiration_entry.new("2026-04-06", 0, "SPXW")]
+      )
+      allow(client).to receive(:get_option_expiration_chain).with("$SPX").and_return(expiration_chain)
+      allow(client).to receive(:get_option_chain).and_return(
+        instance_double("SchwabRb::DataObjects::OptionChain", underlying_price: 5100.5, call_opts: [], put_opts: [])
+      )
+
+      runtime = Tickrake::Runtime.new(
+        config: custom,
+        tracker: tracker,
+        client_factory: instance_double(Tickrake::ClientFactory, build: client),
+        logger: logger,
+        provider_name: "schwab"
+      )
+
+      Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
+
+      expect(File.exist?(File.join(dir, "schwab", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(false)
+    end
+  end
+
+  it "lets the runtime provider override a per-symbol options provider" do
+    Dir.mktmpdir do |dir|
+      custom = config_with(
+        config,
+        options_dir: dir,
+        providers: {
+          "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}),
+          "ibkr-paper" => Tickrake::ProviderDefinition.new(name: "ibkr-paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" })
+        },
+        default_provider_name: "ibkr-paper",
+        options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW", provider: "ibkr-paper")]
+      )
+      client = instance_double("client")
+      expiration_entry = Struct.new(:expiration_date, :days_to_expiration, :option_roots) do
+        def date_object
+          Date.iso8601(expiration_date)
+        end
+      end
+      expiration_chain = instance_double(
+        "SchwabRb::DataObjects::OptionExpirationChain",
+        expiration_list: [expiration_entry.new("2026-04-06", 0, "SPXW")]
+      )
+      allow(client).to receive(:get_option_expiration_chain).with("$SPX").and_return(expiration_chain)
+      allow(client).to receive(:get_option_chain).and_return(
+        instance_double("SchwabRb::DataObjects::OptionChain", underlying_price: 5100.5, call_opts: [], put_opts: [])
+      )
+
+      runtime = Tickrake::Runtime.new(
+        config: custom,
+        tracker: tracker,
+        client_factory: instance_double(Tickrake::ClientFactory, build: client),
+        logger: logger,
+        provider_name: "schwab"
+      )
+
+      Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
+
+      expect(File.exist?(File.join(dir, "schwab", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(false)
+    end
   end
 
   it "downloads candles through schwab_rb's shared history downloader" do
@@ -437,6 +522,109 @@ RSpec.describe "job execution" do
 
       expect(File.exist?(File.join(dir, "schwab_paper", "SPY_day.csv"))).to eq(true)
       expect(File.exist?(File.join(dir, "schwab_live", "SPY_day.csv"))).to eq(false)
+    end
+  end
+
+  it "uses the runtime provider for candles even when the symbol config names another provider" do
+    Dir.mktmpdir do |dir|
+      candle_entries = [
+        Tickrake::CandleSymbol.new(
+          symbol: "/ES",
+          provider: "schwab",
+          frequencies: ["1min"],
+          start_date: Date.iso8601("2020-01-01"),
+          need_extended_hours_data: false,
+          need_previous_close: false
+        ),
+        Tickrake::CandleSymbol.new(
+          symbol: "SPY",
+          frequencies: ["day"],
+          start_date: Date.iso8601("2020-01-01"),
+          need_extended_hours_data: false,
+          need_previous_close: false
+        )
+      ]
+      custom = config_with(
+        config,
+        history_dir: dir,
+        providers: {
+          "schwab" => Tickrake::ProviderDefinition.new(
+            name: "schwab",
+            adapter: "schwab",
+            settings: {},
+            symbol_map: { "/ES" => "^ES" }
+          ),
+          "ibkr-paper" => Tickrake::ProviderDefinition.new(
+            name: "ibkr-paper",
+            adapter: "ibkr",
+            settings: { "host" => "127.0.0.1" }
+          )
+        },
+        default_provider_name: "ibkr-paper",
+        candles_universe: candle_entries
+      )
+      runtime_provider = instance_double(Tickrake::Providers::Ibkr, provider_name: "ibkr-paper", adapter_name: "ibkr")
+      provider_factory = instance_double(Tickrake::ProviderFactory, build: runtime_provider)
+      allow(runtime_provider).to receive(:fetch_bars).and_return([
+        Tickrake::Data::Bar.new(datetime: Time.utc(2026, 4, 1, 21, 0, 0), open: 1, high: 2, low: 0.5, close: 1.5, volume: 10)
+      ])
+
+      runtime = Tickrake::Runtime.new(
+        config: custom,
+        tracker: tracker,
+        provider_factory: provider_factory,
+        logger: logger,
+        provider_name: "ibkr-paper"
+      )
+
+      Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
+
+      expect(runtime_provider).to have_received(:fetch_bars).with(hash_including(symbol: "/ES", frequency: "1min")).at_least(:once)
+      expect(runtime_provider).to have_received(:fetch_bars).with(hash_including(symbol: "SPY", frequency: "day")).at_least(:once)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "/ES_1min.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "SPY_day.csv"))).to eq(true)
+    end
+  end
+
+  it "lets the runtime provider override a per-symbol candle provider" do
+    Dir.mktmpdir do |dir|
+      candle_entry = Tickrake::CandleSymbol.new(
+        symbol: "SPY",
+        provider: "schwab",
+        frequencies: ["day"],
+        start_date: Date.iso8601("2020-01-01"),
+        need_extended_hours_data: false,
+        need_previous_close: false
+      )
+      custom = config_with(
+        config,
+        history_dir: dir,
+        providers: {
+          "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}),
+          "ibkr-paper" => Tickrake::ProviderDefinition.new(name: "ibkr-paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" })
+        },
+        default_provider_name: "schwab",
+        candles_universe: [candle_entry]
+      )
+      runtime_provider = instance_double(Tickrake::Providers::Ibkr, provider_name: "ibkr-paper", adapter_name: "ibkr")
+      provider_factory = instance_double(Tickrake::ProviderFactory, build: runtime_provider)
+      allow(runtime_provider).to receive(:fetch_bars).and_return([
+        Tickrake::Data::Bar.new(datetime: Time.utc(2026, 4, 1, 21, 0, 0), open: 1, high: 2, low: 0.5, close: 1.5, volume: 10)
+      ])
+
+      runtime = Tickrake::Runtime.new(
+        config: custom,
+        tracker: tracker,
+        provider_factory: provider_factory,
+        logger: logger,
+        provider_name: "ibkr-paper"
+      )
+
+      Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
+
+      expect(runtime_provider).to have_received(:fetch_bars).at_least(:once)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "SPY_day.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "SPY_day.csv"))).to eq(false)
     end
   end
 

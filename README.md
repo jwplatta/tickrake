@@ -199,7 +199,40 @@ providers:
       client_id: 1001
 ```
 
-Then select which configured provider to use on each command:
+Universe entries can optionally override the default provider on a per-symbol basis:
+
+```yaml
+default_provider: ibkr-paper
+providers:
+  schwab:
+    adapter: schwab
+    settings: {}
+  ibkr-paper:
+    adapter: ibkr
+    settings:
+      host: 127.0.0.1
+      port: 4002
+      client_id: 1001
+options:
+  universe:
+    - symbol: $SPX
+      option_root: SPXW
+      provider: schwab
+candles:
+  universe:
+    - symbol: /ES
+      provider: schwab
+      start_date: "2020-01-01"
+      frequencies: [day, 30min, 5min, 1min]
+    - symbol: SPY
+      start_date: "2020-01-01"
+      frequencies: [day]
+```
+
+`tickrake run ... --provider ...` overrides both per-symbol `provider:` values and `default_provider`.
+Without a CLI override, symbols with `provider:` use that value; the rest use `default_provider`.
+
+You can also still select which configured provider to use on each command:
 
 ```bash
 tickrake run candles --provider ibkr-paper
