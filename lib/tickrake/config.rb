@@ -3,7 +3,7 @@
 module Tickrake
   SchedulerWindow = Struct.new(:days, :start_time, :end_time, keyword_init: true)
   OptionSymbol = Struct.new(:symbol, :option_root, keyword_init: true)
-  ProviderDefinition = Struct.new(:name, :adapter, :settings, keyword_init: true)
+  ProviderDefinition = Struct.new(:name, :adapter, :settings, :symbol_map, keyword_init: true)
   CandleSymbol = Struct.new(
     :symbol,
     :frequencies,

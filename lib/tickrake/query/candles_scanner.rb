@@ -25,12 +25,13 @@ module Tickrake
 
       def scan(provider_name: nil, ticker: nil, frequency: nil, start_date: nil, end_date: nil)
         requested_frequency = @frequency_normalizer.normalize(frequency)
-        requested_token = ticker && @symbol_normalizer.storage_token(ticker)
         provider_names(provider_name).flat_map do |selected_provider|
+          selected_definition = @config.provider_definition(selected_provider)
+          requested_canonical = ticker && @symbol_normalizer.canonical(ticker, provider_definition: selected_definition)
           candle_paths_for(selected_provider).filter_map do |path|
             metadata = metadata_for(path, provider_name: selected_provider)
             next unless metadata
-            next if requested_token && metadata.fetch("ticker") != requested_token
+            next if requested_canonical && metadata.fetch("ticker") != requested_canonical
             next if requested_frequency && metadata.fetch("frequency") != requested_frequency
 
             coverage = coverage_for(
@@ -79,6 +80,7 @@ module Tickrake
         basename = File.basename(path, ".csv")
         match = /\A(?<ticker>.+)_(?<frequency>[^_]+)\z/.match(basename)
         return nil unless match
+        canonical_ticker = canonical_ticker_for(match[:ticker], provider_name: provider_name)
 
         row_count = 0
         first_observed_at = nil
@@ -98,7 +100,7 @@ module Tickrake
           path: path,
           dataset_type: "candles",
           provider_name: provider_name,
-          ticker: match[:ticker],
+          ticker: canonical_ticker,
           frequency: match[:frequency],
           row_count: row_count,
           first_observed_at: first_observed_at,
@@ -114,6 +116,12 @@ module Tickrake
         cached &&
           cached["file_mtime"].to_i == stat.mtime.to_i &&
           cached["file_size"].to_i == stat.size
+      end
+
+      def canonical_ticker_for(path_token, provider_name:)
+        provider_definition = @config.provider_definition(provider_name)
+        mapped_symbol = provider_definition.symbol_map.fetch(path_token, nil)
+        @symbol_normalizer.canonical(mapped_symbol || path_token)
       end
 
       def coverage_for(start_date:, end_date:, first_observed_at:, last_observed_at:)

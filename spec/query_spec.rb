@@ -6,8 +6,8 @@ RSpec.describe "query engine" do
       timezone: "America/Chicago",
       sqlite_path: File.join(Dir.mktmpdir, "tickrake.sqlite3"),
       providers: {
-        "ibkr-paper" => Tickrake::ProviderDefinition.new(name: "ibkr-paper", adapter: "ibkr", settings: {}),
-        "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {})
+        "ibkr-paper" => Tickrake::ProviderDefinition.new(name: "ibkr-paper", adapter: "ibkr", settings: {}, symbol_map: {}),
+        "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}, symbol_map: { "/ES" => "^ES" })
       },
       default_provider_name: "ibkr-paper",
       data_dir: File.dirname(history_dir),
@@ -42,10 +42,14 @@ RSpec.describe "query engine" do
 
   it "normalizes symbols for canonical comparison and storage tokens" do
     normalizer = Tickrake::Query::SymbolNormalizer.new
+    provider_definition = Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}, symbol_map: { "/ES" => "^ES", "/NQ" => "^NQ", "/RTY" => "^RTY" })
 
     expect(normalizer.canonical("$spx")).to eq("SPX")
     expect(normalizer.storage_token("$spx")).to eq("SPX")
     expect(normalizer.same_symbol?("$SPX", "spx")).to eq(true)
+    expect(normalizer.canonical("/es", provider_definition: provider_definition)).to eq("^ES")
+    expect(normalizer.storage_token("/es", provider_definition: provider_definition)).to eq("^ES")
+    expect(normalizer.same_symbol?("/ES", "^es", provider_definition: provider_definition)).to eq(true)
   end
 
   it "scans candle files and reuses cached metadata on subsequent scans" do
@@ -74,6 +78,35 @@ RSpec.describe "query engine" do
       expect(first_results.first.row_count).to eq(2)
       expect(first_results.first.first_observed_at).to eq("2026-04-10T13:30:00Z")
       expect(cached_results.first.row_count).to eq(2)
+    end
+  end
+
+  it "matches mapped futures aliases when scanning candle files" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      provider_dir = File.join(history_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      path = File.join(provider_dir, "^ES_1min.csv")
+      File.write(
+        path,
+        <<~CSV
+          datetime,open,high,low,close,volume
+          2026-04-10T13:30:00Z,1,2,0.5,1.5,10
+        CSV
+      )
+      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      scanner = Tickrake::Query::CandlesScanner.new(config: config, tracker: tracker)
+
+      slash_results = scanner.scan(provider_name: "schwab", ticker: "/ES", frequency: "minute")
+      caret_results = scanner.scan(provider_name: "schwab", ticker: "^ES", frequency: "1min")
+
+      expect(slash_results.length).to eq(1)
+      expect(caret_results.length).to eq(1)
+      expect(slash_results.first.ticker).to eq("^ES")
+      expect(caret_results.first.ticker).to eq("^ES")
+      expect(slash_results.first.path).to end_with("/^ES_1min.csv")
     end
   end
 

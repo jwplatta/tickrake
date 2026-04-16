@@ -148,6 +148,40 @@ RSpec.describe "job execution" do
     end
   end
 
+  it "writes mapped futures candles under the canonical symbol while fetching with the provider symbol" do
+    Dir.mktmpdir do |dir|
+      candle_entry = Tickrake::CandleSymbol.new(
+        symbol: "/ES",
+        frequencies: ["1min"],
+        start_date: Date.iso8601("2020-01-01"),
+        need_extended_hours_data: false,
+        need_previous_close: false
+      )
+      providers = config.providers.merge(
+        "schwab" => Tickrake::ProviderDefinition.new(
+          name: "schwab",
+          adapter: "schwab",
+          settings: {},
+          symbol_map: { "/ES" => "^ES", "/NQ" => "^NQ", "/RTY" => "^RTY" }
+        )
+      )
+      custom = config_with(config, history_dir: dir, candles_universe: [candle_entry], providers: providers)
+      provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
+      provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
+      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger, provider_name: "schwab")
+      allow(provider).to receive(:fetch_bars).and_return([
+        Tickrake::Data::Bar.new(datetime: Time.utc(2026, 4, 1, 14, 0, 0), open: 1, high: 2, low: 0.5, close: 1.5, volume: 10)
+      ])
+
+      Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
+
+      expect(File.exist?(File.join(dir, "schwab", "^ES_1min.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "ES_1min.csv"))).to eq(false)
+      expect(tracker.fetch_runs.last["symbol"]).to eq("^ES")
+      expect(provider).to have_received(:fetch_bars).with(hash_including(symbol: "/ES", frequency: "1min"))
+    end
+  end
+
   it "skips buckets that are not present in the expiration chain" do
     Dir.mktmpdir do |dir|
       custom = config_with(
@@ -431,7 +465,7 @@ RSpec.describe "job execution" do
 
       Tickrake::CandlesJob.new(runtime, progress_output: StringIO.new).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(progress_reporter).to have_received(:advance).with(no_args)
+      expect(progress_reporter).to have_received(:advance).with(title: "SPY day")
       expect(progress_reporter).to have_received(:finish)
     end
   end
@@ -461,7 +495,7 @@ RSpec.describe "job execution" do
       provider_name: "ib_paper"
     )
     allow(provider).to receive(:fetch_bars).and_return([])
-    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 3, title: "$SPX 30min", output: anything).and_return(progress_reporter)
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 3, title: "$SPX 30min chunk 1/3", output: anything).and_return(progress_reporter)
 
     Tickrake::CandlesJob.new(
       runtime,
@@ -469,7 +503,9 @@ RSpec.describe "job execution" do
       progress_output: StringIO.new
     ).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-    expect(progress_reporter).to have_received(:advance).exactly(3).times
+    expect(progress_reporter).to have_received(:advance).with(title: "$SPX 30min chunk 1/3")
+    expect(progress_reporter).to have_received(:advance).with(title: "$SPX 30min chunk 2/3")
+    expect(progress_reporter).to have_received(:advance).with(title: "$SPX 30min chunk 3/3")
     expect(progress_reporter).to have_received(:finish)
   end
 end

@@ -5,6 +5,7 @@ module Tickrake
     class Paths
       def initialize(config)
         @config = config
+        @symbol_normalizer = Tickrake::Query::SymbolNormalizer.new
       end
 
       def candle_path(provider:, symbol:, frequency:)
@@ -34,8 +35,7 @@ module Tickrake
       end
 
       def sanitize_symbol(symbol)
-        sanitized_symbol = symbol.to_s.gsub(/[^a-zA-Z0-9]+/, "_").gsub(/\A_+|_+\z/, "")
-        sanitized_symbol.empty? ? "symbol" : sanitized_symbol
+        @symbol_normalizer.storage_token(symbol)
       end
     end
   end
