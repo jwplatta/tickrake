@@ -62,7 +62,7 @@ module Tickrake
           end
           candle_reconciler.write(path: path, bars: fetched_bars)
           total_candles += Array(fetched_bars).size
-          progress_reporter&.advance
+          progress_reporter&.advance(title: progress_title(entry: entry, frequency: frequency, index: index, total: ranges.length))
         end
 
         @runtime.logger.info(
@@ -88,9 +88,16 @@ module Tickrake
 
       Tickrake::ProgressReporter.build(
         total: total,
-        title: "#{entry.symbol} #{frequency}",
+        title: progress_title(entry: entry, frequency: frequency, index: 0, total: total),
         output: @progress_output
       )
+    end
+
+    def progress_title(entry:, frequency:, index:, total:)
+      base = "#{entry.symbol} #{frequency}"
+      return base if total <= 1
+
+      "#{base} chunk #{index + 1}/#{total}"
     end
 
     def request_start_date(entry, frequency, scheduled_for)

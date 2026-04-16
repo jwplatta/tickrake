@@ -5,25 +5,49 @@ module Tickrake
     def self.build(total:, title:, output:)
       return if total.to_i <= 0
 
-      new(
-        progressbar: ProgressBar.create(
+      if tty_output?(output)
+        new(
           total: total,
           title: title,
           output: output,
-          autofinish: false
+          progressbar: ProgressBar.create(
+            total: total,
+            title: title,
+            output: output,
+            autofinish: false
+          )
         )
-      )
+      else
+        new(total: total, title: title, output: output)
+      end
     end
 
-    def initialize(progressbar:)
+    def self.tty_output?(output)
+      output.respond_to?(:tty?) && output.tty?
+    end
+
+    def initialize(total:, title:, output:, progressbar: nil)
+      @total = total.to_i
+      @title = title
+      @output = output
       @progressbar = progressbar
+      @current = 0
+      @finished = false
       @mutex = Mutex.new
     end
 
     def advance(title: nil)
       @mutex.synchronize do
-        @progressbar.title = title if title
-        @progressbar.increment
+        @title = title if title
+        @current += 1
+
+        if @progressbar
+          @progressbar.title = @title if @title
+          @progressbar.increment
+        else
+          @output.puts("#{display_title} (#{@current}/#{@total})")
+          @output.flush if @output.respond_to?(:flush)
+        end
       end
     end
 
@@ -31,14 +55,29 @@ module Tickrake
       return if delta.to_i <= 0
 
       @mutex.synchronize do
-        @progressbar.total = @progressbar.total + delta
+        @total += delta.to_i
+        @progressbar.total = @progressbar.total + delta if @progressbar
       end
     end
 
     def finish
       @mutex.synchronize do
-        @progressbar.finish unless @progressbar.finished?
+        return if @finished
+
+        if @progressbar
+          @progressbar.finish unless @progressbar.finished?
+        elsif @current.zero?
+          @output.puts("#{display_title} (0/#{@total})")
+          @output.flush if @output.respond_to?(:flush)
+        end
+        @finished = true
       end
+    end
+
+    private
+
+    def display_title
+      @title.to_s.empty? ? "Progress" : @title
     end
   end
 end
