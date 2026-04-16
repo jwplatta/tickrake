@@ -206,7 +206,11 @@ module Tickrake
     end
 
     def provider_name_for(entry)
-      @runtime.config.provider_name_for_entry_with_override(@runtime.provider_name, entry)
+      @runtime.config.provider_name_for_entry_with_override(
+        @runtime.provider_override_name,
+        entry,
+        scheduled_job: @scheduled_job
+      )
     end
   end
 end

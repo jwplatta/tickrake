@@ -28,6 +28,7 @@ runtime:
 schedule:
   index_options:
     type: options
+    provider: schwab
     interval_seconds: 300
     windows:
       - days: [mon, tue, wed, thu, fri]
@@ -49,17 +50,16 @@ schedule:
     universe:
       - symbol: $SPX
         option_root: SPXW
-        provider: schwab
       - symbol: SPY
       - symbol: QQQ
   eod_candles:
     type: candles
+    provider: ibkr-paper
     run_at: "16:05"
     days: [mon, tue, wed, thu, fri]
     lookback_days: 7
     universe:
       - symbol: $SPX
-        provider: ibkr-paper
         start_date: "2020-01-01"
         frequencies: [day, 30min, 10min, 5min, minute]
       - symbol: SPY

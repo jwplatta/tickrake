@@ -62,6 +62,7 @@ module Tickrake
 
       config.jobs.each do |job|
         raise ConfigError, "Unknown job type `#{job.type}` for `#{job.name}`." unless VALID_JOB_TYPES.include?(job.type)
+        config.provider_definition(job.provider) if job.provider
 
         if job.options?
           raise ConfigError, "options job `#{job.name}` interval must be positive." if job.interval_seconds.to_i <= 0
@@ -107,6 +108,7 @@ module Tickrake
       ScheduledJobConfig.new(
         name: name.to_s,
         type: "options",
+        provider: raw_job["provider"],
         interval_seconds: Integer(raw_job.fetch("interval_seconds")),
         windows: load_scheduler_windows(raw_job.fetch("windows")),
         run_at: nil,
@@ -121,6 +123,7 @@ module Tickrake
       ScheduledJobConfig.new(
         name: name.to_s,
         type: "candles",
+        provider: raw_job["provider"],
         interval_seconds: nil,
         windows: [],
         run_at: normalize_clock(raw_job.fetch("run_at")),

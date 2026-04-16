@@ -197,10 +197,10 @@ providers:
       client_id: 1001
 ```
 
-Universe entries can optionally override the default provider on a per-symbol basis:
+Jobs can set a provider default, and universe entries can still override that per symbol:
 
 ```yaml
-default_provider: ibkr-paper
+default_provider: schwab
 providers:
   schwab:
     adapter: schwab
@@ -211,24 +211,42 @@ providers:
       host: 127.0.0.1
       port: 4002
       client_id: 1001
-options:
-  universe:
-    - symbol: $SPX
-      option_root: SPXW
-      provider: schwab
-candles:
-  universe:
-    - symbol: /ES
-      provider: schwab
-      start_date: "2020-01-01"
-      frequencies: [day, 30min, 5min, 1min]
-    - symbol: SPY
-      start_date: "2020-01-01"
-      frequencies: [day]
+schedule:
+  index_options:
+    type: options
+    provider: schwab
+    interval_seconds: 300
+    windows:
+      - days: [mon, tue, wed, thu, fri]
+        start: "08:30"
+        end: "15:00"
+    dte_buckets: [0DTE, 1DTE, 30DTE]
+    universe:
+      - symbol: $SPX
+        option_root: SPXW
+      - symbol: SPY
+        provider: ibkr-paper
+  eod_candles:
+    type: candles
+    provider: ibkr-paper
+    run_at: "16:05"
+    days: [mon, tue, wed, thu, fri]
+    lookback_days: 7
+    universe:
+      - symbol: /ES
+        provider: schwab
+        start_date: "2020-01-01"
+        frequencies: [day, 30min, 5min, 1min]
+      - symbol: SPY
+        start_date: "2020-01-01"
+        frequencies: [day]
 ```
 
-`tickrake run ... --provider ...` overrides both per-symbol `provider:` values and `default_provider`.
-Without a CLI override, symbols with `provider:` use that value; the rest use `default_provider`.
+Provider precedence is:
+- CLI `--provider`
+- per-symbol `provider:`
+- job-level `provider:`
+- global `default_provider`
 
 You can also still select which configured provider to use on each command:
 

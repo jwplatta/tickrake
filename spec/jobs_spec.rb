@@ -24,10 +24,12 @@ RSpec.describe "job execution" do
     }
 
     job_overrides = {
+      options_provider: overrides.delete(:options_provider),
       options_monitor_interval_seconds: overrides.delete(:options_monitor_interval_seconds),
       options_windows: overrides.delete(:options_windows),
       dte_buckets: overrides.delete(:dte_buckets),
       options_universe: overrides.delete(:options_universe),
+      candles_provider: overrides.delete(:candles_provider),
       eod_run_at: overrides.delete(:eod_run_at),
       eod_days: overrides.delete(:eod_days),
       candle_lookback_days: overrides.delete(:candle_lookback_days),
@@ -46,6 +48,7 @@ RSpec.describe "job execution" do
         Tickrake::ScheduledJobConfig.new(
           name: job.name,
           type: job.type,
+          provider: overrides[:options_provider] || job.provider,
           interval_seconds: overrides[:options_monitor_interval_seconds] || job.interval_seconds,
           windows: overrides[:options_windows] || job.windows,
           run_at: job.run_at,
@@ -58,6 +61,7 @@ RSpec.describe "job execution" do
         Tickrake::ScheduledJobConfig.new(
           name: job.name,
           type: job.type,
+          provider: overrides[:candles_provider] || job.provider,
           interval_seconds: job.interval_seconds,
           windows: job.windows,
           run_at: overrides[:eod_run_at] || job.run_at,
@@ -245,6 +249,93 @@ RSpec.describe "job execution" do
       )
 
       Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
+
+      expect(File.exist?(File.join(dir, "schwab", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(false)
+    end
+  end
+
+  it "uses the job-level provider for options entries without per-symbol providers" do
+    Dir.mktmpdir do |dir|
+      custom = config_with(
+        config,
+        options_dir: dir,
+        providers: {
+          "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}),
+          "ibkr-paper" => Tickrake::ProviderDefinition.new(name: "ibkr-paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" })
+        },
+        default_provider_name: "ibkr-paper",
+        options_provider: "schwab",
+        options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")]
+      )
+      scheduled_job = custom.job("index_options")
+      client = instance_double("client")
+      expiration_entry = Struct.new(:expiration_date, :days_to_expiration, :option_roots) do
+        def date_object
+          Date.iso8601(expiration_date)
+        end
+      end
+      expiration_chain = instance_double(
+        "SchwabRb::DataObjects::OptionExpirationChain",
+        expiration_list: [expiration_entry.new("2026-04-06", 0, "SPXW")]
+      )
+      allow(client).to receive(:get_option_expiration_chain).with("$SPX").and_return(expiration_chain)
+      allow(client).to receive(:get_option_chain).and_return(
+        instance_double("SchwabRb::DataObjects::OptionChain", underlying_price: 5100.5, call_opts: [], put_opts: [])
+      )
+
+      runtime = Tickrake::Runtime.new(
+        config: custom,
+        tracker: tracker,
+        client_factory: instance_double(Tickrake::ClientFactory, build: client),
+        logger: logger
+      )
+
+      Tickrake::OptionsJob.new(runtime, scheduled_job: scheduled_job).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
+
+      expect(File.exist?(File.join(dir, "schwab", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(false)
+    end
+  end
+
+  it "lets a per-symbol options provider override the job-level provider" do
+    Dir.mktmpdir do |dir|
+      custom = config_with(
+        config,
+        options_dir: dir,
+        providers: {
+          "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}),
+          "ibkr-paper" => Tickrake::ProviderDefinition.new(name: "ibkr-paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" })
+        },
+        default_provider_name: "ibkr-paper",
+        options_provider: "ibkr-paper",
+        options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW", provider: "schwab")]
+      )
+      scheduled_job = custom.job("index_options")
+      client = instance_double("client")
+      expiration_entry = Struct.new(:expiration_date, :days_to_expiration, :option_roots) do
+        def date_object
+          Date.iso8601(expiration_date)
+        end
+      end
+      expiration_chain = instance_double(
+        "SchwabRb::DataObjects::OptionExpirationChain",
+        expiration_list: [expiration_entry.new("2026-04-06", 0, "SPXW")]
+      )
+      allow(client).to receive(:get_option_expiration_chain).with("$SPX").and_return(expiration_chain)
+      allow(client).to receive(:get_option_chain).and_return(
+        instance_double("SchwabRb::DataObjects::OptionChain", underlying_price: 5100.5, call_opts: [], put_opts: [])
+      )
+
+      runtime = Tickrake::Runtime.new(
+        config: custom,
+        tracker: tracker,
+        client_factory: instance_double(Tickrake::ClientFactory, build: client),
+        logger: logger,
+        provider_name: "schwab"
+      )
+
+      Tickrake::OptionsJob.new(runtime, scheduled_job: scheduled_job).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
 
       expect(File.exist?(File.join(dir, "schwab", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(true)
       expect(File.exist?(File.join(dir, "ibkr-paper", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(false)
@@ -447,6 +538,85 @@ RSpec.describe "job execution" do
       expect(provider).to have_received(:fetch_bars).with(
         hash_including(start_date: Date.new(2026, 4, 3), end_date: Date.new(2026, 4, 7))
       )
+    end
+  end
+
+  it "uses the job-level provider for candle entries without per-symbol providers" do
+    Dir.mktmpdir do |dir|
+      candle_entry = Tickrake::CandleSymbol.new(
+        symbol: "SPY",
+        frequencies: ["day"],
+        start_date: Date.iso8601("2020-01-01"),
+        need_extended_hours_data: false,
+        need_previous_close: false
+      )
+      custom = config_with(
+        config,
+        history_dir: dir,
+        providers: {
+          "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}),
+          "ibkr-paper" => Tickrake::ProviderDefinition.new(name: "ibkr-paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" })
+        },
+        default_provider_name: "schwab",
+        candles_provider: "ibkr-paper",
+        candles_universe: [candle_entry]
+      )
+      scheduled_job = custom.job("eod_candles")
+      provider = instance_double(Tickrake::Providers::Ibkr, provider_name: "ibkr-paper", adapter_name: "ibkr")
+      provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
+      runtime = Tickrake::Runtime.new(
+        config: custom,
+        tracker: tracker,
+        provider_factory: provider_factory,
+        logger: logger,
+        provider_name: "ibkr-paper"
+      )
+      allow(provider).to receive(:fetch_bars).and_return([])
+
+      Tickrake::CandlesJob.new(runtime, scheduled_job: scheduled_job).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
+
+      expect(File.exist?(File.join(dir, "ibkr-paper", "SPY_day.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "SPY_day.csv"))).to eq(false)
+    end
+  end
+
+  it "lets a per-symbol candle provider override the job-level provider" do
+    Dir.mktmpdir do |dir|
+      candle_entry = Tickrake::CandleSymbol.new(
+        symbol: "SPY",
+        provider: "schwab",
+        frequencies: ["day"],
+        start_date: Date.iso8601("2020-01-01"),
+        need_extended_hours_data: false,
+        need_previous_close: false
+      )
+      custom = config_with(
+        config,
+        history_dir: dir,
+        providers: {
+          "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}),
+          "ibkr-paper" => Tickrake::ProviderDefinition.new(name: "ibkr-paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" })
+        },
+        default_provider_name: "ibkr-paper",
+        candles_provider: "ibkr-paper",
+        candles_universe: [candle_entry]
+      )
+      scheduled_job = custom.job("eod_candles")
+      provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
+      provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
+      runtime = Tickrake::Runtime.new(
+        config: custom,
+        tracker: tracker,
+        provider_factory: provider_factory,
+        logger: logger,
+        provider_name: "schwab"
+      )
+      allow(provider).to receive(:fetch_bars).and_return([])
+
+      Tickrake::CandlesJob.new(runtime, scheduled_job: scheduled_job).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
+
+      expect(File.exist?(File.join(dir, "schwab", "SPY_day.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "SPY_day.csv"))).to eq(false)
     end
   end
 
