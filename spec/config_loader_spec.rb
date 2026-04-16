@@ -147,10 +147,10 @@ RSpec.describe Tickrake::ConfigLoader do
 
       expect(config.options_universe.map(&:provider)).to eq(["schwab", nil])
       expect(config.candles_universe.map(&:provider)).to eq(["schwab", nil])
-      expect(config.provider_name_for(config.options_universe.first)).to eq("schwab")
-      expect(config.provider_name_for(config.options_universe.last)).to eq("ibkr-paper")
-      expect(config.provider_name_for(config.candles_universe.first)).to eq("schwab")
-      expect(config.provider_name_for(config.candles_universe.last)).to eq("ibkr-paper")
+      expect(config.provider_name_for_entry(config.options_universe.first)).to eq("schwab")
+      expect(config.provider_name_for_entry(config.options_universe.last)).to eq("ibkr-paper")
+      expect(config.provider_name_for_entry(config.candles_universe.first)).to eq("schwab")
+      expect(config.provider_name_for_entry(config.candles_universe.last)).to eq("ibkr-paper")
     end
   end
 

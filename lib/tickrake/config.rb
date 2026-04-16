@@ -66,26 +66,21 @@ module Tickrake
     end
 
     def provider_definition(name = nil)
-      selected_name = provider_name_for(name)
+      selected_name = (name || default_provider_name).to_s
       provider = @providers.fetch(selected_name, nil)
       raise ConfigError, "Unknown provider `#{selected_name}`." unless provider
 
       provider
     end
 
-    def provider_name_for(name_or_entry = nil, fallback: default_provider_name)
-      raw_name =
-        if name_or_entry.respond_to?(:provider)
-          name_or_entry.provider
-        else
-          name_or_entry
-        end
-
-      (raw_name || fallback).to_s
+    def provider_name_for_entry(entry, fallback: default_provider_name)
+      (entry.provider || fallback).to_s
     end
 
-    def provider_name_with_override(override_name, entry = nil)
-      provider_name_for(override_name || entry)
+    def provider_name_for_entry_with_override(override_name, entry)
+      return override_name.to_s if override_name
+
+      provider_name_for_entry(entry)
     end
   end
 end
