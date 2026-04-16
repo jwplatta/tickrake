@@ -42,9 +42,11 @@ module Tickrake
         end_date = request_end_date(scheduled_for)
         path = storage_paths.candle_path(provider: provider.provider_name, symbol: entry.symbol, frequency: frequency)
         ranges = request_ranges(provider: provider, frequency: frequency, start_date: start_date, end_date: end_date)
+        @progress_reporter&.add_total(ranges.length - 1)
         total_candles = 0
 
         ranges.each_with_index do |(chunk_start, chunk_end), index|
+          progress_title = "#{entry.symbol} #{frequency} #{index + 1}/#{ranges.length}"
           @runtime.logger.info(
             "Fetching #{frequency} candle chunk #{index + 1}/#{ranges.length} for #{entry.symbol} (#{chunk_start.iso8601} to #{chunk_end.iso8601})"
           ) if ranges.length > 1
@@ -61,13 +63,13 @@ module Tickrake
           end
           candle_reconciler.write(path: path, bars: fetched_bars)
           total_candles += Array(fetched_bars).size
+          @progress_reporter&.advance(title: progress_title)
         end
 
         @runtime.logger.info(
           "Wrote #{frequency} candles for #{entry.symbol} to #{path} (requested #{start_date.iso8601} to #{end_date.iso8601}, #{total_candles} rows)"
         )
         @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
-        @progress_reporter&.advance(title: "#{entry.symbol} #{frequency}")
       rescue StandardError => e
         retries += 1
         if retries <= @runtime.config.retry_count
@@ -77,7 +79,6 @@ module Tickrake
         end
         @runtime.logger.error("Failed candle fetch for #{entry.symbol} #{frequency}: #{e.message}")
         @runtime.tracker.record_finish(id: id, status: "failed", finished_at: Time.now, error_message: e.message)
-        @progress_reporter&.advance(title: "#{entry.symbol} #{frequency} failed")
       end
     end
 

@@ -416,7 +416,7 @@ RSpec.describe "job execution" do
         need_previous_close: false
       )
       custom = config_with(config, history_dir: dir, candles_universe: [candle_entry])
-      progress_reporter = instance_double(Tickrake::ProgressReporter, advance: true, finish: true)
+      progress_reporter = instance_double(Tickrake::ProgressReporter, add_total: true, advance: true, finish: true)
       provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
       provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
       runtime = Tickrake::Runtime.new(
@@ -430,8 +430,54 @@ RSpec.describe "job execution" do
 
       Tickrake::CandlesJob.new(runtime, progress_reporter: progress_reporter).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(progress_reporter).to have_received(:advance).with(title: "SPY day")
+      expect(progress_reporter).to have_received(:add_total).with(0)
+      expect(progress_reporter).to have_received(:advance).with(title: "SPY day 1/1")
       expect(progress_reporter).to have_received(:finish)
     end
+  end
+
+  it "advances candle progress per ibkr chunk for one-off runs" do
+    candle_entry = Tickrake::CandleSymbol.new(
+      symbol: "$SPX",
+      frequencies: ["30min"],
+      start_date: Date.iso8601("2026-01-01"),
+      need_extended_hours_data: false,
+      need_previous_close: false
+    )
+    custom = config_with(
+      config,
+      providers: { "ib_paper" => Tickrake::ProviderDefinition.new(name: "ib_paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" }) },
+      default_provider_name: "ib_paper",
+      candles_universe: [candle_entry]
+    )
+    advanced_titles = []
+    progress_reporter = instance_double(Tickrake::ProgressReporter, add_total: true, finish: true)
+    allow(progress_reporter).to receive(:advance) do |title:|
+      advanced_titles << title
+    end
+    provider = instance_double(Tickrake::Providers::Ibkr, provider_name: "ib_paper", adapter_name: "ibkr")
+    provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
+    runtime = Tickrake::Runtime.new(
+      config: custom,
+      tracker: tracker,
+      provider_factory: provider_factory,
+      logger: logger,
+      provider_name: "ib_paper"
+    )
+    allow(provider).to receive(:fetch_bars).and_return([])
+
+    Tickrake::CandlesJob.new(
+      runtime,
+      from_config_start: true,
+      progress_reporter: progress_reporter
+    ).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
+
+    expect(progress_reporter).to have_received(:add_total).with(2)
+    expect(advanced_titles).to eq([
+      "$SPX 30min 1/3",
+      "$SPX 30min 2/3",
+      "$SPX 30min 3/3"
+    ])
+    expect(progress_reporter).to have_received(:finish)
   end
 end

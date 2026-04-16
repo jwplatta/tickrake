@@ -27,6 +27,14 @@ module Tickrake
       end
     end
 
+    def add_total(delta)
+      return if delta.to_i <= 0
+
+      @mutex.synchronize do
+        @progressbar.total = @progressbar.total + delta
+      end
+    end
+
     def finish
       @mutex.synchronize do
         @progressbar.finish unless @progressbar.finished?
