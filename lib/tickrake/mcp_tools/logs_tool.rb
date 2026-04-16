@@ -8,14 +8,13 @@ module Tickrake
       DEFAULT_TARGET = "cli"
       DEFAULT_TAIL = 10
 
-      description "Tail the Tickrake CLI, options, or candles log."
+      description "Tail the Tickrake CLI log or any configured job log."
 
       input_schema(
         properties: {
           target: {
             type: "string",
-            description: "Log target to read.",
-            enum: %w[cli options candles]
+            description: "Log target to read. Use `cli` or a configured job name."
           },
           tail: {
             type: "integer",

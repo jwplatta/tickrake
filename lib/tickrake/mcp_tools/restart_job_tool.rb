@@ -6,14 +6,13 @@ require "stringio"
 module Tickrake
   module MCPTools
     class RestartJobTool < MCP::Tool
-      description "Restart the Tickrake options scheduler, candles scheduler, or both."
+      description "Restart a configured Tickrake scheduler job, or all configured jobs."
 
       input_schema(
         properties: {
           target: {
             type: "string",
-            description: "Which job to restart.",
-            enum: %w[options candles all]
+            description: "Configured job name, or `all`."
           },
           config_path: {
             type: "string",
@@ -25,7 +24,7 @@ module Tickrake
           },
           from_config_start: {
             type: "boolean",
-            description: "For candles only, override whether restart should backfill from configured start_date."
+            description: "For candles jobs only, override whether restart should backfill from configured start_date."
           }
         },
         required: ["target"]

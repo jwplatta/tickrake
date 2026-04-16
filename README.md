@@ -41,18 +41,17 @@ Then edit:
 ```
 
 to set:
-- options universe
-- candle universe
-- DTE buckets
-- options monitor interval
-- options windows
-- EOD candle time
+- named jobs under `schedule`
+- each job's `type`
+- job-specific universes
+- option job DTE buckets, intervals, and windows
+- candle job lookback windows and run times
 
 Run a one-off command to verify the setup:
 
 ```bash
-tickrake run options --verbose
-tickrake run candles --verbose
+tickrake run --job index_options --verbose
+tickrake run --job eod_candles --verbose
 tickrake query --provider schwab
 ```
 
@@ -61,25 +60,24 @@ tickrake query --provider schwab
 ```bash
 tickrake init
 tickrake validate-config
-tickrake start options
-tickrake start candles
-tickrake restart options
-tickrake restart candles
+tickrake start --job index_options
+tickrake start --job eod_candles
+tickrake restart --job index_options
+tickrake restart --job eod_candles
+tickrake restart --job all
 tickrake status
-tickrake stop options
-tickrake stop candles
-tickrake stop all
+tickrake stop --job index_options
+tickrake stop --job eod_candles
+tickrake stop --job all
 tickrake logs cli
-tickrake logs options --tail 100
-tickrake logs candles --tail 100
-tickrake run options
-tickrake run candles
-tickrake run candles --from-config-start
-tickrake run options --job
-tickrake run candles --job
-tickrake run options --verbose
-tickrake run candles --provider ibkr-paper --ticker SPY --start-date 2026-04-01 --end-date 2026-04-11 --frequency minute
-tickrake run options --provider schwab --ticker '$SPX' --expiration-date 2026-04-11 --option-root SPXW
+tickrake logs index_options --tail 100
+tickrake logs eod_candles --tail 100
+tickrake run --job index_options
+tickrake run --job eod_candles
+tickrake run --job eod_candles --from-config-start
+tickrake run --job index_options --verbose
+tickrake run --type candles --provider ibkr-paper --ticker SPY --start-date 2026-04-01 --end-date 2026-04-11 --frequency minute
+tickrake run --type options --provider schwab --ticker '$SPX' --expiration-date 2026-04-11 --option-root SPXW
 tickrake query --provider schwab
 tickrake query --type candles --provider ibkr-paper --ticker SPY
 tickrake query --type options --provider schwab --ticker '$SPX' --format json
@@ -165,8 +163,7 @@ Example Claude Desktop MCP entry:
 - Tickrake config: `~/.tickrake/tickrake.yml`
 - Tickrake metadata DB: `~/.tickrake/tickrake.sqlite3`
 - Tickrake CLI log: `~/.tickrake/cli.log`
-- Tickrake options log: `~/.tickrake/options.log`
-- Tickrake candles log: `~/.tickrake/candles.log`
+- Tickrake job logs: `~/.tickrake/<job_name>.log`
 - Tickrake job state: `~/.tickrake/jobs/*.json`
 - Tickrake lockfiles: `~/.tickrake/*.lock`
 
@@ -176,7 +173,8 @@ or adds missing columns, but it does not recreate or overwrite the existing data
 ## Config
 
 Run `tickrake init` to generate the default config in `~/.tickrake/`, then edit the
-universes, DTE buckets, schedule windows, worker limits, and retry policy.
+named jobs under `schedule`, their universes, their timing, and the shared runtime
+policy.
 
 Tickrake currently supports these provider adapters:
 
@@ -235,11 +233,11 @@ Without a CLI override, symbols with `provider:` use that value; the rest use `d
 You can also still select which configured provider to use on each command:
 
 ```bash
-tickrake run candles --provider ibkr-paper
-tickrake run options --provider schwab
-tickrake run candles --provider ibkr-paper --ticker SPY --start-date 2026-04-01 --end-date 2026-04-11 --frequency 30min
-tickrake run options --provider schwab --ticker '$SPX' --expiration-date 2026-04-11 --option-root SPXW
-tickrake start candles --provider ibkr-paper
+tickrake run --job eod_candles --provider ibkr-paper
+tickrake run --job index_options --provider schwab
+tickrake run --type candles --provider ibkr-paper --ticker SPY --start-date 2026-04-01 --end-date 2026-04-11 --frequency 30min
+tickrake run --type options --provider schwab --ticker '$SPX' --expiration-date 2026-04-11 --option-root SPXW
+tickrake start --job eod_candles --provider ibkr-paper
 tickrake query --provider ibkr-paper
 ```
 
@@ -327,9 +325,10 @@ tickrake storage-stats --config /mnt/tickrake/tickrake.yml
 - `schwab` supports candles and the existing options collection workflow.
 - `ibkr` currently supports candle collection only.
 
-If you run with an `ibkr` provider entry, `tickrake run candles --provider NAME`
-will use Interactive Brokers historical data through `ib-api`. `tickrake run options`
-still requires a `schwab` provider and will raise an error otherwise.
+If you run a candles job or direct candles request with an `ibkr` provider entry,
+Tickrake uses Interactive Brokers historical data through `ib-api`. Options jobs and
+direct options requests still require a `schwab` provider and will raise an error
+otherwise.
 
 For candle collection, each symbol uses a `frequencies:` array. Supported values are `minute`, `5min`, `10min`, `15min`,
 `30min`, `day`, `week`, and `month`.
@@ -339,17 +338,17 @@ single request with `--ticker`, `--start-date`, `--end-date`, and `--frequency`.
 For one-off direct option fetches, you can bypass the configured options universe with
 `--ticker` and `--expiration-date`, plus optional `--option-root`.
 
-`candles.lookback_days` controls the normal recurring candle request window for
-existing files. If a symbol/frequency has no existing CSV yet, Tickrake uses the
-configured `start_date` instead. Use `tickrake run candles --from-config-start`
-when you want to force a full backfill from the configured `start_date` even if a
-history file already exists.
+Each `type: candles` job has its own `lookback_days`, which controls the normal recurring
+candle request window for existing files. If a symbol/frequency has no existing CSV yet,
+Tickrake uses the configured `start_date` instead. Use `tickrake run --job JOB_NAME
+--from-config-start` when you want to force a full backfill from the configured
+`start_date` even if a history file already exists.
 
 One-off and direct CLI operational commands write structured logs to `~/.tickrake/cli.log`.
-The long-running schedulers write to separate rotating log files:
+Configured jobs write to separate rotating log files named after the job key:
 
-- `~/.tickrake/options.log`
-- `~/.tickrake/candles.log`
+- `~/.tickrake/index_options.log`
+- `~/.tickrake/eod_candles.log`
 
 Tickrake rotates each log with a fixed-file policy of 10 files at 10 MB each.
 Add `--verbose` to one-off commands to also mirror log output to the console while
@@ -357,19 +356,19 @@ the command runs.
 
 ## Background Jobs
 
-Use `tickrake start options` and `tickrake start candles` to launch the schedulers as
-background processes. Tickrake records process metadata in `~/.tickrake/jobs/` and writes
-the scheduler output into the job-specific rotating log files.
+Use `tickrake start --job JOB_NAME` to launch configured schedulers as background
+processes. Tickrake records process metadata in `~/.tickrake/jobs/` and writes scheduler
+output into job-specific rotating log files.
 
-Use `tickrake status` to see whether the `options` and `candles` jobs are running, and
-`tickrake stop options`, `tickrake stop candles`, or `tickrake stop all` to request a
-graceful shutdown. The long-running runners trap `TERM` and `INT`, finish the current
-iteration, and then exit.
+Use `tickrake status` to see configured jobs plus any orphaned/stale registry entries, and
+`tickrake stop --job JOB_NAME` or `tickrake stop --job all` to request a graceful
+shutdown. The long-running runners trap `TERM` and `INT`, finish the current iteration,
+and then exit.
 
-Use `tickrake restart options`, `tickrake restart candles`, or `tickrake restart all`
-to stop and relaunch background jobs. Restart reuses the last recorded config path,
-provider, and candle backfill flag for that job unless you pass explicit flags such as
-`--config`, `--provider`, or `--from-config-start`.
+Use `tickrake restart --job JOB_NAME` or `tickrake restart --job all` to stop and
+relaunch background jobs. Restart reuses the last recorded config path, provider, and
+candle backfill flag for that job unless you pass explicit flags such as `--config`,
+`--provider`, or `--from-config-start`.
 
-Use `tickrake logs cli`, `tickrake logs options`, or `tickrake logs candles` to print
-the relevant log stream, and add `--tail 100` to inspect just the most recent lines.
+Use `tickrake logs cli` or `tickrake logs JOB_NAME` to print the relevant log stream, and
+add `--tail 100` to inspect just the most recent lines.

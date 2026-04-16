@@ -7,6 +7,7 @@ module Tickrake
     ].freeze
     VALID_ADAPTERS = %w[schwab ibkr].freeze
     VALID_DAYS = %w[mon tue wed thu fri sat sun].freeze
+    VALID_JOB_TYPES = %w[options candles].freeze
 
     def self.load(path)
       new(path).load
@@ -25,39 +26,8 @@ module Tickrake
       data_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "data_dir", "~/.tickrake/data"))
       history_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "history_dir", File.join(data_dir, "history")))
       options_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "options_dir", File.join(data_dir, "options")))
-
       runtime = data.fetch("runtime", {})
-      schedule = data.fetch("schedule", {})
-      options_schedule = schedule.fetch("options_monitor", {})
-      eod_schedule = schedule.fetch("eod_candles", {})
-      candles_config = data.fetch("candles", {})
-
-      options_windows = Array(options_schedule.fetch("windows", [])).map do |window|
-        SchedulerWindow.new(
-          days: normalize_days(window.fetch("days")),
-          start_time: normalize_clock(window.fetch("start")),
-          end_time: normalize_clock(window.fetch("end"))
-        )
-      end
-
-      dte_buckets = Array(dig(data, "options", "dte_buckets", DEFAULT_DTE_BUCKETS)).map do |bucket|
-        parse_bucket(bucket)
-      end
-
-      options_universe = Array(dig(data, "options", "universe", [])).map do |row|
-        OptionSymbol.new(symbol: row.fetch("symbol"), option_root: row["option_root"], provider: row["provider"])
-      end
-
-      candles_universe = Array(candles_config.fetch("universe", [])).map do |row|
-        CandleSymbol.new(
-          symbol: row.fetch("symbol"),
-          provider: row["provider"],
-          frequencies: Array(row.fetch("frequencies")).map { |value| normalize_frequency(value) }.uniq,
-          start_date: Date.iso8601(row.fetch("start_date")),
-          need_extended_hours_data: !!row.fetch("need_extended_hours_data", false),
-          need_previous_close: !!row.fetch("need_previous_close", false)
-        )
-      end
+      jobs = load_jobs(data.fetch("schedule", {}))
 
       config = Config.new(
         timezone: timezone,
@@ -72,22 +42,11 @@ module Tickrake
         retry_delay_seconds: Integer(runtime.fetch("retry_delay_seconds", 2)),
         option_fetch_timeout_seconds: Integer(runtime.fetch("option_fetch_timeout_seconds", 30)),
         candle_fetch_timeout_seconds: Integer(runtime.fetch("candle_fetch_timeout_seconds", 60)),
-        options_monitor_interval_seconds: Integer(options_schedule.fetch("interval_seconds", 300)),
-        options_windows: options_windows,
-        eod_run_at: normalize_clock(eod_schedule.fetch("run_at", "16:10")),
-        eod_days: normalize_days(eod_schedule.fetch("days", %w[mon tue wed thu fri])),
-        candle_lookback_days: Integer(candles_config.fetch("lookback_days", 7)),
-        dte_buckets: dte_buckets,
-        options_universe: options_universe,
-        candles_universe: candles_universe
+        jobs: jobs
       )
 
       validate!(config)
       config
-    rescue Errno::ENOENT => e
-      raise ConfigError, "Config file not found: #{e.message}"
-    rescue KeyError, ArgumentError, TypeError, Date::Error, Psych::Exception => e
-      raise ConfigError, e.message
     end
 
     private
@@ -97,18 +56,110 @@ module Tickrake
       config.providers.each_value do |provider|
         raise ConfigError, "Unsupported provider adapter: #{provider.adapter}" unless VALID_ADAPTERS.include?(provider.adapter)
       end
+
       config.provider_definition(config.default_provider_name)
-      config.options_universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
-      config.candles_universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
-      raise ConfigError, "At least one options monitor window is required." if config.options_windows.empty?
-      raise ConfigError, "At least one options universe symbol is required." if config.options_universe.empty?
-      raise ConfigError, "At least one candle universe symbol is required." if config.candles_universe.empty?
-      raise ConfigError, "options_monitor interval must be positive." if config.options_monitor_interval_seconds <= 0
+      raise ConfigError, "At least one scheduled job is required." if config.jobs.empty?
+
+      config.jobs.each do |job|
+        raise ConfigError, "Unknown job type `#{job.type}` for `#{job.name}`." unless VALID_JOB_TYPES.include?(job.type)
+
+        if job.options?
+          raise ConfigError, "options job `#{job.name}` interval must be positive." if job.interval_seconds.to_i <= 0
+          raise ConfigError, "At least one options job window is required for `#{job.name}`." if job.windows.empty?
+          raise ConfigError, "At least one options universe symbol is required for `#{job.name}`." if job.universe.empty?
+          job.universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
+        elsif job.candles?
+          raise ConfigError, "At least one candles job day is required for `#{job.name}`." if job.days.empty?
+          raise ConfigError, "At least one candle universe symbol is required for `#{job.name}`." if job.universe.empty?
+          raise ConfigError, "candle lookback_days must be non-negative for `#{job.name}`." if job.lookback_days.to_i.negative?
+          job.universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
+        end
+      end
+
       raise ConfigError, "max_workers must be positive." if config.max_workers <= 0
-      raise ConfigError, "candle lookback_days must be non-negative." if config.candle_lookback_days.negative?
+    end
+
+    def load_jobs(schedule)
+      raise ConfigError, "schedule must be a mapping." unless schedule.is_a?(Hash)
+
+      schedule.map do |name, raw_job|
+        build_job(name, raw_job)
+      end
+    end
+
+    def build_job(name, raw_job)
+      raise ConfigError, "job `#{name}` must be a mapping." unless raw_job.is_a?(Hash)
+
+      raise ConfigError, "job `#{name}` must define type." unless raw_job.key?("type")
+
+      type = raw_job.fetch("type").to_s
+      raise ConfigError, "Unknown job type `#{type}` for `#{name}`." unless VALID_JOB_TYPES.include?(type)
+
+      case type
+      when "options"
+        build_options_job(name, raw_job)
+      when "candles"
+        build_candles_job(name, raw_job)
+      end
+    end
+
+    def build_options_job(name, raw_job)
+      ScheduledJobConfig.new(
+        name: name.to_s,
+        type: "options",
+        interval_seconds: Integer(raw_job.fetch("interval_seconds")),
+        windows: load_scheduler_windows(raw_job.fetch("windows")),
+        run_at: nil,
+        days: [],
+        lookback_days: nil,
+        dte_buckets: Array(raw_job.fetch("dte_buckets")).map { |bucket| parse_bucket(bucket) },
+        universe: Array(raw_job.fetch("universe")).map { |row| load_option_symbol(row) }
+      )
+    end
+
+    def build_candles_job(name, raw_job)
+      ScheduledJobConfig.new(
+        name: name.to_s,
+        type: "candles",
+        interval_seconds: nil,
+        windows: [],
+        run_at: normalize_clock(raw_job.fetch("run_at")),
+        days: normalize_days(raw_job.fetch("days")),
+        lookback_days: Integer(raw_job.fetch("lookback_days")),
+        dte_buckets: [],
+        universe: Array(raw_job.fetch("universe")).map { |row| load_candle_symbol(row) }
+      )
+    end
+
+    def load_scheduler_windows(raw_windows)
+      Array(raw_windows).map do |window|
+        SchedulerWindow.new(
+          days: normalize_days(window.fetch("days")),
+          start_time: normalize_clock(window.fetch("start")),
+          end_time: normalize_clock(window.fetch("end"))
+        )
+      end
+    end
+
+    def load_option_symbol(row)
+      OptionSymbol.new(symbol: row.fetch("symbol"), option_root: row["option_root"], provider: row["provider"])
+    end
+
+    def load_candle_symbol(row)
+      CandleSymbol.new(
+        symbol: row.fetch("symbol"),
+        provider: row["provider"],
+        frequencies: Array(row.fetch("frequencies")).map { |value| normalize_frequency(value) }.uniq,
+        start_date: Date.iso8601(row.fetch("start_date")),
+        need_extended_hours_data: !!row.fetch("need_extended_hours_data", false),
+        need_previous_close: !!row.fetch("need_previous_close", false)
+      )
     end
 
     def load_providers(data)
+      raise ConfigError, "providers must be configured." unless data.key?("providers")
+      raise ConfigError, "default_provider must be configured." unless data.key?("default_provider")
+
       providers = parse_named_providers(data.fetch("providers"))
       default_provider_name = data.fetch("default_provider")
       [providers, default_provider_name.to_s]
@@ -208,6 +259,5 @@ module Tickrake
 
       raise ConfigError, "Unsupported candle frequency: #{value}"
     end
-
   end
 end

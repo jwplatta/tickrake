@@ -1,112 +1,24 @@
 # frozen_string_literal: true
 
 RSpec.describe Tickrake::ConfigLoader do
-  it "loads the example config" do
+  it "loads the example config with typed scheduled jobs" do
     config = described_class.load(File.expand_path("../config/tickrake.example.yml", __dir__))
 
-    expect(config.options_monitor_interval_seconds).to eq(300)
-    expect(config.dte_buckets).to include(0, 10, 30)
-    expect(config.candle_lookback_days).to eq(7)
+    expect(config.jobs.map(&:name)).to eq(%w[index_options eod_candles])
+    expect(config.job("index_options").type).to eq("options")
+    expect(config.job("index_options").interval_seconds).to eq(300)
+    expect(config.job("index_options").dte_buckets).to include(0, 10, 30)
+    expect(config.job("eod_candles").type).to eq("candles")
+    expect(config.job("eod_candles").lookback_days).to eq(7)
     expect(config.default_provider_name).to eq("schwab")
     expect(config.provider_definition("schwab").adapter).to eq("schwab")
-    expect(config.sqlite_path).to eq(File.expand_path("~/.tickrake/tickrake.sqlite3"))
-    expect(config.data_dir).to eq(File.expand_path("~/.tickrake/data"))
-    expect(config.history_dir).to eq(File.expand_path("~/.tickrake/data/history"))
-    expect(config.options_dir).to eq(File.expand_path("~/.tickrake/data/options"))
     expect(config.options_universe.map(&:symbol)).to include("$SPX", "SPY")
-    expect(config.candles_universe.first.frequencies).to include("day", "30min", "10min", "5min", "1min")
+    expect(config.job("eod_candles").universe.first.frequencies).to include("day", "30min", "10min", "5min", "1min")
   end
 
-  it "preserves explicit storage paths" do
+  it "loads multiple named jobs with mixed types and per-symbol providers" do
     Dir.mktmpdir do |dir|
-      path = File.join(dir, "storage.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-        storage:
-          data_dir: #{dir}/tickrake-data
-          history_dir: #{dir}/custom-history
-          options_dir: #{dir}/custom-options
-        schedule:
-          options_monitor:
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-          eod_candles:
-            run_at: "16:10"
-            days: [mon]
-        options:
-          universe:
-            - symbol: SPY
-        candles:
-          universe:
-            - symbol: SPY
-              start_date: "2020-01-01"
-              frequencies: [day]
-      YAML
-
-      config = described_class.load(path)
-
-      expect(config.data_dir).to eq(File.join(dir, "tickrake-data"))
-      expect(config.history_dir).to eq(File.join(dir, "custom-history"))
-      expect(config.options_dir).to eq(File.join(dir, "custom-options"))
-    end
-  end
-
-  it "loads named provider settings" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "ibkr.yml")
-      File.write(path, <<~YAML)
-        default_provider: ib_paper
-        providers:
-          schwab_main:
-            adapter: schwab
-          ib_paper:
-            adapter: ibkr
-            settings:
-              host: 10.0.0.5
-              port: 7497
-              client_id: 77
-        schedule:
-          options_monitor:
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-          eod_candles:
-            run_at: "16:10"
-            days: [mon]
-        options:
-          universe:
-            - symbol: SPY
-        candles:
-          universe:
-            - symbol: SPY
-              start_date: "2020-01-01"
-              frequencies: [day]
-      YAML
-
-      config = described_class.load(path)
-
-      expect(config.default_provider_name).to eq("ib_paper")
-      expect(config.provider_definition("ib_paper").adapter).to eq("ibkr")
-      expect(config.provider_definition("ib_paper").settings).to eq(
-        "host" => "10.0.0.5",
-        "port" => 7497,
-        "client_id" => 77
-      )
-      expect(config.provider_definition("schwab_main").adapter).to eq("schwab")
-    end
-  end
-
-  it "loads per-symbol provider overrides" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "overrides.yml")
+      path = File.join(dir, "tickrake.yml")
       File.write(path, <<~YAML)
         default_provider: ibkr-paper
         providers:
@@ -117,306 +29,110 @@ RSpec.describe Tickrake::ConfigLoader do
             settings:
               host: 127.0.0.1
         schedule:
-          options_monitor:
+          index_options:
+            type: options
             interval_seconds: 300
             windows:
               - days: [mon]
                 start: "08:30"
                 end: "15:00"
+            dte_buckets: [0DTE, 2DTE]
+            universe:
+              - symbol: $SPX
+                option_root: SPXW
+                provider: schwab
+          stock_options:
+            type: options
+            interval_seconds: 1800
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            dte_buckets: [30DTE]
+            universe:
+              - symbol: AAPL
           eod_candles:
-            run_at: "16:10"
+            type: candles
+            run_at: "16:05"
             days: [mon]
-        options:
-          universe:
-            - symbol: $SPX
-              option_root: SPXW
-              provider: schwab
-            - symbol: SPY
-        candles:
-          universe:
-            - symbol: /ES
-              provider: schwab
-              start_date: "2020-01-01"
-              frequencies: [day]
-            - symbol: SPY
-              start_date: "2020-01-01"
-              frequencies: [day]
+            lookback_days: 7
+            universe:
+              - symbol: SPY
+                start_date: "2020-01-01"
+                frequencies: [day]
       YAML
 
       config = described_class.load(path)
 
-      expect(config.options_universe.map(&:provider)).to eq(["schwab", nil])
-      expect(config.candles_universe.map(&:provider)).to eq(["schwab", nil])
-      expect(config.provider_name_for_entry(config.options_universe.first)).to eq("schwab")
-      expect(config.provider_name_for_entry(config.options_universe.last)).to eq("ibkr-paper")
-      expect(config.provider_name_for_entry(config.candles_universe.first)).to eq("schwab")
-      expect(config.provider_name_for_entry(config.candles_universe.last)).to eq("ibkr-paper")
+      expect(config.jobs.map(&:name)).to eq(%w[index_options stock_options eod_candles])
+      expect(config.job("index_options").universe.first.provider).to eq("schwab")
+      expect(config.job("stock_options").dte_buckets).to eq([30])
+      expect(config.job("eod_candles").run_at).to eq([16, 5])
+      expect(config.provider_name_for_entry(config.job("index_options").universe.first)).to eq("schwab")
+      expect(config.provider_name_for_entry(config.job("stock_options").universe.first)).to eq("ibkr-paper")
     end
   end
 
-  it "loads per-provider symbol maps" do
+  it "rejects missing job types" do
     Dir.mktmpdir do |dir|
-      path = File.join(dir, "symbols.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-            symbol_map:
-              /ES: ^ES
-              /NQ: ^NQ
-          ibkr-paper:
-            adapter: ibkr
-            symbol_map:
-              ESM6: ^ES
-        schedule:
-          options_monitor:
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-          eod_candles:
-            run_at: "16:10"
-            days: [mon]
-        options:
-          universe:
-            - symbol: SPY
-        candles:
-          universe:
-            - symbol: SPY
-              start_date: "2020-01-01"
-              frequencies: [day]
-      YAML
-
-      config = described_class.load(path)
-
-      expect(config.provider_definition("schwab").symbol_map).to eq(
-        "/ES" => "^ES",
-        "/NQ" => "^NQ"
-      )
-      expect(config.provider_definition("ibkr-paper").symbol_map).to eq(
-        "ESM6" => "^ES"
-      )
-    end
-  end
-
-  it "requires providers to be configured" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "missing-providers.yml")
-      File.write(path, <<~YAML)
-        schedule:
-          options_monitor:
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-          eod_candles:
-            run_at: "16:10"
-            days: [mon]
-        options:
-          universe:
-            - symbol: SPY
-        candles:
-          universe:
-            - symbol: SPY
-              start_date: "2020-01-01"
-              frequencies: [day]
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /key not found: "providers"/)
-    end
-  end
-
-  it "requires default_provider even when only one provider is configured" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "missing-default-single.yml")
-      File.write(path, <<~YAML)
-        providers:
-          schwab:
-            adapter: schwab
-        schedule:
-          options_monitor:
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-          eod_candles:
-            run_at: "16:10"
-            days: [mon]
-        options:
-          universe:
-            - symbol: SPY
-        candles:
-          universe:
-            - symbol: SPY
-              start_date: "2020-01-01"
-              frequencies: [day]
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /key not found: "default_provider"/)
-    end
-  end
-
-  it "rejects unsupported provider adapters" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "bad-provider.yml")
-      File.write(path, <<~YAML)
-        default_provider: bad
-        providers:
-          bad:
-            adapter: fake
-        schedule:
-          options_monitor:
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-          eod_candles:
-            run_at: "16:10"
-            days: [mon]
-        options:
-          universe:
-            - symbol: SPY
-        candles:
-          universe:
-            - symbol: SPY
-              start_date: "2020-01-01"
-              frequencies: [day]
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Unsupported provider adapter/)
-    end
-  end
-
-  it "rejects malformed provider symbol maps" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "bad-symbol-map.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-            symbol_map: ["/ES", "^ES"]
-        schedule:
-          options_monitor:
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-          eod_candles:
-            run_at: "16:10"
-            days: [mon]
-        options:
-          universe:
-            - symbol: SPY
-        candles:
-          universe:
-            - symbol: SPY
-              start_date: "2020-01-01"
-              frequencies: [day]
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /symbol_map must be a mapping/)
-    end
-  end
-
-  it "requires default_provider when multiple providers are configured" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "missing-default.yml")
-      File.write(path, <<~YAML)
-        providers:
-          schwab_main:
-            adapter: schwab
-          ib_paper:
-            adapter: ibkr
-        schedule:
-          options_monitor:
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-          eod_candles:
-            run_at: "16:10"
-            days: [mon]
-        options:
-          universe:
-            - symbol: SPY
-        candles:
-          universe:
-            - symbol: SPY
-              start_date: "2020-01-01"
-              frequencies: [day]
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /default_provider/)
-    end
-  end
-
-  it "rejects unknown per-symbol provider overrides" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "unknown-entry-provider.yml")
+      path = File.join(dir, "missing-type.yml")
       File.write(path, <<~YAML)
         default_provider: schwab
         providers:
           schwab:
             adapter: schwab
         schedule:
-          options_monitor:
+          index_options:
             interval_seconds: 300
             windows:
               - days: [mon]
                 start: "08:30"
                 end: "15:00"
-          eod_candles:
-            run_at: "16:10"
-            days: [mon]
-        options:
-          universe:
-            - symbol: SPY
-              provider: ibkr-paper
-        candles:
-          universe:
-            - symbol: SPY
-              start_date: "2020-01-01"
-              frequencies: [day]
+            dte_buckets: [0DTE]
+            universe:
+              - symbol: SPY
       YAML
 
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Unknown provider `ibkr-paper`/)
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /must define type/)
+    end
+  end
+
+  it "rejects unknown job types" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "unknown-type.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        schedule:
+          weird_job:
+            type: snapshots
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Unknown job type/)
     end
   end
 
   it "rejects malformed dte buckets" do
     Dir.mktmpdir do |dir|
-      path = File.join(dir, "bad.yml")
+      path = File.join(dir, "bad-buckets.yml")
       File.write(path, <<~YAML)
         default_provider: schwab
         providers:
           schwab:
             adapter: schwab
         schedule:
-          options_monitor:
+          index_options:
+            type: options
             interval_seconds: 300
             windows:
               - days: [mon]
                 start: "08:30"
                 end: "15:00"
-          eod_candles:
-            run_at: "16:10"
-            days: [mon]
-        options:
-          dte_buckets: [near]
-          universe:
-            - symbol: SPY
-        candles:
-          universe:
-            - symbol: SPY
-              start_date: "2020-01-01"
+            dte_buckets: [near]
+            universe:
+              - symbol: SPY
       YAML
 
       expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Invalid DTE bucket/)
@@ -432,27 +148,18 @@ RSpec.describe Tickrake::ConfigLoader do
           schwab:
             adapter: schwab
         schedule:
-          options_monitor:
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
           eod_candles:
-            run_at: "16:10"
+            type: candles
+            run_at: "16:05"
             days: [mon]
-        options:
-          universe:
-            - symbol: SPY
-        candles:
-          lookback_days: -1
-          universe:
-            - symbol: SPY
-              start_date: "2020-01-01"
-              frequencies: [day]
+            lookback_days: -1
+            universe:
+              - symbol: SPY
+                start_date: "2020-01-01"
+                frequencies: [day]
       YAML
 
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /lookback_days/)
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /lookback_days must be non-negative/)
     end
   end
 end

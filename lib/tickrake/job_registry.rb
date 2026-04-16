@@ -2,8 +2,6 @@
 
 module Tickrake
   class JobRegistry
-    JOB_NAMES = %w[options candles].freeze
-
     def initialize
       FileUtils.mkdir_p(Tickrake::PathSupport.jobs_dir)
     end
@@ -33,8 +31,14 @@ module Tickrake
       metadata.merge(name: name, state: alive ? "running" : "stale")
     end
 
-    def statuses
-      JOB_NAMES.map { |name| status(name) }
+    def registered_names
+      Dir.glob(File.join(Tickrake::PathSupport.jobs_dir, "*.json")).map do |path|
+        File.basename(path, ".json")
+      end.sort
+    end
+
+    def statuses(names = nil)
+      Array(names || registered_names).uniq.sort.map { |name| status(name) }
     end
 
     def pid_alive?(pid)

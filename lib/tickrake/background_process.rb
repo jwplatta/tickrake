@@ -23,13 +23,14 @@ module Tickrake
         RbConfig.ruby,
         executable_path,
         "run",
-        job_name,
         "--job",
+        job_name,
+        "--scheduler",
         "--config",
         Tickrake::PathSupport.expand_path(config_path)
       ]
       args += ["--provider", provider_name] if provider_name
-      args << "--from-config-start" if job_name == "candles" && from_config_start
+      args << "--from-config-start" if from_config_start
 
       pid = Process.spawn(*args, out: log_device, err: log_device, pgroup: true)
       Process.detach(pid)

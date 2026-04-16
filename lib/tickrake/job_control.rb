@@ -9,43 +9,41 @@ module Tickrake
     end
 
     def start(target:, config_path:, provider_name: nil, from_config_start: false)
-      resolve_job_targets(target).each do |job_name|
+      resolve_job_targets(target, config_path: config_path).each do |job_name|
         @starter.start(
           job_name: job_name,
           config_path: config_path,
           provider_name: provider_name,
-          from_config_start: job_name == "candles" && from_config_start
+          from_config_start: from_config_start
         )
       end
     end
 
-    def stop(target:, timeout_seconds: 5)
-      resolve_job_targets(target).each do |job_name|
+    def stop(target:, config_path:, timeout_seconds: 5)
+      resolve_job_targets(target, config_path: config_path).each do |job_name|
         stop_one(job_name, timeout_seconds: timeout_seconds)
       end
     end
 
     def restart(target:, config_path: Tickrake::PathSupport.config_path, provider_name: nil, from_config_start: nil)
-      resolve_job_targets(target).each do |job_name|
+      resolve_job_targets(target, config_path: config_path).each do |job_name|
         metadata = @registry.read(job_name) || {}
         stop_one(job_name, timeout_seconds: nil, waiting_message: restart_waiting_message(job_name))
         @starter.start(
           job_name: job_name,
           config_path: restart_config_path(config_path, metadata),
           provider_name: restart_provider_name(provider_name, metadata),
-          from_config_start: restart_from_config_start(job_name, from_config_start, metadata)
+          from_config_start: restart_from_config_start(from_config_start, metadata)
         )
       end
     end
 
     private
 
-    def resolve_job_targets(target)
-      targets = target.to_s == "all" ? Tickrake::JobRegistry::JOB_NAMES : [target.to_s]
-      invalid = targets.reject { |name| Tickrake::JobRegistry::JOB_NAMES.include?(name) }
-      raise Tickrake::Error, "Unknown job `#{invalid.first}`." if invalid.any?
+    def resolve_job_targets(target, config_path:)
+      return Tickrake::ConfigLoader.load(config_path).jobs.map(&:name) if target.to_s == "all"
 
-      targets
+      [Tickrake::ConfigLoader.load(config_path).job(target).name]
     end
 
     def stop_one(name, timeout_seconds:, waiting_message: nil)
@@ -96,8 +94,7 @@ module Tickrake
       provider_name || metadata[:provider_name]
     end
 
-    def restart_from_config_start(job_name, from_config_start, metadata)
-      return false unless job_name == "candles"
+    def restart_from_config_start(from_config_start, metadata)
       return from_config_start unless from_config_start.nil?
 
       metadata[:from_config_start] == true

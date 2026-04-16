@@ -29,16 +29,9 @@ module Tickrake
     end
 
     def named_log_path(name)
-      case name.to_s
-      when "cli"
-        cli_log_path
-      when "options"
-        options_log_path
-      when "candles"
-        candles_log_path
-      else
-        cli_log_path
-      end
+      return cli_log_path if name.to_s == "cli"
+
+      File.join(home_dir, "#{sanitize_symbol(name)}.log")
     end
 
     def jobs_dir

@@ -6,11 +6,12 @@ module Tickrake
       SchwabRb::PriceHistory::Downloader.api_symbol(symbol)
     end
 
-    def initialize(runtime, universe: nil, expiration_date: nil, progress_reporter: nil)
+    def initialize(runtime, universe: nil, expiration_date: nil, progress_reporter: nil, scheduled_job: nil)
       @runtime = runtime
       @universe = universe
       @expiration_date = expiration_date
       @progress_reporter = progress_reporter
+      @scheduled_job = scheduled_job
     end
 
     def run(now: Time.now)
@@ -28,7 +29,7 @@ module Tickrake
     def build_queue(base_date)
       return build_direct_queue(base_date) if @expiration_date
 
-      buckets = @runtime.config.dte_buckets.uniq.sort
+      buckets = selected_dte_buckets.uniq.sort
 
       selected_universe.flat_map do |entry|
         provider_name = provider_name_for(entry)
@@ -132,7 +133,11 @@ module Tickrake
     end
 
     def selected_universe
-      @universe || @runtime.config.options_universe
+      @universe || @scheduled_job&.universe || @runtime.config.options_universe
+    end
+
+    def selected_dte_buckets
+      @scheduled_job&.dte_buckets || @runtime.config.dte_buckets
     end
 
     def fetch_one(job, run_time)
@@ -141,7 +146,7 @@ module Tickrake
         "Fetching option chain for #{job.fetch(:symbol)} provider=#{job.fetch(:provider_name)} bucket=#{requested_bucket} resolved_exp=#{job.fetch(:expiration_date)} root=#{job[:option_root] || '-'}"
       )
       id = @runtime.tracker.record_start(
-        job_type: "options_monitor",
+        job_type: @scheduled_job&.name || "options",
         dataset_type: "options",
         symbol: job.fetch(:symbol),
         option_root: job[:option_root],

@@ -44,14 +44,7 @@ RSpec.describe Tickrake::Storage::StatsReport do
         retry_delay_seconds: 1,
         option_fetch_timeout_seconds: 30,
         candle_fetch_timeout_seconds: 30,
-        options_monitor_interval_seconds: 60,
-        options_windows: [],
-        eod_run_at: [16, 10],
-        eod_days: %w[mon tue wed thu fri],
-        candle_lookback_days: 7,
-        dte_buckets: [],
-        options_universe: [],
-        candles_universe: []
+        jobs: []
       )
 
       report = described_class.new(
@@ -98,14 +91,7 @@ RSpec.describe Tickrake::Storage::StatsReport do
         retry_delay_seconds: 1,
         option_fetch_timeout_seconds: 30,
         candle_fetch_timeout_seconds: 30,
-        options_monitor_interval_seconds: 60,
-        options_windows: [],
-        eod_run_at: [16, 10],
-        eod_days: %w[mon tue wed thu fri],
-        candle_lookback_days: 7,
-        dte_buckets: [],
-        options_universe: [],
-        candles_universe: []
+        jobs: []
       )
 
       report = described_class.new(config, log_paths: { cli: File.join(dir, "cli.log") }).render

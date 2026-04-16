@@ -12,6 +12,7 @@ RSpec.describe Tickrake::MCPServer do
       response = described_class.call(server_context: {})
 
       expect(response.content.first[:text]).to include("validate_config_tool")
+      expect(response.content.first[:text]).to include("list_jobs_tool")
       expect(response.content.first[:text]).to include("search_datasets_tool")
       expect(response.content.first[:text]).to include("restart_job_tool")
     end
@@ -36,19 +37,60 @@ RSpec.describe Tickrake::MCPServer do
     end
   end
 
+  describe Tickrake::MCPTools::ListJobsTool do
+    it "returns configured jobs as structured json" do
+      config = instance_double(
+        Tickrake::Config,
+        jobs: [
+          Tickrake::ScheduledJobConfig.new(name: "index_options", type: "options"),
+          Tickrake::ScheduledJobConfig.new(name: "eod_candles", type: "candles")
+        ]
+      )
+      registry = instance_double(Tickrake::JobRegistry)
+      allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
+      allow(Tickrake::JobRegistry).to receive(:new).and_return(registry)
+      allow(registry).to receive(:statuses).with(%w[index_options eod_candles]).and_return([
+        { name: "index_options", state: "running", log_path: "/tmp/index_options.log" },
+        { name: "eod_candles", state: "stopped" }
+      ])
+      allow(Tickrake::PathSupport).to receive(:named_log_path).with("eod_candles").and_return("/tmp/eod_candles.log")
+
+      response = described_class.call(server_context: {})
+      parsed = JSON.parse(response.content.first[:text])
+
+      expect(parsed.fetch("jobs")).to eq([
+        {
+          "name" => "index_options",
+          "type" => "options",
+          "state" => "running",
+          "log_path" => "/tmp/index_options.log"
+        },
+        {
+          "name" => "eod_candles",
+          "type" => "candles",
+          "state" => "stopped",
+          "log_path" => "/tmp/eod_candles.log"
+        }
+      ])
+    end
+  end
+
   describe Tickrake::MCPTools::StatusTool do
     it "renders running and stopped jobs" do
+      config = instance_double(Tickrake::Config, jobs: [double(name: "index_options"), double(name: "eod_candles")])
       registry = instance_double(Tickrake::JobRegistry)
+      allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
       allow(Tickrake::JobRegistry).to receive(:new).and_return(registry)
-      allow(registry).to receive(:statuses).and_return([
-        { name: "options", state: "running", pid: 123, started_at: "2026-04-15T10:00:00Z", log_path: "/tmp/options.log" },
-        { name: "candles", state: "stopped" }
+      allow(registry).to receive(:registered_names).and_return([])
+      allow(registry).to receive(:statuses).with(%w[eod_candles index_options]).and_return([
+        { name: "index_options", state: "running", pid: 123, started_at: "2026-04-15T10:00:00Z", log_path: "/tmp/index_options.log" },
+        { name: "eod_candles", state: "stopped" }
       ])
 
       response = described_class.call(server_context: {})
 
-      expect(response.content.first[:text]).to include("options: running pid=123")
-      expect(response.content.first[:text]).to include("candles: stopped")
+      expect(response.content.first[:text]).to include("index_options: running pid=123")
+      expect(response.content.first[:text]).to include("eod_candles: stopped")
     end
   end
 
@@ -206,14 +248,14 @@ RSpec.describe Tickrake::MCPServer do
     it "starts the requested job" do
       controller = instance_double(Tickrake::JobControl)
       allow(Tickrake::JobControl).to receive(:new) do |stdout:|
-        stdout.puts("Started options job with pid 123.")
+        stdout.puts("Started index_options job with pid 123.")
         controller
       end
       allow(controller).to receive(:start)
 
-      response = described_class.call(target: "options", server_context: {})
+      response = described_class.call(target: "index_options", server_context: {})
 
-      expect(response.content.first[:text]).to include("Started options job")
+      expect(response.content.first[:text]).to include("Started index_options job")
     end
   end
 
@@ -221,14 +263,14 @@ RSpec.describe Tickrake::MCPServer do
     it "stops the requested job" do
       controller = instance_double(Tickrake::JobControl)
       allow(Tickrake::JobControl).to receive(:new) do |stdout:|
-        stdout.puts("Stopped options job (pid 123).")
+        stdout.puts("Stopped index_options job (pid 123).")
         controller
       end
       allow(controller).to receive(:stop)
 
-      response = described_class.call(target: "options", server_context: {})
+      response = described_class.call(target: "index_options", server_context: {})
 
-      expect(response.content.first[:text]).to include("Stopped options job")
+      expect(response.content.first[:text]).to include("Stopped index_options job")
     end
   end
 
@@ -236,15 +278,15 @@ RSpec.describe Tickrake::MCPServer do
     it "restarts the requested job" do
       controller = instance_double(Tickrake::JobControl)
       allow(Tickrake::JobControl).to receive(:new) do |stdout:|
-        stdout.puts("Waiting for candles job to finish its current work before restarting. This can take a bit.")
-        stdout.puts("Started candles job with pid 456.")
+        stdout.puts("Waiting for eod_candles job to finish its current work before restarting. This can take a bit.")
+        stdout.puts("Started eod_candles job with pid 456.")
         controller
       end
       allow(controller).to receive(:restart)
 
-      response = described_class.call(target: "candles", server_context: {})
+      response = described_class.call(target: "eod_candles", server_context: {})
 
-      expect(response.content.first[:text]).to include("Started candles job")
+      expect(response.content.first[:text]).to include("Started eod_candles job")
     end
   end
 end

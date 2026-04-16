@@ -204,11 +204,9 @@ module Tickrake
       end
 
       def default_log_paths
-        {
-          cli: Tickrake::PathSupport.cli_log_path,
-          options: Tickrake::PathSupport.options_log_path,
-          candles: Tickrake::PathSupport.candles_log_path
-        }
+        { cli: Tickrake::PathSupport.cli_log_path }.merge(
+          @config.jobs.to_h { |job| [job.name, Tickrake::PathSupport.named_log_path(job.name)] }
+        )
       end
     end
   end
