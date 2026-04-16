@@ -6,14 +6,17 @@ require "stringio"
 module Tickrake
   module MCPTools
     class StopJobTool < MCP::Tool
-      description "Stop the Tickrake options scheduler, candles scheduler, or both."
+      description "Stop a configured Tickrake scheduler job, or all configured jobs."
 
       input_schema(
         properties: {
           target: {
             type: "string",
-            description: "Which job to stop.",
-            enum: %w[options candles all]
+            description: "Configured job name, or `all`."
+          },
+          config_path: {
+            type: "string",
+            description: "Optional config path override."
           }
         },
         required: ["target"]
@@ -27,9 +30,12 @@ module Tickrake
       )
 
       class << self
-        def call(target:, server_context:)
+        def call(target:, config_path: nil, server_context:)
           stdout = StringIO.new
-          Tickrake::JobControl.new(stdout: stdout).stop(target: target)
+          Tickrake::JobControl.new(stdout: stdout).stop(
+            target: target,
+            config_path: config_path || Tickrake::PathSupport.config_path
+          )
           Response.text(stdout.string)
         end
       end

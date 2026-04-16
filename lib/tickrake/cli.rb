@@ -13,13 +13,6 @@ module Tickrake
       case command
       when "init"
         init_command(argv)
-      when "status"
-        status_command(argv)
-      when "stop"
-        stop_command(argv)
-      when "restart"
-        common_options = parse_common_options!(argv)
-        restart_command(argv, common_options)
       when "logs"
         logs_command(argv)
       when nil
@@ -27,9 +20,7 @@ module Tickrake
         1
       else
         common_options = parse_common_options!(argv)
-        config_path = common_options[:config_path]
-        config = Tickrake::ConfigLoader.load(config_path)
-        run_command(command, argv, config, common_options, config_path)
+        dispatch(command, argv, common_options)
       end
     rescue Tickrake::Error => e
       @stderr.puts(e.message)
@@ -41,85 +32,99 @@ module Tickrake
 
     private
 
-    def run_command(command, argv, config, common_options, config_path)
+    def dispatch(command, argv, common_options)
+      config_path = common_options[:config_path]
+
       case command
       when "validate-config"
-        @stdout.puts("Config valid: #{config_path}")
-        0
+        validate_config_command(argv, config_path)
       when "storage-stats"
+        config = Tickrake::ConfigLoader.load(config_path)
         storage_stats_command(argv, config)
-      when "start"
-        start_subcommand(argv, config_path)
-      when "run"
-        run_subcommand(argv, config, common_options)
       when "query"
+        config = Tickrake::ConfigLoader.load(config_path)
         query_command(argv, config)
+      when "status"
+        config = Tickrake::ConfigLoader.load(config_path)
+        status_command(argv, config)
+      when "start"
+        start_command(argv, config_path)
+      when "stop"
+        stop_command(argv, config_path)
+      when "restart"
+        restart_command(argv, config_path)
+      when "run"
+        config = Tickrake::ConfigLoader.load(config_path)
+        run_command(argv, config, common_options)
       else
         @stderr.puts(usage)
         1
       end
     end
 
-    def run_subcommand(argv, config, common_options)
-      name = argv.shift
+    def validate_config_command(argv, config_path)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
 
-      case name
-      when "options"
-        run_options_subcommand(argv, config, common_options)
-      when "candles"
-        run_candles_subcommand(argv, config, common_options)
+      Tickrake::ConfigLoader.load(config_path)
+      @stdout.puts("Config valid: #{config_path}")
+      0
+    end
+
+    def run_command(argv, config, common_options)
+      options = parse_run_options!(argv)
+
+      if options[:job]
+        run_configured_job(config, common_options, options)
       else
-        @stderr.puts(usage)
-        1
+        run_direct_job(config, common_options, options)
       end
     end
 
-    def run_options_subcommand(argv, config, common_options)
-      options = parse_options_run_options!(argv)
+    def run_configured_job(config, common_options, options)
+      job = config.job(options[:job])
+      validate_job_run_options!(job, options)
+
       runtime = Tickrake::Runtime.new(
         config: config,
         provider_name: options[:provider],
         verbose: common_options[:verbose],
         stdout: @stdout,
-        log_path: runtime_log_path("run", ["options"])
+        log_path: Tickrake::PathSupport.named_log_path(job.name)
       )
 
-      if options[:job]
-        raise Tickrake::Error, "Direct option run arguments cannot be combined with --job." if direct_options_run?(options)
-
-        Tickrake::OptionsMonitorRunner.new(runtime).run
+      if options[:scheduler]
+        run_scheduler(runtime, job, from_config_start: options[:from_config_start])
       else
-        progress_reporter = build_options_progress_reporter(runtime, options)
-        job = Tickrake::OptionsJob.new(
-          runtime,
-          universe: direct_options_universe(options),
-          expiration_date: options[:expiration_date],
-          progress_reporter: progress_reporter
-        )
-        job.run
-        @stdout.puts("Completed one-off options scrape.")
+        run_job_once(runtime, job, from_config_start: options[:from_config_start])
       end
       0
     end
 
-    def run_candles_subcommand(argv, config, common_options)
-      options = parse_candles_run_options!(argv)
+    def run_direct_job(config, common_options, options)
+      validate_direct_run_options!(options)
+
       runtime = Tickrake::Runtime.new(
         config: config,
         provider_name: options[:provider],
         verbose: common_options[:verbose],
         stdout: @stdout,
-        log_path: runtime_log_path("run", ["candles"])
+        log_path: Tickrake::PathSupport.named_log_path(options[:type])
       )
 
-      if options[:job]
-        raise Tickrake::Error, "Direct candle run arguments cannot be combined with --job." if direct_candles_run?(options)
-
-        Tickrake::EodCandlesRunner.new(runtime, from_config_start: options[:from_config_start]).run
-      else
+      case options[:type]
+      when "options"
+        job = Tickrake::OptionsJob.new(
+          runtime,
+          universe: direct_options_universe(options),
+          expiration_date: options[:expiration_date],
+          progress_reporter: nil
+        )
+        job.run
+        @stdout.puts("Completed one-off options scrape.")
+      when "candles"
         job = Tickrake::CandlesJob.new(
           runtime,
-          from_config_start: options[:from_config_start],
+          from_config_start: false,
           universe: direct_candles_universe(options),
           start_date_override: options[:start_date],
           end_date_override: options[:end_date],
@@ -127,71 +132,125 @@ module Tickrake
         )
         job.run
         @stdout.puts("Completed one-off candle scrape.")
+      else
+        raise Tickrake::Error, "Unknown run type `#{options[:type]}`."
       end
       0
     end
 
-    def start_subcommand(argv, config_path)
-      name = argv.shift
-      options = parse_job_run_options!(argv)
-      starter = Tickrake::BackgroundProcess.new(stdout: @stdout)
-
-      case name
+    def run_job_once(runtime, job, from_config_start:)
+      case job.type
       when "options"
-        starter.start(job_name: "options", config_path: config_path, provider_name: options[:provider])
-        0
-      when "candles"
-        starter.start(
-          job_name: "candles",
-          config_path: config_path,
-          from_config_start: options[:from_config_start],
-          provider_name: options[:provider]
+        progress_reporter = Tickrake::ProgressReporter.build(
+          total: job.universe.length * job.dte_buckets.uniq.length,
+          title: "Options",
+          output: @stdout
         )
-        0
+        Tickrake::OptionsJob.new(runtime, progress_reporter: progress_reporter, scheduled_job: job).run
+        @stdout.puts("Completed job #{job.name}.")
+      when "candles"
+        Tickrake::CandlesJob.new(
+          runtime,
+          from_config_start: from_config_start,
+          progress_output: @stdout,
+          scheduled_job: job
+        ).run
+        @stdout.puts("Completed job #{job.name}.")
       else
-        @stderr.puts(usage)
-        1
+        raise Tickrake::Error, "Unknown job type `#{job.type}`."
       end
     end
 
-    def parse_job_run_options!(argv)
-      options = { job: false, from_config_start: false, provider: nil }
-      parser = OptionParser.new
-      add_job_run_options(parser, options)
-      parser.order!(argv)
-      options
+    def run_scheduler(runtime, job, from_config_start:)
+      case job.type
+      when "options"
+        Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: job).run
+      when "candles"
+        Tickrake::EodCandlesRunner.new(runtime, scheduled_job: job, from_config_start: from_config_start).run
+      else
+        raise Tickrake::Error, "Unknown job type `#{job.type}`."
+      end
     end
 
-    def parse_options_run_options!(argv)
-      options = { job: false, from_config_start: false, provider: nil, ticker: nil, expiration_date: nil, option_root: nil }
+    def start_command(argv, config_path)
+      options = parse_job_control_options!(argv)
+      Tickrake::JobControl.new(stdout: @stdout).start(
+        target: options[:job],
+        config_path: config_path,
+        provider_name: options[:provider],
+        from_config_start: options[:from_config_start]
+      )
+      0
+    end
 
+    def stop_command(argv, config_path)
+      options = parse_stop_options!(argv)
+      Tickrake::JobControl.new(stdout: @stdout).stop(target: options[:job], config_path: config_path)
+      0
+    end
+
+    def restart_command(argv, config_path)
+      options = parse_job_control_options!(argv)
+      Tickrake::JobControl.new(stdout: @stdout).restart(
+        target: options[:job],
+        config_path: config_path,
+        provider_name: options[:provider],
+        from_config_start: options[:from_config_start]
+      )
+      0
+    end
+
+    def parse_job_control_options!(argv)
+      options = { job: nil, provider: nil, from_config_start: false }
       parser = OptionParser.new do |opts|
-        add_job_run_options(opts, options)
-        opts.on("--ticker SYMBOL", "Fetch options for a single ticker instead of the configured universe") do |value|
-          options[:ticker] = value
-        end
-        opts.on("--expiration-date YYYY-MM-DD", "Fetch the exact option expiration date") do |value|
-          options[:expiration_date] = Date.iso8601(value)
-        end
-        opts.on("--option-root ROOT", "Filter option results to a single option root") do |value|
-          options[:option_root] = value
-        end
+        opts.on("--job NAME", "Configured job name or all") { |value| options[:job] = value }
+        opts.on("--provider NAME", "Use the named provider from config") { |value| options[:provider] = value }
+        opts.on("--from-config-start", "For candles jobs, backfill from configured start_date") { options[:from_config_start] = true }
       end
       parser.order!(argv)
       raise OptionParser::InvalidOption, argv.first if argv.any?
+      raise Tickrake::Error, "--job is required." unless options[:job]
 
-      validate_direct_options_run!(options)
       options
     end
 
-    def parse_candles_run_options!(argv)
-      options = { job: false, from_config_start: false, provider: nil, ticker: nil, start_date: nil, end_date: nil, frequency: nil }
+    def parse_stop_options!(argv)
+      options = { job: nil }
+      parser = OptionParser.new do |opts|
+        opts.on("--job NAME", "Configured job name or all") { |value| options[:job] = value }
+      end
+      parser.order!(argv)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+      raise Tickrake::Error, "--job is required." unless options[:job]
+
+      options
+    end
+
+    def parse_run_options!(argv)
+      options = {
+        type: nil,
+        job: nil,
+        scheduler: false,
+        provider: nil,
+        from_config_start: false,
+        ticker: nil,
+        expiration_date: nil,
+        option_root: nil,
+        start_date: nil,
+        end_date: nil,
+        frequency: nil
+      }
 
       parser = OptionParser.new do |opts|
-        add_job_run_options(opts, options)
-        opts.on("--ticker SYMBOL", "Fetch candles for a single ticker instead of the configured universe") do |value|
-          options[:ticker] = value
+        opts.on("--type TYPE", "Run type for ad hoc runs: candles or options") { |value| options[:type] = value }
+        opts.on("--job NAME", "Configured job name to run") { |value| options[:job] = value }
+        opts.on("--provider NAME", "Use the named provider from config") { |value| options[:provider] = value }
+        opts.on("--from-config-start", "For candles jobs, backfill from configured start_date") { options[:from_config_start] = true }
+        opts.on("--ticker SYMBOL", "Fetch a single ticker") { |value| options[:ticker] = value }
+        opts.on("--expiration-date YYYY-MM-DD", "Fetch the exact option expiration date") do |value|
+          options[:expiration_date] = Date.iso8601(value)
         end
+        opts.on("--option-root ROOT", "Filter option results to a single option root") { |value| options[:option_root] = value }
         opts.on("--start-date YYYY-MM-DD", "Fetch candles starting from this date") do |value|
           options[:start_date] = Date.iso8601(value)
         end
@@ -201,58 +260,50 @@ module Tickrake
         opts.on("--frequency FREQ", "Fetch a single candle frequency") do |value|
           options[:frequency] = Tickrake::Query::FrequencyNormalizer.new.normalize(value)
         end
+        opts.on("--scheduler", "Internal: run the configured scheduler loop") { options[:scheduler] = true }
       end
       parser.order!(argv)
       raise OptionParser::InvalidOption, argv.first if argv.any?
 
-      validate_direct_candles_run!(options)
       options
     end
 
-    def add_job_run_options(parser, options)
-      parser.on("--job", "Run as a long-lived scheduler job") { options[:job] = true }
-      parser.on("--provider NAME", "Use the named provider from config") { |value| options[:provider] = value }
-      parser.on("--from-config-start", "Always use the configured candle start_date for candle requests") do
-        options[:from_config_start] = true
+    def validate_job_run_options!(job, options)
+      direct_args = [options[:ticker], options[:expiration_date], options[:option_root], options[:start_date], options[:end_date], options[:frequency]]
+      raise Tickrake::Error, "--type cannot be combined with --job." if options[:type]
+      raise Tickrake::Error, "Direct run arguments cannot be combined with --job." if direct_args.any?
+      raise Tickrake::Error, "--scheduler requires --job." if options[:scheduler] && options[:job].nil?
+      if options[:from_config_start] && job.type != "candles"
+        raise Tickrake::Error, "--from-config-start is only valid for candles jobs."
       end
     end
 
-    def validate_direct_options_run!(options)
-      return unless options[:ticker] || options[:expiration_date] || options[:option_root]
+    def validate_direct_run_options!(options)
+      raise Tickrake::Error, "--job is required for scheduler runs." if options[:scheduler]
+      raise Tickrake::Error, "--type is required for direct runs." unless options[:type]
 
-      raise Tickrake::Error, "Direct option runs require --ticker." unless options[:ticker]
-      raise Tickrake::Error, "Direct option runs require --expiration-date." unless options[:expiration_date]
-    end
-
-    def validate_direct_candles_run!(options)
-      direct_values = [options[:ticker], options[:start_date], options[:end_date], options[:frequency]]
-      return unless direct_values.any?
-
-      raise Tickrake::Error, "Direct candle runs require --ticker." unless options[:ticker]
-      raise Tickrake::Error, "Direct candle runs require --start-date." unless options[:start_date]
-      raise Tickrake::Error, "Direct candle runs require --end-date." unless options[:end_date]
-      raise Tickrake::Error, "Direct candle runs require --frequency." unless options[:frequency]
-      raise Tickrake::Error, "--from-config-start cannot be combined with direct candle run arguments." if options[:from_config_start]
-      raise Tickrake::Error, "--end-date must be on or after --start-date." if options[:end_date] < options[:start_date]
-    end
-
-    def direct_options_run?(options)
-      !!options[:ticker]
-    end
-
-    def direct_candles_run?(options)
-      !!options[:ticker]
+      case options[:type]
+      when "options"
+        raise Tickrake::Error, "Direct option runs require --ticker." unless options[:ticker]
+        raise Tickrake::Error, "Direct option runs require --expiration-date." unless options[:expiration_date]
+        raise Tickrake::Error, "--from-config-start is only valid for candles jobs." if options[:from_config_start]
+      when "candles"
+        raise Tickrake::Error, "Direct candle runs require --ticker." unless options[:ticker]
+        raise Tickrake::Error, "Direct candle runs require --start-date." unless options[:start_date]
+        raise Tickrake::Error, "Direct candle runs require --end-date." unless options[:end_date]
+        raise Tickrake::Error, "Direct candle runs require --frequency." unless options[:frequency]
+        raise Tickrake::Error, "--from-config-start cannot be combined with direct candle run arguments." if options[:from_config_start]
+        raise Tickrake::Error, "--end-date must be on or after --start-date." if options[:end_date] < options[:start_date]
+      else
+        raise Tickrake::Error, "Unknown run type `#{options[:type]}`."
+      end
     end
 
     def direct_options_universe(options)
-      return nil unless direct_options_run?(options)
-
       [Tickrake::OptionSymbol.new(symbol: options[:ticker], option_root: options[:option_root])]
     end
 
     def direct_candles_universe(options)
-      return nil unless direct_candles_run?(options)
-
       [Tickrake::CandleSymbol.new(
         symbol: options[:ticker],
         frequencies: [options[:frequency]],
@@ -260,13 +311,6 @@ module Tickrake
         need_extended_hours_data: false,
         need_previous_close: false
       )]
-    end
-
-    def build_options_progress_reporter(runtime, options)
-      return if direct_options_run?(options)
-
-      total = runtime.config.options_universe.length * runtime.config.dte_buckets.uniq.length
-      Tickrake::ProgressReporter.build(total: total, title: "Options", output: @stdout)
     end
 
     def query_command(argv, config)
@@ -306,12 +350,8 @@ module Tickrake
         opts.on("--provider NAME", "Use the named provider namespace from config") { |value| options[:provider] = value }
         opts.on("--ticker SYMBOL", "Filter by ticker symbol") { |value| options[:ticker] = value }
         opts.on("--frequency FREQ", "Filter candle results by frequency") { |value| options[:frequency] = value }
-        opts.on("--start-date YYYY-MM-DD", "Filter by dataset coverage start date") do |value|
-          options[:start_date] = Date.iso8601(value)
-        end
-        opts.on("--end-date YYYY-MM-DD", "Filter by dataset coverage end date") do |value|
-          options[:end_date] = Date.iso8601(value)
-        end
+        opts.on("--start-date YYYY-MM-DD", "Filter by dataset coverage start date") { |value| options[:start_date] = Date.iso8601(value) }
+        opts.on("--end-date YYYY-MM-DD", "Filter by dataset coverage end date") { |value| options[:end_date] = Date.iso8601(value) }
         opts.on("--format FORMAT", "Output format: text or json") { |value| options[:format] = value }
       end
       parser.order!(argv)
@@ -320,11 +360,12 @@ module Tickrake
       options
     end
 
-    def status_command(argv)
+    def status_command(argv, config)
       raise OptionParser::InvalidOption, argv.first if argv.any?
 
       registry = Tickrake::JobRegistry.new
-      registry.statuses.each do |job|
+      known_names = (config.jobs.map(&:name) + registry.registered_names).uniq.sort
+      registry.statuses(known_names).each do |job|
         case job[:state]
         when "running"
           @stdout.puts("#{job[:name]}: running pid=#{job[:pid]} started_at=#{job[:started_at]} log=#{job[:log_path]}")
@@ -337,113 +378,6 @@ module Tickrake
       0
     end
 
-    def stop_command(argv)
-      target = argv.shift
-      raise OptionParser::MissingArgument, "job name" if target.nil?
-      raise OptionParser::InvalidOption, argv.first if argv.any?
-
-      registry = Tickrake::JobRegistry.new
-      targets = resolve_job_targets(target)
-
-      targets.each do |name|
-        stop_one(registry, name)
-      end
-      0
-    end
-
-    def restart_command(argv, common_options)
-      target = argv.shift
-      raise OptionParser::MissingArgument, "job name" if target.nil?
-
-      options = parse_job_run_options!(argv)
-      raise OptionParser::InvalidOption, argv.first if argv.any?
-
-      registry = Tickrake::JobRegistry.new
-      starter = Tickrake::BackgroundProcess.new(stdout: @stdout)
-      targets = resolve_job_targets(target)
-
-      targets.each do |name|
-        metadata = registry.read(name) || {}
-        stop_one(registry, name, timeout_seconds: nil, waiting_message: restart_waiting_message(name))
-        starter.start(
-          job_name: name,
-          config_path: restart_config_path(common_options, metadata),
-          from_config_start: restart_from_config_start(name, options, metadata),
-          provider_name: restart_provider_name(options, metadata)
-        )
-      end
-      0
-    end
-
-    def stop_one(registry, name, timeout_seconds: 5, waiting_message: nil)
-      job = registry.status(name)
-      case job[:state]
-      when "running"
-        Process.kill("TERM", Integer(job[:pid]))
-        wait_for_stop(
-          registry,
-          name,
-          Integer(job[:pid]),
-          timeout_seconds: timeout_seconds,
-          waiting_message: waiting_message
-        )
-      when "stale"
-        registry.delete(name)
-        @stdout.puts("Removed stale #{name} job metadata for pid #{job[:pid]}.")
-      else
-        @stdout.puts("#{name} job is not running.")
-      end
-    end
-
-    def wait_for_stop(registry, name, pid, timeout_seconds: 5, waiting_message: nil)
-      deadline = timeout_seconds && (Time.now + timeout_seconds)
-      @stdout.puts(waiting_message) if waiting_message
-      loop do
-        unless registry.pid_alive?(pid)
-          registry.delete(name)
-          @stdout.puts("Stopped #{name} job (pid #{pid}).")
-          return
-        end
-
-        break if deadline && Time.now >= deadline
-
-        sleep 0.2
-      end
-
-      @stdout.puts("Sent TERM to #{name} job (pid #{pid}); waiting for shutdown.")
-    end
-
-    def restart_waiting_message(name)
-      "Waiting for #{name} job to finish its current work before restarting. This can take a bit."
-    end
-
-    def resolve_job_targets(target)
-      targets = target == "all" ? Tickrake::JobRegistry::JOB_NAMES : [target]
-      invalid = targets.reject { |name| Tickrake::JobRegistry::JOB_NAMES.include?(name) }
-      raise Tickrake::Error, "Unknown job `#{invalid.first}`." if invalid.any?
-
-      targets
-    end
-
-    def restart_config_path(common_options, metadata)
-      explicit = common_options[:config_path]
-      default = Tickrake::PathSupport.config_path
-      return explicit if explicit != default
-
-      metadata[:config_path] || explicit
-    end
-
-    def restart_provider_name(options, metadata)
-      options[:provider] || metadata[:provider_name]
-    end
-
-    def restart_from_config_start(name, options, metadata)
-      return false unless name == "candles"
-      return true if options[:from_config_start]
-
-      metadata[:from_config_start] == true
-    end
-
     def logs_command(argv)
       options = parse_logs_options!(argv)
       log_path = Tickrake::PathSupport.named_log_path(options[:target])
@@ -453,41 +387,21 @@ module Tickrake
       end
 
       content = File.read(log_path)
-      if options[:tail]
-        @stdout.print(content.lines.last(options[:tail]).join)
-      else
-        @stdout.print(content)
-      end
+      @stdout.print(options[:tail] ? content.lines.last(options[:tail]).join : content)
       0
     end
 
     def parse_logs_options!(argv)
       options = { tail: nil, target: "cli" }
-      if argv.first && !argv.first.start_with?("-")
-        options[:target] = argv.shift
-      end
+      options[:target] = argv.shift if argv.first && !argv.first.start_with?("-")
       parser = OptionParser.new do |opts|
         opts.on("--tail N", Integer, "Show only the last N log lines") { |value| options[:tail] = value }
       end
       parser.order!(argv)
-      if argv.first && !argv.first.start_with?("-")
-        options[:target] = argv.shift
-      end
+      options[:target] = argv.shift if argv.first && !argv.first.start_with?("-")
       raise OptionParser::InvalidOption, argv.first if argv.any?
+
       options
-    end
-
-    def runtime_log_path(command, argv)
-      return Tickrake::PathSupport.cli_log_path unless command == "run"
-
-      case argv.first
-      when "options"
-        Tickrake::PathSupport.options_log_path
-      when "candles"
-        Tickrake::PathSupport.candles_log_path
-      else
-        Tickrake::PathSupport.cli_log_path
-      end
     end
 
     def parse_common_options!(argv)
@@ -531,8 +445,6 @@ module Tickrake
       FileUtils.mkdir_p(File.dirname(sqlite_path))
       log_path = Tickrake::PathSupport.cli_log_path
       FileUtils.mkdir_p(File.dirname(log_path))
-      FileUtils.mkdir_p(File.dirname(Tickrake::PathSupport.options_log_path))
-      FileUtils.mkdir_p(File.dirname(Tickrake::PathSupport.candles_log_path))
 
       if File.exist?(config_path) && !options[:force]
         raise Tickrake::Error, "Config already exists at #{config_path}. Use --force to overwrite it."
@@ -544,8 +456,6 @@ module Tickrake
       @stdout.puts("Config written to #{config_path}")
       @stdout.puts("SQLite DB will be created at #{sqlite_path} on first run")
       @stdout.puts("CLI log file will be written to #{log_path}")
-      @stdout.puts("Options job log file will be written to #{Tickrake::PathSupport.options_log_path}")
-      @stdout.puts("Candles job log file will be written to #{Tickrake::PathSupport.candles_log_path}")
       0
     end
 
@@ -554,18 +464,16 @@ module Tickrake
         Usage:
           tickrake init [--config path/to/tickrake.yml] [--force]
           tickrake validate-config [--config path/to/tickrake.yml] [--verbose]
-          tickrake start options [--provider NAME] [--config path/to/tickrake.yml]
-          tickrake start candles [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml]
-          tickrake restart options [--provider NAME]
-          tickrake restart candles [--provider NAME] [--from-config-start]
-          tickrake restart all [--provider NAME] [--from-config-start]
-          tickrake run options [--job] [--provider NAME] [--ticker SYMBOL --expiration-date YYYY-MM-DD [--option-root ROOT]] [--config path/to/tickrake.yml] [--verbose]
-          tickrake run candles [--job] [--provider NAME] [--from-config-start] [--ticker SYMBOL --start-date YYYY-MM-DD --end-date YYYY-MM-DD --frequency FREQ] [--config path/to/tickrake.yml] [--verbose]
+          tickrake run --job JOB_NAME [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml] [--verbose]
+          tickrake run --type options --ticker SYMBOL --expiration-date YYYY-MM-DD [--option-root ROOT] [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
+          tickrake run --type candles --ticker SYMBOL --start-date YYYY-MM-DD --end-date YYYY-MM-DD --frequency FREQ [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
+          tickrake start --job JOB_NAME|all [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml]
+          tickrake stop --job JOB_NAME|all [--config path/to/tickrake.yml]
+          tickrake restart --job JOB_NAME|all [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml]
+          tickrake status [--config path/to/tickrake.yml]
           tickrake query [--type candles|options] [--provider NAME] [--ticker SYMBOL] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--format text|json] [--config path/to/tickrake.yml]
           tickrake storage-stats [--config path/to/tickrake.yml]
-          tickrake status
-          tickrake stop options|candles|all
-          tickrake logs [cli|options|candles] [--tail N]
+          tickrake logs [TARGET] [--tail N]
       TEXT
     end
   end

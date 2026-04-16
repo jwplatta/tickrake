@@ -19,58 +19,58 @@ storage:
   data_dir: ~/.tickrake/data
   history_dir: ~/.tickrake/data/history
   options_dir: ~/.tickrake/data/options
-schedule:
-  options_monitor:
-    interval_seconds: 300
-    windows:
-      - days: [mon, tue, wed, thu, fri]
-        start: "08:30"
-        end: "15:00"
-  eod_candles:
-    run_at: "16:05"
-    days: [mon, tue, wed, thu, fri]
 runtime:
   max_workers: 4
   retry_count: 2
   retry_delay_seconds: 2
   option_fetch_timeout_seconds: 30
   candle_fetch_timeout_seconds: 60
-options:
-  dte_buckets:
-    - 0DTE
-    - 1DTE
-    - 2DTE
-    - 3DTE
-    - 4DTE
-    - 5DTE
-    - 6DTE
-    - 7DTE
-    - 8DTE
-    - 9DTE
-    - 10DTE
-    - 30DTE
-  universe:
-    - symbol: $SPX
-      option_root: SPXW
-      provider: schwab
-    - symbol: SPY
-    - symbol: QQQ
-candles:
-  lookback_days: 7
-  universe:
-    - symbol: $SPX
-      provider: ibkr-paper
-      start_date: "2020-01-01"
-      frequencies: [day, 30min, 10min, 5min, minute]
-    - symbol: SPY
-      start_date: "2020-01-01"
-      frequencies: [day, 30min, 10min, 5min, minute]
-    - symbol: QQQ
-      start_date: "2020-01-01"
-      frequencies: [day, 30min, 10min, 5min, minute]
-    - symbol: $VIX
-      start_date: "2020-01-01"
-      frequencies: [day]
-    - symbol: $VIX9D
-      start_date: "2020-01-01"
-      frequencies: [day]
+schedule:
+  index_options:
+    type: options
+    interval_seconds: 300
+    windows:
+      - days: [mon, tue, wed, thu, fri]
+        start: "08:30"
+        end: "15:00"
+    dte_buckets:
+      - 0DTE
+      - 1DTE
+      - 2DTE
+      - 3DTE
+      - 4DTE
+      - 5DTE
+      - 6DTE
+      - 7DTE
+      - 8DTE
+      - 9DTE
+      - 10DTE
+      - 30DTE
+    universe:
+      - symbol: $SPX
+        option_root: SPXW
+        provider: schwab
+      - symbol: SPY
+      - symbol: QQQ
+  eod_candles:
+    type: candles
+    run_at: "16:05"
+    days: [mon, tue, wed, thu, fri]
+    lookback_days: 7
+    universe:
+      - symbol: $SPX
+        provider: ibkr-paper
+        start_date: "2020-01-01"
+        frequencies: [day, 30min, 10min, 5min, minute]
+      - symbol: SPY
+        start_date: "2020-01-01"
+        frequencies: [day, 30min, 10min, 5min, minute]
+      - symbol: QQQ
+        start_date: "2020-01-01"
+        frequencies: [day, 30min, 10min, 5min, minute]
+      - symbol: $VIX
+        start_date: "2020-01-01"
+        frequencies: [day]
+      - symbol: $VIX9D
+        start_date: "2020-01-01"
+        frequencies: [day]

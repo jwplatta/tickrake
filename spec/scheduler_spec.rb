@@ -8,8 +8,8 @@ RSpec.describe "schedulers" do
   let(:client_factory) { instance_double(Tickrake::ClientFactory) }
   let(:runtime) { Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: Logger.new(nil)) }
 
-  it "runs options monitor only inside configured windows" do
-    runner = Tickrake::OptionsMonitorRunner.new(runtime)
+  it "runs an options job only inside its configured windows" do
+    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"))
 
     inside = Time.new(2026, 4, 6, 9, 0, 0, "-05:00")
     outside = Time.new(2026, 4, 6, 16, 0, 0, "-05:00")
@@ -18,8 +18,8 @@ RSpec.describe "schedulers" do
     expect(runner.due?(outside)).to eq(false)
   end
 
-  it "runs eod candles once after configured time" do
-    runner = Tickrake::EodCandlesRunner.new(runtime)
+  it "runs a candles job once after configured time" do
+    runner = Tickrake::EodCandlesRunner.new(runtime, scheduled_job: config.job("eod_candles"))
 
     before = Time.new(2026, 4, 6, 16, 4, 0, "-05:00")
     after = Time.new(2026, 4, 6, 16, 5, 0, "-05:00")

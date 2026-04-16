@@ -5,10 +5,15 @@ require "mcp"
 module Tickrake
   module MCPTools
     class StatusTool < MCP::Tool
-      description "Show the current status of the Tickrake options and candles schedulers."
+      description "Show the current status of configured Tickrake jobs and any orphaned registry entries."
 
       input_schema(
-        properties: {},
+        properties: {
+          config_path: {
+            type: "string",
+            description: "Optional config path override."
+          }
+        },
         required: []
       )
 
@@ -20,8 +25,12 @@ module Tickrake
       )
 
       class << self
-        def call(server_context:)
-          lines = Tickrake::JobRegistry.new.statuses.map do |job|
+        def call(config_path: nil, server_context:)
+          config = Tickrake::ConfigLoader.load(config_path || Tickrake::PathSupport.config_path)
+          registry = Tickrake::JobRegistry.new
+          names = (config.jobs.map(&:name) + registry.registered_names).uniq.sort
+
+          lines = registry.statuses(names).map do |job|
             case job[:state]
             when "running"
               "#{job[:name]}: running pid=#{job[:pid]} started_at=#{job[:started_at]} log=#{job[:log_path]}"

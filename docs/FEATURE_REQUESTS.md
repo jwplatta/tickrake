@@ -1,7 +1,7 @@
 # Feature Requests
 
 - [x] To distinguish future ticker symbols, let's append the carrot to the front of the symbol so `/ES` would be `^ES` and let's use this for the filenames so, for example, ES futures on the SP500 doesn't get confused with the stock `ES`. We will have to normalize these future symbols for both schwab and ibkr. So for example, we will need to use the schwab valid symbol `/ES` when making requests, but we will want to write that data to files that have the `^ES` symbol appended to the front. I don't know hte ibkr approved symbol.
-- [ ] We want to be able to have a default provider for a job, e.g. the default for the candles is ibkr-paper, but then we also want to be able to optionally specify a provider for a specific ticker which will override the default. For example:
+- [x] We want to be able to have a default provider for a job, e.g. the default for the candles is ibkr-paper, but then we also want to be able to optionally specify a provider for a specific ticker which will override the default. For example:
 ```yaml
 timezone: America/Chicago
 sqlite_path: ~/.tickrake/tickrake.sqlite3
@@ -38,7 +38,7 @@ candles:
       frequencies: [day, 30min, 5min, 1min]
 ```
 
-- [ ] We want to be able to define multiple option sample jobs that have different sampling intervals. For example I have two options monitors here for index options and stock options with the stock options getting sampled at a lover frequency. I think this makes sense, but maybe there's a better way to structure it:
+- [x] We want to be able to define multiple option sample jobs that have different sampling intervals. For example I have two options monitors here for index options and stock options with the stock options getting sampled at a lover frequency. I think this makes sense, but maybe there's a better way to structure it:
 ```yaml
 timezone: America/Chicago
 sqlite_path: ~/.tickrake/tickrake.sqlite3

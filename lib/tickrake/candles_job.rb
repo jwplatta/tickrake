@@ -2,13 +2,14 @@
 
 module Tickrake
   class CandlesJob
-    def initialize(runtime, from_config_start: false, universe: nil, start_date_override: nil, end_date_override: nil, progress_output: nil)
+    def initialize(runtime, from_config_start: false, universe: nil, start_date_override: nil, end_date_override: nil, progress_output: nil, scheduled_job: nil)
       @runtime = runtime
       @from_config_start = from_config_start
       @universe = universe
       @start_date_override = start_date_override
       @end_date_override = end_date_override
       @progress_output = progress_output
+      @scheduled_job = scheduled_job
     end
 
     def run(now: Time.now)
@@ -29,7 +30,7 @@ module Tickrake
       canonical_symbol = canonical_symbol_for(entry.symbol, provider_definition)
       @runtime.logger.info("Fetching #{frequency} candles for #{entry.symbol}")
       id = @runtime.tracker.record_start(
-        job_type: "eod_candles",
+        job_type: @scheduled_job&.name || "candles",
         dataset_type: "candles",
         symbol: canonical_symbol,
         frequency: frequency,
@@ -131,7 +132,7 @@ module Tickrake
     end
 
     def selected_universe
-      @universe || @runtime.config.candles_universe
+      @universe || @scheduled_job&.universe || @runtime.config.candles_universe
     end
 
     def candle_reconciler
@@ -139,7 +140,8 @@ module Tickrake
     end
 
     def lookback_start_date(entry, scheduled_for)
-      lookback_start = scheduled_for.to_date - @runtime.config.candle_lookback_days
+      lookback_days = @scheduled_job&.lookback_days || @runtime.config.candle_lookback_days || 0
+      lookback_start = scheduled_for.to_date - lookback_days
       [entry.start_date, lookback_start].max
     end
 
