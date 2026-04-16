@@ -51,15 +51,7 @@ module Tickrake
       retry_delay_seconds:,
       option_fetch_timeout_seconds:,
       candle_fetch_timeout_seconds:,
-      jobs: nil,
-      options_monitor_interval_seconds: nil,
-      options_windows: nil,
-      eod_run_at: nil,
-      eod_days: nil,
-      candle_lookback_days: nil,
-      dte_buckets: nil,
-      options_universe: nil,
-      candles_universe: nil
+      jobs:
     )
       @timezone = timezone
       @sqlite_path = sqlite_path
@@ -73,22 +65,7 @@ module Tickrake
       @retry_delay_seconds = retry_delay_seconds
       @option_fetch_timeout_seconds = option_fetch_timeout_seconds
       @candle_fetch_timeout_seconds = candle_fetch_timeout_seconds
-      legacy_values = {
-        options_monitor_interval_seconds: options_monitor_interval_seconds,
-        options_windows: options_windows,
-        eod_run_at: eod_run_at,
-        eod_days: eod_days,
-        candle_lookback_days: candle_lookback_days,
-        dte_buckets: dte_buckets,
-        options_universe: options_universe,
-        candles_universe: candles_universe
-      }
-      @jobs =
-        if legacy_values.values.any? { |value| !value.nil? }
-          legacy_jobs(source_jobs: jobs || [], **legacy_values)
-        else
-          jobs || []
-        end
+      @jobs = jobs
     end
 
     def job(name)
@@ -151,54 +128,6 @@ module Tickrake
       return override_name.to_s if override_name
 
       provider_name_for_entry(entry)
-    end
-
-    private
-
-    def legacy_jobs(
-      source_jobs:,
-      options_monitor_interval_seconds:,
-      options_windows:,
-      eod_run_at:,
-      eod_days:,
-      candle_lookback_days:,
-      dte_buckets:,
-      options_universe:,
-      candles_universe:
-    )
-      existing_options_job = source_jobs.find { |job| job.type == "options" }
-      existing_candles_job = source_jobs.find { |job| job.type == "candles" }
-      built_jobs = []
-
-      if options_universe || dte_buckets || options_windows || options_monitor_interval_seconds
-        built_jobs << ScheduledJobConfig.new(
-          name: "options",
-          type: "options",
-          interval_seconds: options_monitor_interval_seconds || existing_options_job&.interval_seconds || 300,
-          windows: options_windows || existing_options_job&.windows || [],
-          run_at: nil,
-          days: [],
-          lookback_days: nil,
-          dte_buckets: dte_buckets || existing_options_job&.dte_buckets || [],
-          universe: options_universe || existing_options_job&.universe || []
-        )
-      end
-
-      if candles_universe || candle_lookback_days || eod_run_at || eod_days
-        built_jobs << ScheduledJobConfig.new(
-          name: "candles",
-          type: "candles",
-          interval_seconds: nil,
-          windows: [],
-          run_at: eod_run_at || existing_candles_job&.run_at,
-          days: eod_days || existing_candles_job&.days || [],
-          lookback_days: candle_lookback_days || existing_candles_job&.lookback_days || 0,
-          dte_buckets: [],
-          universe: candles_universe || existing_candles_job&.universe || []
-        )
-      end
-
-      built_jobs
     end
   end
 end

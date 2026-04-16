@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Tickrake
-  class EodCandlesRunner
+  class CandlesSchedulerRunner
     def initialize(runtime, scheduled_job:, sleeper: Kernel, from_config_start: false)
       @runtime = runtime
       @scheduled_job = scheduled_job

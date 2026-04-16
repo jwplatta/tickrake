@@ -18,23 +18,39 @@ RSpec.describe "query engine" do
       retry_delay_seconds: 1,
       option_fetch_timeout_seconds: 30,
       candle_fetch_timeout_seconds: 30,
-      options_monitor_interval_seconds: 300,
-      options_windows: [Tickrake::SchedulerWindow.new(days: %w[mon tue wed thu fri], start_time: [8, 30], end_time: [15, 0])],
-      eod_run_at: [16, 10],
-      eod_days: %w[mon tue wed thu fri],
-      candle_lookback_days: 7,
-      dte_buckets: [0, 1],
-      options_universe: [
-        Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW"),
-        Tickrake::OptionSymbol.new(symbol: "SPY", option_root: nil)
-      ],
-      candles_universe: [
-        Tickrake::CandleSymbol.new(
-          symbol: "$SPX",
-          frequencies: ["30min"],
-          start_date: Date.iso8601("2026-01-01"),
-          need_extended_hours_data: false,
-          need_previous_close: false
+      jobs: [
+        Tickrake::ScheduledJobConfig.new(
+          name: "options",
+          type: "options",
+          interval_seconds: 300,
+          windows: [Tickrake::SchedulerWindow.new(days: %w[mon tue wed thu fri], start_time: [8, 30], end_time: [15, 0])],
+          run_at: nil,
+          days: [],
+          lookback_days: nil,
+          dte_buckets: [0, 1],
+          universe: [
+            Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW"),
+            Tickrake::OptionSymbol.new(symbol: "SPY", option_root: nil)
+          ]
+        ),
+        Tickrake::ScheduledJobConfig.new(
+          name: "candles",
+          type: "candles",
+          interval_seconds: nil,
+          windows: [],
+          run_at: [16, 10],
+          days: %w[mon tue wed thu fri],
+          lookback_days: 7,
+          dte_buckets: [],
+          universe: [
+            Tickrake::CandleSymbol.new(
+              symbol: "$SPX",
+              frequencies: ["30min"],
+              start_date: Date.iso8601("2026-01-01"),
+              need_extended_hours_data: false,
+              need_previous_close: false
+            )
+          ]
         )
       ]
     )

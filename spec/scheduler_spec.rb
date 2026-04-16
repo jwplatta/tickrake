@@ -19,7 +19,7 @@ RSpec.describe "schedulers" do
   end
 
   it "runs a candles job once after configured time" do
-    runner = Tickrake::EodCandlesRunner.new(runtime, scheduled_job: config.job("eod_candles"))
+    runner = Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: config.job("eod_candles"))
 
     before = Time.new(2026, 4, 6, 16, 4, 0, "-05:00")
     after = Time.new(2026, 4, 6, 16, 5, 0, "-05:00")

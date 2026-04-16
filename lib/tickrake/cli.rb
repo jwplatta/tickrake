@@ -166,7 +166,7 @@ module Tickrake
       when "options"
         Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: job).run
       when "candles"
-        Tickrake::EodCandlesRunner.new(runtime, scheduled_job: job, from_config_start: from_config_start).run
+        Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: job, from_config_start: from_config_start).run
       else
         raise Tickrake::Error, "Unknown job type `#{job.type}`."
       end

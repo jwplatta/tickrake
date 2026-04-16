@@ -8,10 +8,68 @@ RSpec.describe "job execution" do
   let(:logger) { Logger.new(nil) }
 
   def config_with(config, **overrides)
-    attrs = config.instance_variables.each_with_object({}) do |ivar, hash|
-      hash[ivar.to_s.delete("@").to_sym] = config.instance_variable_get(ivar)
-    end
+    attrs = {
+      timezone: config.timezone,
+      sqlite_path: config.sqlite_path,
+      providers: config.providers,
+      default_provider_name: config.default_provider_name,
+      data_dir: config.data_dir,
+      history_dir: config.history_dir,
+      options_dir: config.options_dir,
+      max_workers: config.max_workers,
+      retry_count: config.retry_count,
+      retry_delay_seconds: config.retry_delay_seconds,
+      option_fetch_timeout_seconds: config.option_fetch_timeout_seconds,
+      candle_fetch_timeout_seconds: config.candle_fetch_timeout_seconds
+    }
+
+    job_overrides = {
+      options_monitor_interval_seconds: overrides.delete(:options_monitor_interval_seconds),
+      options_windows: overrides.delete(:options_windows),
+      dte_buckets: overrides.delete(:dte_buckets),
+      options_universe: overrides.delete(:options_universe),
+      eod_run_at: overrides.delete(:eod_run_at),
+      eod_days: overrides.delete(:eod_days),
+      candle_lookback_days: overrides.delete(:candle_lookback_days),
+      candles_universe: overrides.delete(:candles_universe)
+    }
+
+    attrs[:jobs] = config.jobs.map(&:dup)
+    attrs[:jobs] = rebuild_jobs(attrs[:jobs], job_overrides) if job_overrides.values.any? { |value| !value.nil? }
+
     Tickrake::Config.new(**attrs.merge(overrides))
+  end
+
+  def rebuild_jobs(jobs, overrides)
+    jobs.map do |job|
+      if job.type == "options"
+        Tickrake::ScheduledJobConfig.new(
+          name: job.name,
+          type: job.type,
+          interval_seconds: overrides[:options_monitor_interval_seconds] || job.interval_seconds,
+          windows: overrides[:options_windows] || job.windows,
+          run_at: job.run_at,
+          days: job.days,
+          lookback_days: job.lookback_days,
+          dte_buckets: overrides[:dte_buckets] || job.dte_buckets,
+          universe: overrides[:options_universe] || job.universe
+        )
+      elsif job.type == "candles"
+        Tickrake::ScheduledJobConfig.new(
+          name: job.name,
+          type: job.type,
+          interval_seconds: job.interval_seconds,
+          windows: job.windows,
+          run_at: overrides[:eod_run_at] || job.run_at,
+          days: overrides[:eod_days] || job.days,
+          lookback_days: overrides[:candle_lookback_days] || job.lookback_days,
+          dte_buckets: job.dte_buckets,
+          universe: overrides[:candles_universe] || job.universe
+        )
+      else
+        job
+      end
+    end
   end
 
   it "writes option samples and tracks metadata" do
