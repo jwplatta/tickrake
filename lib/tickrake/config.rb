@@ -16,6 +16,7 @@ module Tickrake
   ScheduledJobConfig = Struct.new(
     :name,
     :type,
+    :provider,
     :interval_seconds,
     :windows,
     :run_at,
@@ -120,14 +121,16 @@ module Tickrake
       provider
     end
 
-    def provider_name_for_entry(entry, fallback: default_provider_name)
-      (entry.provider || fallback).to_s
+    def provider_name_for_entry(entry, scheduled_job: nil, fallback: nil)
+      resolved_fallback = fallback || scheduled_job&.provider || default_provider_name
+
+      (entry.provider || resolved_fallback).to_s
     end
 
-    def provider_name_for_entry_with_override(override_name, entry)
+    def provider_name_for_entry_with_override(override_name, entry, scheduled_job: nil)
       return override_name.to_s if override_name
 
-      provider_name_for_entry(entry)
+      provider_name_for_entry(entry, scheduled_job: scheduled_job)
     end
   end
 end

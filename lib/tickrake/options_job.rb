@@ -268,7 +268,11 @@ module Tickrake
     end
 
     def provider_name_for(entry)
-      provider_name = @runtime.config.provider_name_for_entry_with_override(@runtime.provider_name, entry)
+      provider_name = @runtime.config.provider_name_for_entry_with_override(
+        @runtime.provider_override_name,
+        entry,
+        scheduled_job: @scheduled_job
+      )
       provider_definition = @runtime.config.provider_definition(provider_name)
       unless provider_definition.adapter == "schwab"
         raise Tickrake::Error, "OptionsJob currently supports provider=schwab only (got #{provider_name})."

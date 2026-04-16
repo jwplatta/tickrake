@@ -16,7 +16,7 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.job("eod_candles").universe.first.frequencies).to include("day", "30min", "10min", "5min", "1min")
   end
 
-  it "loads multiple named jobs with mixed types and per-symbol providers" do
+  it "loads multiple named jobs with mixed types and job-level/per-symbol providers" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.yml")
       File.write(path, <<~YAML)
@@ -31,6 +31,7 @@ RSpec.describe Tickrake::ConfigLoader do
         schedule:
           index_options:
             type: options
+            provider: ibkr-paper
             interval_seconds: 300
             windows:
               - days: [mon]
@@ -53,6 +54,7 @@ RSpec.describe Tickrake::ConfigLoader do
               - symbol: AAPL
           eod_candles:
             type: candles
+            provider: ibkr-paper
             run_at: "16:05"
             days: [mon]
             lookback_days: 7
@@ -65,11 +67,39 @@ RSpec.describe Tickrake::ConfigLoader do
       config = described_class.load(path)
 
       expect(config.jobs.map(&:name)).to eq(%w[index_options stock_options eod_candles])
+      expect(config.job("index_options").provider).to eq("ibkr-paper")
       expect(config.job("index_options").universe.first.provider).to eq("schwab")
       expect(config.job("stock_options").dte_buckets).to eq([30])
       expect(config.job("eod_candles").run_at).to eq([16, 5])
-      expect(config.provider_name_for_entry(config.job("index_options").universe.first)).to eq("schwab")
-      expect(config.provider_name_for_entry(config.job("stock_options").universe.first)).to eq("ibkr-paper")
+      expect(config.provider_name_for_entry(config.job("index_options").universe.first, scheduled_job: config.job("index_options"))).to eq("schwab")
+      expect(config.provider_name_for_entry(config.job("stock_options").universe.first, scheduled_job: config.job("stock_options"))).to eq("ibkr-paper")
+      expect(config.provider_name_for_entry(config.job("eod_candles").universe.first, scheduled_job: config.job("eod_candles"))).to eq("ibkr-paper")
+    end
+  end
+
+  it "rejects unknown job-level providers" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "bad-job-provider.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        schedule:
+          index_options:
+            type: options
+            provider: missing
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            dte_buckets: [0DTE]
+            universe:
+              - symbol: SPY
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Unknown provider `missing`/)
     end
   end
 
