@@ -104,6 +104,53 @@ RSpec.describe Tickrake::ConfigLoader do
     end
   end
 
+  it "loads per-provider symbol maps" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "symbols.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+            symbol_map:
+              /ES: ^ES
+              /NQ: ^NQ
+          ibkr-paper:
+            adapter: ibkr
+            symbol_map:
+              ESM6: ^ES
+        schedule:
+          options_monitor:
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+          eod_candles:
+            run_at: "16:10"
+            days: [mon]
+        options:
+          universe:
+            - symbol: SPY
+        candles:
+          universe:
+            - symbol: SPY
+              start_date: "2020-01-01"
+              frequencies: [day]
+      YAML
+
+      config = described_class.load(path)
+
+      expect(config.provider_definition("schwab").symbol_map).to eq(
+        "/ES" => "^ES",
+        "/NQ" => "^NQ"
+      )
+      expect(config.provider_definition("ibkr-paper").symbol_map).to eq(
+        "ESM6" => "^ES"
+      )
+    end
+  end
+
   it "requires providers to be configured" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "missing-providers.yml")
@@ -192,6 +239,39 @@ RSpec.describe Tickrake::ConfigLoader do
       YAML
 
       expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Unsupported provider adapter/)
+    end
+  end
+
+  it "rejects malformed provider symbol maps" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "bad-symbol-map.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+            symbol_map: ["/ES", "^ES"]
+        schedule:
+          options_monitor:
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+          eod_candles:
+            run_at: "16:10"
+            days: [mon]
+        options:
+          universe:
+            - symbol: SPY
+        candles:
+          universe:
+            - symbol: SPY
+              start_date: "2020-01-01"
+              frequencies: [day]
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /symbol_map must be a mapping/)
     end
   end
 

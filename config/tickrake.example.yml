@@ -5,6 +5,10 @@ providers:
   schwab:
     adapter: schwab
     settings: {}
+    symbol_map:
+      /ES: ^ES
+      /NQ: ^NQ
+      /RTY: ^RTY
   ibkr-paper:
     adapter: ibkr
     settings:

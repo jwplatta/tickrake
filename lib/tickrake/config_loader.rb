@@ -119,8 +119,14 @@ module Tickrake
 
         adapter = raw_provider.fetch("adapter").to_s
         settings = stringify_keys(raw_provider.fetch("settings", {}))
+        symbol_map = stringify_symbol_map(raw_provider.fetch("symbol_map", {}))
         provider_name = name.to_s
-        providers[provider_name] = ProviderDefinition.new(name: provider_name, adapter: adapter, settings: settings)
+        providers[provider_name] = ProviderDefinition.new(
+          name: provider_name,
+          adapter: adapter,
+          settings: settings,
+          symbol_map: symbol_map
+        )
       end
     end
 
@@ -130,6 +136,15 @@ module Tickrake
 
       value.each_with_object({}) do |(key, child), hash|
         hash[key.to_s] = child.is_a?(Hash) ? stringify_keys(child) : child
+      end
+    end
+
+    def stringify_symbol_map(value)
+      return {} if value.nil?
+      raise ConfigError, "provider symbol_map must be a mapping." unless value.is_a?(Hash)
+
+      value.each_with_object({}) do |(key, child), hash|
+        hash[key.to_s] = child.to_s
       end
     end
 

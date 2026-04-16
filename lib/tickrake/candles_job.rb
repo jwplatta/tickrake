@@ -25,11 +25,12 @@ module Tickrake
     private
 
     def fetch_one(entry, frequency, provider, scheduled_for)
+      canonical_symbol = canonical_symbol_for(entry.symbol)
       @runtime.logger.info("Fetching #{frequency} candles for #{entry.symbol}")
       id = @runtime.tracker.record_start(
         job_type: "eod_candles",
         dataset_type: "candles",
-        symbol: entry.symbol,
+        symbol: canonical_symbol,
         frequency: frequency,
         scheduled_for: scheduled_for,
         started_at: Time.now
@@ -39,7 +40,7 @@ module Tickrake
       begin
         start_date = request_start_date(entry, frequency, scheduled_for)
         end_date = request_end_date(scheduled_for)
-        path = storage_paths.candle_path(provider: provider.provider_name, symbol: entry.symbol, frequency: frequency)
+        path = storage_paths.candle_path(provider: provider.provider_name, symbol: canonical_symbol, frequency: frequency)
         ranges = request_ranges(provider: provider, frequency: frequency, start_date: start_date, end_date: end_date)
         progress_reporter = build_progress_reporter(entry: entry, frequency: frequency, total: ranges.length)
         total_candles = 0
@@ -102,11 +103,19 @@ module Tickrake
     end
 
     def history_path(entry, frequency)
-      storage_paths.candle_path(provider: @runtime.provider_name, symbol: entry.symbol, frequency: frequency)
+      storage_paths.candle_path(provider: @runtime.provider_name, symbol: canonical_symbol_for(entry.symbol), frequency: frequency)
     end
 
     def storage_paths
       @storage_paths ||= Storage::Paths.new(@runtime.config)
+    end
+
+    def canonical_symbol_for(symbol)
+      symbol_normalizer.canonical(symbol, provider_definition: @runtime.provider_definition)
+    end
+
+    def symbol_normalizer
+      @symbol_normalizer ||= Tickrake::Query::SymbolNormalizer.new
     end
 
     def selected_universe
