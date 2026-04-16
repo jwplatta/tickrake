@@ -416,7 +416,7 @@ RSpec.describe "job execution" do
         need_previous_close: false
       )
       custom = config_with(config, history_dir: dir, candles_universe: [candle_entry])
-      progress_reporter = instance_double(Tickrake::ProgressReporter, add_total: true, advance: true, finish: true)
+      progress_reporter = instance_double(Tickrake::ProgressReporter, advance: true, finish: true)
       provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
       provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
       runtime = Tickrake::Runtime.new(
@@ -427,11 +427,11 @@ RSpec.describe "job execution" do
         provider_name: "schwab"
       )
       allow(provider).to receive(:fetch_bars).and_return([])
+      allow(Tickrake::ProgressReporter).to receive(:build).with(total: 1, title: "SPY day", output: anything).and_return(progress_reporter)
 
-      Tickrake::CandlesJob.new(runtime, progress_reporter: progress_reporter).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
+      Tickrake::CandlesJob.new(runtime, progress_output: StringIO.new).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(progress_reporter).to have_received(:add_total).with(0)
-      expect(progress_reporter).to have_received(:advance).with(title: "SPY day 1/1")
+      expect(progress_reporter).to have_received(:advance).with(no_args)
       expect(progress_reporter).to have_received(:finish)
     end
   end
@@ -450,11 +450,7 @@ RSpec.describe "job execution" do
       default_provider_name: "ib_paper",
       candles_universe: [candle_entry]
     )
-    advanced_titles = []
-    progress_reporter = instance_double(Tickrake::ProgressReporter, add_total: true, finish: true)
-    allow(progress_reporter).to receive(:advance) do |title:|
-      advanced_titles << title
-    end
+    progress_reporter = instance_double(Tickrake::ProgressReporter, advance: true, finish: true)
     provider = instance_double(Tickrake::Providers::Ibkr, provider_name: "ib_paper", adapter_name: "ibkr")
     provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
     runtime = Tickrake::Runtime.new(
@@ -465,19 +461,15 @@ RSpec.describe "job execution" do
       provider_name: "ib_paper"
     )
     allow(provider).to receive(:fetch_bars).and_return([])
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 3, title: "$SPX 30min", output: anything).and_return(progress_reporter)
 
     Tickrake::CandlesJob.new(
       runtime,
       from_config_start: true,
-      progress_reporter: progress_reporter
+      progress_output: StringIO.new
     ).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-    expect(progress_reporter).to have_received(:add_total).with(2)
-    expect(advanced_titles).to eq([
-      "$SPX 30min 1/3",
-      "$SPX 30min 2/3",
-      "$SPX 30min 3/3"
-    ])
+    expect(progress_reporter).to have_received(:advance).exactly(3).times
     expect(progress_reporter).to have_received(:finish)
   end
 end

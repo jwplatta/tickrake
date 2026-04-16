@@ -2,13 +2,13 @@
 
 module Tickrake
   class CandlesJob
-    def initialize(runtime, from_config_start: false, universe: nil, start_date_override: nil, end_date_override: nil, progress_reporter: nil)
+    def initialize(runtime, from_config_start: false, universe: nil, start_date_override: nil, end_date_override: nil, progress_output: nil)
       @runtime = runtime
       @from_config_start = from_config_start
       @universe = universe
       @start_date_override = start_date_override
       @end_date_override = end_date_override
-      @progress_reporter = progress_reporter
+      @progress_output = progress_output
     end
 
     def run(now: Time.now)
@@ -19,7 +19,6 @@ module Tickrake
           fetch_one(entry, frequency, provider, now)
         end
       end
-      @progress_reporter&.finish
       @runtime.logger.info("Completed candle scrape at #{Time.now.utc.iso8601}")
     end
 
@@ -42,11 +41,10 @@ module Tickrake
         end_date = request_end_date(scheduled_for)
         path = storage_paths.candle_path(provider: provider.provider_name, symbol: entry.symbol, frequency: frequency)
         ranges = request_ranges(provider: provider, frequency: frequency, start_date: start_date, end_date: end_date)
-        @progress_reporter&.add_total(ranges.length - 1)
+        progress_reporter = build_progress_reporter(entry: entry, frequency: frequency, total: ranges.length)
         total_candles = 0
 
         ranges.each_with_index do |(chunk_start, chunk_end), index|
-          progress_title = "#{entry.symbol} #{frequency} #{index + 1}/#{ranges.length}"
           @runtime.logger.info(
             "Fetching #{frequency} candle chunk #{index + 1}/#{ranges.length} for #{entry.symbol} (#{chunk_start.iso8601} to #{chunk_end.iso8601})"
           ) if ranges.length > 1
@@ -63,13 +61,14 @@ module Tickrake
           end
           candle_reconciler.write(path: path, bars: fetched_bars)
           total_candles += Array(fetched_bars).size
-          @progress_reporter&.advance(title: progress_title)
+          progress_reporter&.advance
         end
 
         @runtime.logger.info(
           "Wrote #{frequency} candles for #{entry.symbol} to #{path} (requested #{start_date.iso8601} to #{end_date.iso8601}, #{total_candles} rows)"
         )
         @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
+        progress_reporter&.finish
       rescue StandardError => e
         retries += 1
         if retries <= @runtime.config.retry_count
@@ -79,7 +78,18 @@ module Tickrake
         end
         @runtime.logger.error("Failed candle fetch for #{entry.symbol} #{frequency}: #{e.message}")
         @runtime.tracker.record_finish(id: id, status: "failed", finished_at: Time.now, error_message: e.message)
+        progress_reporter&.finish
       end
+    end
+
+    def build_progress_reporter(entry:, frequency:, total:)
+      return unless @progress_output
+
+      Tickrake::ProgressReporter.build(
+        total: total,
+        title: "#{entry.symbol} #{frequency}",
+        output: @progress_output
+      )
     end
 
     def request_start_date(entry, frequency, scheduled_for)
