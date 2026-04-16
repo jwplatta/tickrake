@@ -8,6 +8,7 @@ module Tickrake
     TOOLS = [
       Tickrake::MCPTools::HelpTool,
       Tickrake::MCPTools::ValidateConfigTool,
+      Tickrake::MCPTools::ListJobsTool,
       Tickrake::MCPTools::StatusTool,
       Tickrake::MCPTools::SearchDatasetsTool,
       Tickrake::MCPTools::StorageStatsTool,

@@ -12,6 +12,7 @@ RSpec.describe Tickrake::MCPServer do
       response = described_class.call(server_context: {})
 
       expect(response.content.first[:text]).to include("validate_config_tool")
+      expect(response.content.first[:text]).to include("list_jobs_tool")
       expect(response.content.first[:text]).to include("search_datasets_tool")
       expect(response.content.first[:text]).to include("restart_job_tool")
     end
@@ -33,6 +34,44 @@ RSpec.describe Tickrake::MCPServer do
 
       expect(response.content.first[:text]).to include("Config valid: /tmp/custom.yml")
       expect(response.content.first[:text]).to include("Providers: ibkr-paper, schwab")
+    end
+  end
+
+  describe Tickrake::MCPTools::ListJobsTool do
+    it "returns configured jobs as structured json" do
+      config = instance_double(
+        Tickrake::Config,
+        jobs: [
+          Tickrake::ScheduledJobConfig.new(name: "index_options", type: "options"),
+          Tickrake::ScheduledJobConfig.new(name: "eod_candles", type: "candles")
+        ]
+      )
+      registry = instance_double(Tickrake::JobRegistry)
+      allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
+      allow(Tickrake::JobRegistry).to receive(:new).and_return(registry)
+      allow(registry).to receive(:statuses).with(%w[index_options eod_candles]).and_return([
+        { name: "index_options", state: "running", log_path: "/tmp/index_options.log" },
+        { name: "eod_candles", state: "stopped" }
+      ])
+      allow(Tickrake::PathSupport).to receive(:named_log_path).with("eod_candles").and_return("/tmp/eod_candles.log")
+
+      response = described_class.call(server_context: {})
+      parsed = JSON.parse(response.content.first[:text])
+
+      expect(parsed.fetch("jobs")).to eq([
+        {
+          "name" => "index_options",
+          "type" => "options",
+          "state" => "running",
+          "log_path" => "/tmp/index_options.log"
+        },
+        {
+          "name" => "eod_candles",
+          "type" => "candles",
+          "state" => "stopped",
+          "log_path" => "/tmp/eod_candles.log"
+        }
+      ])
     end
   end
 
