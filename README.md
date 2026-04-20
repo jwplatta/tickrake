@@ -299,8 +299,11 @@ Available filters:
 - `--provider NAME`
 - `--ticker SYMBOL`
 - `--frequency FREQ` for candle queries only
-- `--start-date YYYY-MM-DD`
-- `--end-date YYYY-MM-DD`
+- `--start-date YYYY-MM-DD` filters candle coverage dates or option sample datetimes
+- `--end-date YYYY-MM-DD` filters candle coverage dates or option sample datetimes
+- `--exp-date YYYY-MM-DD` filters option snapshots by expiration date
+- `--limit N` limits option snapshots after filtering
+- `--ascending true|false` sorts option snapshots by sample datetime and defaults to `true`
 - `--format text|json`
 
 Examples:
@@ -310,12 +313,15 @@ tickrake query --provider ibkr-paper
 tickrake query --type candles --provider ibkr-paper --ticker SPY
 tickrake query --type candles --provider ibkr-paper --ticker '$SPX' --frequency 30min
 tickrake query --type options --provider schwab --ticker '$SPX'
+tickrake query --type options --provider schwab --ticker 'SPXW' --start-date 2026-03-30 --end-date 2026-03-30 --exp-date 2026-04-06
+tickrake query --type options --provider schwab --ticker 'SPXW' --exp-date 2026-04-06 --limit 5 --ascending false
 tickrake query --type candles --provider ibkr-paper --ticker SPY --format json
 ```
 
 Text output is grouped by provider, dataset type, and ticker. Candle summaries include
-frequency, row count, available timestamp range, and file path. Option summaries include
-snapshot count, available sample range, and the latest snapshot path.
+frequency, row count, available timestamp range, and file path. Option summaries list
+each matching snapshot with its root symbol, expiration date, sample datetime, and file
+path.
 
 ## Storage Stats
 
