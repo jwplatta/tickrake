@@ -252,4 +252,87 @@ RSpec.describe Tickrake::CLI do
     expect(exit_code).to eq(1)
     expect(stderr.string).to include("invalid option: options")
   end
+
+  it "passes option query expiration and sample-date filters to the query engine" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    tracker = instance_double(Tickrake::Tracker)
+    engine = instance_double(Tickrake::Query::Engine, run: true)
+
+    allow(Tickrake::Tracker).to receive(:new).with("/tmp/tickrake.sqlite3").and_return(tracker)
+    allow(Tickrake::Query::Engine).to receive(:new).with(config: config, tracker: tracker, stdout: stdout).and_return(engine)
+    allow(engine).to receive(:run).with(
+      type: "options",
+      provider_name: "schwab",
+      ticker: "SPXW",
+      frequency: nil,
+      start_date: Date.new(2026, 3, 30),
+      end_date: Date.new(2026, 3, 30),
+      expiration_date: Date.new(2026, 4, 6),
+      limit: nil,
+      ascending: true,
+      format: "text"
+    )
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "query",
+      "--type", "options",
+      "--provider", "schwab",
+      "--ticker", "SPXW",
+      "--start-date", "2026-03-30",
+      "--end-date", "2026-03-30",
+      "--exp-date", "2026-04-06"
+    ])
+
+    expect(exit_code).to eq(0)
+  end
+
+  it "passes option sample ordering and limit filters to the query engine" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    tracker = instance_double(Tickrake::Tracker)
+    engine = instance_double(Tickrake::Query::Engine, run: true)
+
+    allow(Tickrake::Tracker).to receive(:new).with("/tmp/tickrake.sqlite3").and_return(tracker)
+    allow(Tickrake::Query::Engine).to receive(:new).with(config: config, tracker: tracker, stdout: stdout).and_return(engine)
+    allow(engine).to receive(:run).with(
+      type: "options",
+      provider_name: "schwab",
+      ticker: "SPXW",
+      frequency: nil,
+      start_date: nil,
+      end_date: nil,
+      expiration_date: nil,
+      limit: 2,
+      ascending: false,
+      format: "text"
+    )
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "query",
+      "--type", "options",
+      "--provider", "schwab",
+      "--ticker", "SPXW",
+      "--limit", "2",
+      "--ascending", "false"
+    ])
+
+    expect(exit_code).to eq(0)
+  end
+
+  it "rejects invalid boolean values for --ascending" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "query",
+      "--type", "options",
+      "--provider", "schwab",
+      "--ticker", "SPXW",
+      "--ascending", "nope"
+    ])
+
+    expect(exit_code).to eq(1)
+    expect(stderr.string).to include("--ascending must be true or false.")
+  end
 end

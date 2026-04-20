@@ -20,16 +20,22 @@ module Tickrake
         @symbol_normalizer = symbol_normalizer
       end
 
-      def scan(provider_name: nil, ticker: nil, start_date: nil, end_date: nil)
+      def scan(provider_name: nil, ticker: nil, start_date: nil, end_date: nil, expiration_date: nil,
+               limit: nil, ascending: true)
         requested_aliases = ticker && requested_aliases_for(ticker)
-        provider_names(provider_name).flat_map do |selected_provider|
+        results = provider_names(provider_name).flat_map do |selected_provider|
           snapshot_results_for(
             provider_name: selected_provider,
             requested_aliases: requested_aliases,
             start_date: start_date,
-            end_date: end_date
+            end_date: end_date,
+            expiration_date: expiration_date
           )
-        end.sort_by { |result| [result.provider_name, result.ticker, result.expiration_date, result.sample_datetime] }
+        end
+
+        ordered = results.sort_by { |result| [Time.iso8601(result.sample_datetime), result.provider_name, result.ticker, result.expiration_date] }
+        ordered.reverse! unless ascending
+        limit ? ordered.first(limit) : ordered
       end
 
       private
@@ -40,13 +46,14 @@ module Tickrake
         @config.providers.keys.sort
       end
 
-      def snapshot_results_for(provider_name:, requested_aliases:, start_date:, end_date:)
+      def snapshot_results_for(provider_name:, requested_aliases:, start_date:, end_date:, expiration_date:)
         option_paths_for(provider_name).filter_map do |path|
           metadata = metadata_for(path, provider_name: provider_name)
           next unless metadata
 
           canonical_ticker = resolve_canonical_ticker(metadata.fetch("ticker"))
           next if requested_aliases && !requested_aliases.include?(canonical_ticker)
+          next unless matching_expiration_date?(metadata.fetch("expiration_date"), expiration_date)
 
           observed_at = metadata["last_observed_at"]
           next unless within_window?(observed_at, start_date: start_date, end_date: end_date)
@@ -171,6 +178,12 @@ module Tickrake
         return false if end_date && observed_date > end_date
 
         true
+      end
+
+      def matching_expiration_date?(expiration_value, requested_expiration_date)
+        return true unless requested_expiration_date
+
+        Date.iso8601(expiration_value) == requested_expiration_date
       end
     end
   end

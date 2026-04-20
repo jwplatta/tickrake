@@ -170,6 +170,61 @@ RSpec.describe "query engine" do
     end
   end
 
+  it "filters option snapshots by sample datetime window and expiration date independently" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      File.write(File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-30_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
+      File.write(File.join(provider_dir, "SPXW_exp2026-04-07_2026-03-30_15-00-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
+      File.write(File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-31_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
+      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      scanner = Tickrake::Query::OptionsScanner.new(config: config, tracker: tracker)
+
+      results = scanner.scan(
+        provider_name: "schwab",
+        ticker: "SPXW",
+        start_date: Date.new(2026, 3, 30),
+        end_date: Date.new(2026, 3, 30),
+        expiration_date: Date.new(2026, 4, 6)
+      )
+
+      expect(results.length).to eq(1)
+      expect(results.first.expiration_date).to eq("2026-04-06")
+      expect(results.first.sample_datetime).to eq("2026-03-30T14:30:00Z")
+      expect(results.first.file_path).to include("SPXW_exp2026-04-06_2026-03-30_14-30-00.csv")
+    end
+  end
+
+  it "sorts option snapshots by sample datetime and can limit the returned samples" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      File.write(File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-30_13-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
+      File.write(File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-30_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
+      File.write(File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-30_15-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
+      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      scanner = Tickrake::Query::OptionsScanner.new(config: config, tracker: tracker)
+
+      ascending_results = scanner.scan(provider_name: "schwab", ticker: "SPXW", limit: 2)
+      descending_results = scanner.scan(provider_name: "schwab", ticker: "SPXW", limit: 2, ascending: false)
+
+      expect(ascending_results.map(&:sample_datetime)).to eq([
+        "2026-03-30T13:30:00Z",
+        "2026-03-30T14:30:00Z"
+      ])
+      expect(descending_results.map(&:sample_datetime)).to eq([
+        "2026-03-30T15:30:00Z",
+        "2026-03-30T14:30:00Z"
+      ])
+    end
+  end
+
   it "formats results as deterministic text and json summaries without raw rows" do
     candle_result = Tickrake::Query::CandlesScanner::Result.new(
       dataset_type: "candles",

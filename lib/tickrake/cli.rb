@@ -323,6 +323,9 @@ module Tickrake
         frequency: options[:frequency],
         start_date: options[:start_date],
         end_date: options[:end_date],
+        expiration_date: options[:expiration_date],
+        limit: options[:limit],
+        ascending: options[:ascending],
         format: options[:format]
       )
       0
@@ -343,6 +346,9 @@ module Tickrake
         frequency: nil,
         start_date: nil,
         end_date: nil,
+        expiration_date: nil,
+        limit: nil,
+        ascending: true,
         format: "text"
       }
       parser = OptionParser.new do |opts|
@@ -352,6 +358,13 @@ module Tickrake
         opts.on("--frequency FREQ", "Filter candle results by frequency") { |value| options[:frequency] = value }
         opts.on("--start-date YYYY-MM-DD", "Filter by dataset coverage start date") { |value| options[:start_date] = Date.iso8601(value) }
         opts.on("--end-date YYYY-MM-DD", "Filter by dataset coverage end date") { |value| options[:end_date] = Date.iso8601(value) }
+        opts.on("--exp-date YYYY-MM-DD", "--expiration-date YYYY-MM-DD", "Filter option snapshots by expiration date") do |value|
+          options[:expiration_date] = Date.iso8601(value)
+        end
+        opts.on("--limit N", Integer, "Limit matching option snapshots to N results") { |value| options[:limit] = value }
+        opts.on("--ascending true|false", "Sort option snapshots by sample datetime ascending or descending") do |value|
+          options[:ascending] = parse_boolean_option!(value, option_name: "--ascending")
+        end
         opts.on("--format FORMAT", "Output format: text or json") { |value| options[:format] = value }
       end
       parser.order!(argv)
@@ -429,6 +442,14 @@ module Tickrake
       options
     end
 
+    def parse_boolean_option!(value, option_name:)
+      normalized = value.to_s.strip.downcase
+      return true if normalized == "true"
+      return false if normalized == "false"
+
+      raise Tickrake::Error, "#{option_name} must be true or false."
+    end
+
     def init_command(argv)
       options = { force: false, config_path: Tickrake::PathSupport.config_path }
       parser = OptionParser.new do |opts|
@@ -471,7 +492,7 @@ module Tickrake
           tickrake stop --job JOB_NAME|all [--config path/to/tickrake.yml]
           tickrake restart --job JOB_NAME|all [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml]
           tickrake status [--config path/to/tickrake.yml]
-          tickrake query [--type candles|options] [--provider NAME] [--ticker SYMBOL] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--format text|json] [--config path/to/tickrake.yml]
+          tickrake query [--type candles|options] [--provider NAME] [--ticker SYMBOL] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--exp-date YYYY-MM-DD] [--limit N] [--ascending true|false] [--format text|json] [--config path/to/tickrake.yml]
           tickrake storage-stats [--config path/to/tickrake.yml]
           tickrake logs [TARGET] [--tail N]
       TEXT
