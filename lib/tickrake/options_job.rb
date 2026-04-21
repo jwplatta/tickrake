@@ -70,7 +70,9 @@ module Tickrake
     end
 
     def fetch_expiration_chain(client, symbol)
-      chain = client.get_option_expiration_chain(symbol)
+      chain = with_retries("option expiration chain for #{symbol}") do
+        client.get_option_expiration_chain(symbol)
+      end
       raise Tickrake::Error, "Option expiration chain request returned nil for #{symbol}" if chain.nil?
       raise Tickrake::Error, "Unexpected option expiration chain result for #{symbol}: #{chain.class}" unless chain.respond_to?(:expiration_list)
 
@@ -158,7 +160,9 @@ module Tickrake
 
       retries = 0
       begin
-        result = Timeout.timeout(@runtime.config.option_fetch_timeout_seconds) do
+        result = with_retries("#{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}", on_retry: ->(attempt, error) {
+          @runtime.logger.warn("Retry #{attempt} for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}: #{error.message}")
+        }) do
           write_option_chain(
             client: client,
             provider_name: job.fetch(:provider_name),
@@ -173,12 +177,6 @@ module Tickrake
         @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
         @progress_reporter&.advance(title: option_progress_title(job))
       rescue StandardError => e
-        retries += 1
-        if retries <= @runtime.config.retry_count
-          @runtime.logger.warn("Retry #{retries} for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}: #{e.message}")
-          sleep @runtime.config.retry_delay_seconds
-          retry
-        end
         @runtime.logger.error("Failed option fetch for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}: #{e.message}")
         @runtime.tracker.record_finish(id: id, status: "failed", finished_at: Time.now, error_message: e.message)
         @progress_reporter&.advance(title: "#{option_progress_title(job)} failed")
@@ -190,13 +188,15 @@ module Tickrake
     end
 
     def write_option_chain(client:, provider_name:, symbol:, expiration_date:, timestamp:, root:)
-      chain = client.get_option_chain(
-        self.class.option_chain_api_symbol(symbol),
-        contract_type: SchwabRb::Option::ContractTypes::ALL,
-        strike_range: SchwabRb::Option::StrikeRanges::ALL,
-        from_date: expiration_date,
-        to_date: expiration_date
-      )
+      chain = Timeout.timeout(@runtime.config.option_fetch_timeout_seconds) do
+        client.get_option_chain(
+          self.class.option_chain_api_symbol(symbol),
+          contract_type: SchwabRb::Option::ContractTypes::ALL,
+          strike_range: SchwabRb::Option::StrikeRanges::ALL,
+          from_date: expiration_date,
+          to_date: expiration_date
+        )
+      end
       raise Tickrake::Error, "Option chain request returned nil for #{symbol} exp=#{expiration_date}" if chain.nil?
 
       rows = option_sample_rows(chain, root, provider_name)
@@ -283,6 +283,24 @@ module Tickrake
 
     def client
       @client ||= @runtime.client_factory.build
+    end
+
+    def with_retries(label, on_retry: nil)
+      attempts = 0
+
+      begin
+        attempts += 1
+        Timeout.timeout(@runtime.config.option_fetch_timeout_seconds) { yield }
+      rescue StandardError => e
+        if attempts <= @runtime.config.retry_count
+          on_retry&.call(attempts, e)
+          sleep @runtime.config.retry_delay_seconds
+          retry
+        end
+
+        @runtime.logger.error("Exhausted retries for #{label}: #{e.message}") if on_retry.nil?
+        raise
+      end
     end
   end
 end

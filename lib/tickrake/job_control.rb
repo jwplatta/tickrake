@@ -8,13 +8,14 @@ module Tickrake
       @stdout = stdout
     end
 
-    def start(target:, config_path:, provider_name: nil, from_config_start: false)
+    def start(target:, config_path:, provider_name: nil, from_config_start: false, restart: false)
       resolve_job_targets(target, config_path: config_path).each do |job_name|
         @starter.start(
           job_name: job_name,
           config_path: config_path,
           provider_name: provider_name,
-          from_config_start: from_config_start
+          from_config_start: from_config_start,
+          restart: restart
         )
       end
     end
@@ -25,7 +26,7 @@ module Tickrake
       end
     end
 
-    def restart(target:, config_path: Tickrake::PathSupport.config_path, provider_name: nil, from_config_start: nil)
+    def restart(target:, config_path: Tickrake::PathSupport.config_path, provider_name: nil, from_config_start: nil, restart: nil)
       resolve_job_targets(target, config_path: config_path).each do |job_name|
         metadata = @registry.read(job_name) || {}
         stop_one(job_name, timeout_seconds: nil, waiting_message: restart_waiting_message(job_name))
@@ -33,7 +34,8 @@ module Tickrake
           job_name: job_name,
           config_path: restart_config_path(config_path, metadata),
           provider_name: restart_provider_name(provider_name, metadata),
-          from_config_start: restart_from_config_start(from_config_start, metadata)
+          from_config_start: restart_from_config_start(from_config_start, metadata),
+          restart: restart_policy(restart, metadata)
         )
       end
     end
@@ -98,6 +100,12 @@ module Tickrake
       return from_config_start unless from_config_start.nil?
 
       metadata[:from_config_start] == true
+    end
+
+    def restart_policy(restart, metadata)
+      return restart unless restart.nil?
+
+      metadata[:restart] == true
     end
   end
 end

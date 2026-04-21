@@ -89,11 +89,14 @@ module Tickrake
         provider_name: options[:provider],
         verbose: common_options[:verbose],
         stdout: @stdout,
-        log_path: Tickrake::PathSupport.named_log_path(job.name)
+        log_path: Tickrake::PathSupport.named_log_path(job.name),
+        config_path: common_options[:config_path]
       )
 
       if options[:scheduler]
         run_scheduler(runtime, job, from_config_start: options[:from_config_start])
+      elsif options[:supervisor]
+        run_supervisor(runtime, job, from_config_start: options[:from_config_start])
       else
         run_job_once(runtime, job, from_config_start: options[:from_config_start])
       end
@@ -108,7 +111,8 @@ module Tickrake
         provider_name: options[:provider],
         verbose: common_options[:verbose],
         stdout: @stdout,
-        log_path: Tickrake::PathSupport.named_log_path(options[:type])
+        log_path: Tickrake::PathSupport.named_log_path(options[:type]),
+        config_path: common_options[:config_path]
       )
 
       case options[:type]
@@ -172,13 +176,22 @@ module Tickrake
       end
     end
 
+    def run_supervisor(runtime, job, from_config_start:)
+      Tickrake::SchedulerSupervisor.new(
+        runtime,
+        scheduled_job: job,
+        from_config_start: from_config_start
+      ).run
+    end
+
     def start_command(argv, config_path)
-      options = parse_job_control_options!(argv)
+      options = parse_job_control_options!(argv, restart_default: false)
       Tickrake::JobControl.new(stdout: @stdout).start(
         target: options[:job],
         config_path: config_path,
         provider_name: options[:provider],
-        from_config_start: options[:from_config_start]
+        from_config_start: options[:from_config_start],
+        restart: options[:restart]
       )
       0
     end
@@ -190,22 +203,26 @@ module Tickrake
     end
 
     def restart_command(argv, config_path)
-      options = parse_job_control_options!(argv)
+      options = parse_job_control_options!(argv, restart_default: nil)
       Tickrake::JobControl.new(stdout: @stdout).restart(
         target: options[:job],
         config_path: config_path,
         provider_name: options[:provider],
-        from_config_start: options[:from_config_start]
+        from_config_start: options[:from_config_start],
+        restart: options[:restart]
       )
       0
     end
 
-    def parse_job_control_options!(argv)
-      options = { job: nil, provider: nil, from_config_start: false }
+    def parse_job_control_options!(argv, restart_default:)
+      options = { job: nil, provider: nil, from_config_start: false, restart: restart_default }
       parser = OptionParser.new do |opts|
         opts.on("--job NAME", "Configured job name or all") { |value| options[:job] = value }
         opts.on("--provider NAME", "Use the named provider from config") { |value| options[:provider] = value }
         opts.on("--from-config-start", "For candles jobs, backfill from configured start_date") { options[:from_config_start] = true }
+        opts.on("--restart", "Restart the background scheduler automatically if it exits unexpectedly") do
+          options[:restart] = true
+        end
       end
       parser.order!(argv)
       raise OptionParser::InvalidOption, argv.first if argv.any?
@@ -233,6 +250,7 @@ module Tickrake
         scheduler: false,
         provider: nil,
         from_config_start: false,
+        supervisor: false,
         ticker: nil,
         expiration_date: nil,
         option_root: nil,
@@ -261,6 +279,7 @@ module Tickrake
           options[:frequency] = Tickrake::Query::FrequencyNormalizer.new.normalize(value)
         end
         opts.on("--scheduler", "Internal: run the configured scheduler loop") { options[:scheduler] = true }
+        opts.on("--supervisor", "Internal: supervise and restart the configured scheduler loop") { options[:supervisor] = true }
       end
       parser.order!(argv)
       raise OptionParser::InvalidOption, argv.first if argv.any?
@@ -273,6 +292,8 @@ module Tickrake
       raise Tickrake::Error, "--type cannot be combined with --job." if options[:type]
       raise Tickrake::Error, "Direct run arguments cannot be combined with --job." if direct_args.any?
       raise Tickrake::Error, "--scheduler requires --job." if options[:scheduler] && options[:job].nil?
+      raise Tickrake::Error, "--supervisor requires --job." if options[:supervisor] && options[:job].nil?
+      raise Tickrake::Error, "--scheduler cannot be combined with --supervisor." if options[:scheduler] && options[:supervisor]
       if options[:from_config_start] && job.type != "candles"
         raise Tickrake::Error, "--from-config-start is only valid for candles jobs."
       end

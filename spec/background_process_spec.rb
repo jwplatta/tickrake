@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Tickrake::BackgroundProcess do
-  it "records provider and candle restart flags in job metadata" do
+  it "records provider, candle restart flags, and scheduler restart policy in job metadata" do
     registry = instance_double(Tickrake::JobRegistry)
     stdout = StringIO.new
 
@@ -18,7 +18,8 @@ RSpec.describe Tickrake::BackgroundProcess do
       job_name: "candles",
       config_path: "/tmp/tickrake.yml",
       from_config_start: true,
-      provider_name: "ib_paper"
+      provider_name: "ib_paper",
+      restart: true
     )
 
     expect(registry).to have_received(:write).with(
@@ -27,7 +28,8 @@ RSpec.describe Tickrake::BackgroundProcess do
         pid: 1234,
         config_path: "/tmp/tickrake.yml",
         provider_name: "ib_paper",
-        from_config_start: true
+        from_config_start: true,
+        restart: true
       )
     )
   end

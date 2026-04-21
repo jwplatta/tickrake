@@ -157,6 +157,67 @@ RSpec.describe "job execution" do
     end
   end
 
+  it "retries option expiration chain fetches before succeeding" do
+    custom = config_with(
+      config,
+      retry_delay_seconds: 0,
+      options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")]
+    )
+    client = instance_double("client")
+    expiration_entry = Struct.new(:expiration_date, :days_to_expiration, :option_roots) do
+      def date_object
+        Date.iso8601(expiration_date)
+      end
+    end
+    expiration_chain = instance_double(
+      "SchwabRb::DataObjects::OptionExpirationChain",
+      expiration_list: [expiration_entry.new("2026-04-06", 0, "SPXW")]
+    )
+    calls = 0
+    allow(client).to receive(:get_option_expiration_chain).with("$SPX") do
+      calls += 1
+      raise Timeout::Error, "timed out" if calls == 1
+
+      expiration_chain
+    end
+    allow(client).to receive(:get_option_chain).and_return(
+      instance_double("SchwabRb::DataObjects::OptionChain", underlying_price: 5100.5, call_opts: [], put_opts: [])
+    )
+    runtime = Tickrake::Runtime.new(
+      config: custom,
+      tracker: tracker,
+      client_factory: instance_double(Tickrake::ClientFactory, build: client),
+      logger: logger
+    )
+
+    expect { Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0)) }.not_to raise_error
+    expect(client).to have_received(:get_option_expiration_chain).with("$SPX").twice
+  end
+
+  it "marks option fetches failed after retry exhaustion without raising" do
+    client = instance_double("client")
+    expiration_entry = Struct.new(:expiration_date, :days_to_expiration, :option_roots) do
+      def date_object
+        Date.iso8601(expiration_date)
+      end
+    end
+    expiration_chain = instance_double(
+      "SchwabRb::DataObjects::OptionExpirationChain",
+      expiration_list: [expiration_entry.new("2026-04-06", 0, "SPXW")]
+    )
+    allow(client).to receive(:get_option_expiration_chain).and_return(expiration_chain)
+    allow(client).to receive(:get_option_chain).and_raise(Timeout::Error, "timed out")
+    runtime = Tickrake::Runtime.new(
+      config: config_with(config, retry_count: 1, retry_delay_seconds: 0),
+      tracker: tracker,
+      client_factory: instance_double(Tickrake::ClientFactory, build: client),
+      logger: logger
+    )
+
+    expect { Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0)) }.not_to raise_error
+    expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("failed"))
+  end
+
   it "rejects options collection for non-schwab providers" do
     custom = config_with(
       config,

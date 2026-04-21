@@ -19,8 +19,7 @@ module Tickrake
           until @shutdown_requested
             now = Time.now
             if due?(now)
-              @job.run(now: now)
-              @last_run_at = now
+              run_iteration(now)
             end
             break if @shutdown_requested
 
@@ -43,12 +42,25 @@ module Tickrake
     def run_iteration(now)
       return false unless due?(now)
 
-      @job.run(now: now)
-      @last_run_at = now
+      begin
+        @job.run(now: now)
+        @last_run_at = now
+      rescue StandardError => e
+        log_iteration_failure(now, e)
+        @sleeper.sleep(@runtime.config.retry_delay_seconds) unless @shutdown_requested
+      end
       true
     end
 
     private
+
+    def log_iteration_failure(now, error)
+      summary = Array(error.backtrace).first(3).join(" | ")
+      @runtime.logger.error(
+        "Options scheduler #{@scheduled_job.name} iteration failed at #{now.utc.iso8601}: #{error.class}: #{error.message}"
+      )
+      @runtime.logger.error("Backtrace: #{summary}") unless summary.empty?
+    end
 
     def in_window?(time)
       day = time.strftime("%a").downcase[0, 3]

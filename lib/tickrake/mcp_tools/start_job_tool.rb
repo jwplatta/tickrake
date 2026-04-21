@@ -25,6 +25,10 @@ module Tickrake
           from_config_start: {
             type: "boolean",
             description: "For candles jobs only, force backfill from configured start_date."
+          },
+          restart: {
+            type: "boolean",
+            description: "Automatically restart the background scheduler if it exits unexpectedly."
           }
         },
         required: ["target"]
@@ -38,13 +42,14 @@ module Tickrake
       )
 
       class << self
-        def call(target:, config_path: nil, provider: nil, from_config_start: false, server_context:)
+        def call(target:, config_path: nil, provider: nil, from_config_start: false, restart: false, server_context:)
           stdout = StringIO.new
           Tickrake::JobControl.new(stdout: stdout).start(
             target: target,
             config_path: config_path || Tickrake::PathSupport.config_path,
             provider_name: provider,
-            from_config_start: from_config_start
+            from_config_start: from_config_start,
+            restart: restart
           )
           Response.text(stdout.string)
         end
