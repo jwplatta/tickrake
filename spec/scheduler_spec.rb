@@ -27,4 +27,42 @@ RSpec.describe "schedulers" do
     expect(runner.due?(before)).to eq(false)
     expect(runner.due?(after)).to eq(true)
   end
+
+  it "keeps the options scheduler alive after an iteration failure and applies backoff" do
+    sleeper = double("sleeper")
+    allow(sleeper).to receive(:sleep)
+    logger = instance_double(Logger, info: nil, error: nil)
+    allow(logger).to receive(:level=)
+    failing_job = instance_double(Tickrake::OptionsJob)
+    runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
+    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
+
+    runner.instance_variable_set(:@job, failing_job)
+    allow(failing_job).to receive(:run).and_raise(Timeout::Error, "timed out")
+
+    result = runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
+
+    expect(result).to eq(true)
+    expect(sleeper).to have_received(:sleep).with(config.retry_delay_seconds)
+    expect(logger).to have_received(:error).with(/iteration failed/)
+  end
+
+  it "keeps the candles scheduler alive after an iteration failure and applies backoff" do
+    sleeper = double("sleeper")
+    allow(sleeper).to receive(:sleep)
+    logger = instance_double(Logger, info: nil, error: nil)
+    allow(logger).to receive(:level=)
+    failing_job = instance_double(Tickrake::CandlesJob)
+    runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
+    runner = Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: config.job("eod_candles"), sleeper: sleeper)
+
+    runner.instance_variable_set(:@job, failing_job)
+    allow(failing_job).to receive(:run).and_raise(StandardError, "boom")
+
+    result = runner.run_iteration(Time.new(2026, 4, 6, 16, 5, 0, "-05:00"))
+
+    expect(result).to eq(true)
+    expect(sleeper).to have_received(:sleep).with(config.retry_delay_seconds)
+    expect(logger).to have_received(:error).with(/iteration failed/)
+  end
 end

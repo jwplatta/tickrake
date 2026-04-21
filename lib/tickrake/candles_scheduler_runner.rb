@@ -33,8 +33,13 @@ module Tickrake
     def run_iteration(now)
       return false unless due?(now)
 
-      @job.run(now: now)
-      @last_run_on = now.to_date
+      begin
+        @job.run(now: now)
+        @last_run_on = now.to_date
+      rescue StandardError => e
+        log_iteration_failure(now, e)
+        @sleeper.sleep(@runtime.config.retry_delay_seconds) unless @shutdown_requested
+      end
       true
     end
 
@@ -54,6 +59,14 @@ module Tickrake
           @runtime.logger.info("Received #{signal}, stopping candle scheduler #{@scheduled_job.name} after current iteration.")
         end
       end
+    end
+
+    def log_iteration_failure(now, error)
+      summary = Array(error.backtrace).first(3).join(" | ")
+      @runtime.logger.error(
+        "Candle scheduler #{@scheduled_job.name} iteration failed at #{now.utc.iso8601}: #{error.class}: #{error.message}"
+      )
+      @runtime.logger.error("Backtrace: #{summary}") unless summary.empty?
     end
   end
 end

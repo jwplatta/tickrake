@@ -9,7 +9,7 @@ module Tickrake
       @stdout = stdout
     end
 
-    def start(job_name:, config_path:, from_config_start: false, provider_name: nil)
+    def start(job_name:, config_path:, from_config_start: false, provider_name: nil, restart: false)
       current = @registry.status(job_name)
       if current[:state] == "running"
         raise Tickrake::Error, "#{job_name} job is already running with pid #{current[:pid]}."
@@ -25,7 +25,7 @@ module Tickrake
         "run",
         "--job",
         job_name,
-        "--scheduler",
+        restart ? "--supervisor" : "--scheduler",
         "--config",
         Tickrake::PathSupport.expand_path(config_path)
       ]
@@ -44,6 +44,7 @@ module Tickrake
         config_path: Tickrake::PathSupport.expand_path(config_path),
         provider_name: provider_name,
         from_config_start: from_config_start,
+        restart: restart,
         log_path: log_path
       )
 

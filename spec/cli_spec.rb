@@ -74,7 +74,8 @@ RSpec.describe Tickrake::CLI do
       provider_name: nil,
       verbose: false,
       stdout: stdout,
-      log_path: Tickrake::PathSupport.named_log_path("index_options")
+      log_path: Tickrake::PathSupport.named_log_path("index_options"),
+      config_path: Tickrake::PathSupport.config_path
     ).and_return(runtime)
     allow(Tickrake::ProgressReporter).to receive(:build).with(total: 4, title: "Options", output: stdout).and_return(progress_reporter)
     allow(Tickrake::OptionsJob).to receive(:new).with(runtime, progress_reporter: progress_reporter, scheduled_job: index_options_job).and_return(job)
@@ -96,7 +97,8 @@ RSpec.describe Tickrake::CLI do
       provider_name: nil,
       verbose: false,
       stdout: stdout,
-      log_path: Tickrake::PathSupport.named_log_path("eod_candles")
+      log_path: Tickrake::PathSupport.named_log_path("eod_candles"),
+      config_path: Tickrake::PathSupport.config_path
     ).and_return(runtime)
     allow(Tickrake::CandlesJob).to receive(:new).with(
       runtime,
@@ -181,10 +183,11 @@ RSpec.describe Tickrake::CLI do
       target: "index_options",
       config_path: Tickrake::PathSupport.config_path,
       provider_name: "schwab_live",
-      from_config_start: false
+      from_config_start: false,
+      restart: true
     )
 
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["start", "--job", "index_options", "--provider", "schwab_live"])
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["start", "--job", "index_options", "--provider", "schwab_live", "--restart"])
 
     expect(exit_code).to eq(0)
   end
@@ -199,7 +202,8 @@ RSpec.describe Tickrake::CLI do
       target: "all",
       config_path: Tickrake::PathSupport.config_path,
       provider_name: nil,
-      from_config_start: false
+      from_config_start: nil,
+      restart: nil
     )
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["restart", "--job", "all"])
