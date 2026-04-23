@@ -74,16 +74,16 @@ schedule:
       - symbol: $VIX9D
         start_date: "2020-01-01"
         frequencies: [day]
-  # spx_min_candles:
-  #   type: candles
-  #   provider: ibkr-paper
-  #   interval_seconds: 120
-  #   windows:
-  #     - days: [mon, tue, wed, thu, fri]
-  #       start: "08:30"
-  #       end: "15:00"
-  #   lookback_days: 7
-  #   universe:
-  #     - symbol: $SPX
-  #       start_date: "2026-03-01"
-  #       frequencies: [30min, 5min, minute]
+  spx_min_candles:
+    type: candles
+    provider: ibkr-paper
+    interval_seconds: 120
+    windows:
+      - days: [mon, tue, wed, thu, fri]
+        start: "08:30"
+        end: "15:00"
+    lookback_days: 7
+    universe:
+      - symbol: $SPX
+        start_date: "2026-03-01"
+        frequencies: [30min, 5min, minute]
