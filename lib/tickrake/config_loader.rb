@@ -70,9 +70,9 @@ module Tickrake
           raise ConfigError, "At least one options universe symbol is required for `#{job.name}`." if job.universe.empty?
           job.universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
         elsif job.candles?
-          raise ConfigError, "At least one candles job day is required for `#{job.name}`." if job.days.empty?
           raise ConfigError, "At least one candle universe symbol is required for `#{job.name}`." if job.universe.empty?
           raise ConfigError, "candle lookback_days must be non-negative for `#{job.name}`." if job.lookback_days.to_i.negative?
+          validate_candle_schedule!(job)
           job.universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
         end
       end
@@ -120,18 +120,37 @@ module Tickrake
     end
 
     def build_candles_job(name, raw_job)
+      uses_interval_schedule = raw_job.key?("interval_seconds") || raw_job.key?("windows")
+      uses_daily_schedule = raw_job.key?("run_at") || raw_job.key?("days")
+
       ScheduledJobConfig.new(
         name: name.to_s,
         type: "candles",
         provider: raw_job["provider"],
-        interval_seconds: nil,
-        windows: [],
-        run_at: normalize_clock(raw_job.fetch("run_at")),
-        days: normalize_days(raw_job.fetch("days")),
+        interval_seconds: uses_interval_schedule ? Integer(raw_job.fetch("interval_seconds")) : nil,
+        windows: uses_interval_schedule ? load_scheduler_windows(raw_job.fetch("windows")) : [],
+        run_at: uses_daily_schedule ? normalize_clock(raw_job.fetch("run_at")) : nil,
+        days: uses_daily_schedule ? normalize_days(raw_job.fetch("days")) : [],
         lookback_days: Integer(raw_job.fetch("lookback_days")),
         dte_buckets: [],
         universe: Array(raw_job.fetch("universe")).map { |row| load_candle_symbol(row) }
       )
+    end
+
+    def validate_candle_schedule!(job)
+      if job.interval_schedule? && job.daily_schedule?
+        raise ConfigError, "candles job `#{job.name}` must use either interval_seconds/windows or run_at/days, not both."
+      end
+      if !job.interval_schedule? && !job.daily_schedule?
+        raise ConfigError, "candles job `#{job.name}` must define either interval_seconds/windows or run_at/days."
+      end
+      if job.interval_schedule?
+        raise ConfigError, "candles job `#{job.name}` interval must be positive." if job.interval_seconds.to_i <= 0
+        raise ConfigError, "At least one candles job window is required for `#{job.name}`." if job.windows.empty?
+      end
+      if job.daily_schedule?
+        raise ConfigError, "At least one candles job day is required for `#{job.name}`." if job.days.empty?
+      end
     end
 
     def load_scheduler_windows(raw_windows)
