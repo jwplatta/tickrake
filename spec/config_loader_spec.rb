@@ -62,18 +62,34 @@ RSpec.describe Tickrake::ConfigLoader do
               - symbol: SPY
                 start_date: "2020-01-01"
                 frequencies: [day]
+          intraday_candles:
+            type: candles
+            provider: ibkr-paper
+            interval_seconds: 120
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            lookback_days: 7
+            universe:
+              - symbol: $SPX
+                start_date: "2026-03-01"
+                frequencies: [30min, 5min, 1min]
       YAML
 
       config = described_class.load(path)
 
-      expect(config.jobs.map(&:name)).to eq(%w[index_options stock_options eod_candles])
+      expect(config.jobs.map(&:name)).to eq(%w[index_options stock_options eod_candles intraday_candles])
       expect(config.job("index_options").provider).to eq("ibkr-paper")
       expect(config.job("index_options").universe.first.provider).to eq("schwab")
       expect(config.job("stock_options").dte_buckets).to eq([30])
       expect(config.job("eod_candles").run_at).to eq([16, 5])
+      expect(config.job("intraday_candles").interval_seconds).to eq(120)
+      expect(config.job("intraday_candles").windows.first.days).to eq(["mon"])
       expect(config.provider_name_for_entry(config.job("index_options").universe.first, scheduled_job: config.job("index_options"))).to eq("schwab")
       expect(config.provider_name_for_entry(config.job("stock_options").universe.first, scheduled_job: config.job("stock_options"))).to eq("ibkr-paper")
       expect(config.provider_name_for_entry(config.job("eod_candles").universe.first, scheduled_job: config.job("eod_candles"))).to eq("ibkr-paper")
+      expect(config.provider_name_for_entry(config.job("intraday_candles").universe.first, scheduled_job: config.job("intraday_candles"))).to eq("ibkr-paper")
     end
   end
 
@@ -190,6 +206,108 @@ RSpec.describe Tickrake::ConfigLoader do
       YAML
 
       expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /lookback_days must be non-negative/)
+    end
+  end
+
+  it "rejects candle jobs that mix daily and interval schedule fields" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "mixed-candle-schedule.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        schedule:
+          mixed_candles:
+            type: candles
+            run_at: "16:05"
+            days: [mon]
+            interval_seconds: 120
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            lookback_days: 7
+            universe:
+              - symbol: SPY
+                start_date: "2020-01-01"
+                frequencies: [day]
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /must use either interval_seconds\/windows or run_at\/days, not both/)
+    end
+  end
+
+  it "rejects candle jobs without a schedule shape" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "missing-candle-schedule.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        schedule:
+          missing_candles:
+            type: candles
+            lookback_days: 7
+            universe:
+              - symbol: SPY
+                start_date: "2020-01-01"
+                frequencies: [day]
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /must define either interval_seconds\/windows or run_at\/days/)
+    end
+  end
+
+  it "rejects non-positive interval candle jobs" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "bad-candle-interval.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        schedule:
+          intraday_candles:
+            type: candles
+            interval_seconds: 0
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            lookback_days: 7
+            universe:
+              - symbol: SPY
+                start_date: "2020-01-01"
+                frequencies: [1min]
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /interval must be positive/)
+    end
+  end
+
+  it "rejects interval candle jobs without windows" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "bad-candle-windows.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        schedule:
+          intraday_candles:
+            type: candles
+            interval_seconds: 120
+            windows: []
+            lookback_days: 7
+            universe:
+              - symbol: SPY
+                start_date: "2020-01-01"
+                frequencies: [1min]
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /At least one candles job window is required/)
     end
   end
 end

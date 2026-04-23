@@ -240,6 +240,19 @@ schedule:
       - symbol: SPY
         start_date: "2020-01-01"
         frequencies: [day]
+  spx_min_candles:
+    type: candles
+    provider: ibkr-paper
+    interval_seconds: 120
+    windows:
+      - days: [mon, tue, wed, thu, fri]
+        start: "08:30"
+        end: "15:00"
+    lookback_days: 7
+    universe:
+      - symbol: $SPX
+        start_date: "2026-03-01"
+        frequencies: [30min, 5min, 1min]
 ```
 
 Provider precedence is:
@@ -367,6 +380,11 @@ candle request window for existing files. If a symbol/frequency has no existing 
 Tickrake uses the configured `start_date` instead. Use `tickrake run --job JOB_NAME
 --from-config-start` when you want to force a full backfill from the configured
 `start_date` even if a history file already exists.
+
+Candle jobs support two schedule styles:
+
+- daily collection with `run_at` plus `days`
+- recurring collection inside market windows with `interval_seconds` plus `windows`
 
 One-off and direct CLI operational commands write structured logs to `~/.tickrake/cli.log`.
 Configured jobs write to separate rotating log files named after the job key:

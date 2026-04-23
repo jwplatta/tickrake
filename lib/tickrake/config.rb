@@ -33,6 +33,14 @@ module Tickrake
     def candles?
       type == "candles"
     end
+
+    def interval_schedule?
+      !interval_seconds.nil?
+    end
+
+    def daily_schedule?
+      !run_at.nil?
+    end
   end
 
   class Config
