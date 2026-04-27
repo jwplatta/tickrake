@@ -225,6 +225,72 @@ RSpec.describe "query engine" do
     end
   end
 
+  it "returns option rows backfilled with expiration dates from cached metadata without rediscovery" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
+      File.write(path, "contract_type,symbol\nCALL,SPXW\n")
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      db = SQLite3::Database.new(config.sqlite_path)
+      db.execute_batch(
+        <<~SQL
+          CREATE TABLE file_metadata_cache (
+            path TEXT PRIMARY KEY,
+            dataset_type TEXT NOT NULL,
+            provider_name TEXT NOT NULL,
+            ticker TEXT NOT NULL,
+            frequency TEXT,
+            row_count INTEGER NOT NULL,
+            first_observed_at TEXT,
+            last_observed_at TEXT,
+            file_mtime INTEGER NOT NULL,
+            file_size INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+        SQL
+      )
+      db.execute(
+        <<~SQL,
+          INSERT INTO file_metadata_cache (
+            path, dataset_type, provider_name, ticker, frequency, row_count,
+            first_observed_at, last_observed_at, file_mtime, file_size, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        SQL
+        [
+          path,
+          "options",
+          "schwab",
+          "SPXW",
+          nil,
+          1,
+          "2026-04-10T14:30:00Z",
+          "2026-04-10T14:30:00Z",
+          File.stat(path).mtime.to_i,
+          File.size(path),
+          "2026-04-10T14:30:00Z"
+        ]
+      )
+      db.close
+
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      scanner = Tickrake::Query::OptionsScanner.new(config: config, tracker: tracker)
+
+      allow(Dir).to receive(:glob).and_raise("unexpected file enumeration")
+
+      results = scanner.scan(provider_name: "schwab", ticker: "$SPX", expiration_date: Date.new(2026, 4, 17))
+
+      expect(results.length).to eq(1)
+      expect(results.first.ticker).to eq("SPX")
+      expect(results.first.root_symbol).to eq("SPXW")
+      expect(results.first.expiration_date).to eq("2026-04-17")
+      expect(results.first.file_path).to eq(path)
+    end
+  end
+
   it "formats results as deterministic text and json summaries without raw rows" do
     candle_result = Tickrake::Query::CandlesScanner::Result.new(
       dataset_type: "candles",

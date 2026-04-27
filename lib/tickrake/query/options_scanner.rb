@@ -23,9 +23,17 @@ module Tickrake
       def scan(provider_name: nil, ticker: nil, start_date: nil, end_date: nil, expiration_date: nil,
                limit: nil, ascending: true)
         requested_aliases = ticker && requested_aliases_for(ticker)
-        results = provider_names(provider_name).flat_map do |selected_provider|
-          snapshot_results_for(
-            provider_name: selected_provider,
+        results = snapshot_results_for(
+          provider_name: provider_name,
+          requested_aliases: requested_aliases,
+          start_date: start_date,
+          end_date: end_date,
+          expiration_date: expiration_date
+        )
+        if results.empty?
+          seed_metadata(provider_name: provider_name)
+          results = snapshot_results_for(
+            provider_name: provider_name,
             requested_aliases: requested_aliases,
             start_date: start_date,
             end_date: end_date,
@@ -40,34 +48,49 @@ module Tickrake
 
       private
 
-      def provider_names(provider_name)
-        return [provider_name.to_s] if provider_name
-
-        @config.providers.keys.sort
-      end
-
       def snapshot_results_for(provider_name:, requested_aliases:, start_date:, end_date:, expiration_date:)
-        option_paths_for(provider_name).filter_map do |path|
-          metadata = metadata_for(path, provider_name: provider_name)
-          next unless metadata
+        where_clauses = ["dataset_type = ?"]
+        binds = ["options"]
+        if provider_name
+          where_clauses << "provider_name = ?"
+          binds << provider_name.to_s
+        end
+        if expiration_date
+          where_clauses << "expiration_date = ?"
+          binds << expiration_date.iso8601
+        end
 
+        @tracker.file_metadata_rows(where: where_clauses.join(" AND "), binds: binds).filter_map do |metadata|
           canonical_ticker = resolve_canonical_ticker(metadata.fetch("ticker"))
           next if requested_aliases && !requested_aliases.include?(canonical_ticker)
-          next unless matching_expiration_date?(metadata.fetch("expiration_date"), expiration_date)
 
           observed_at = metadata["last_observed_at"]
           next unless within_window?(observed_at, start_date: start_date, end_date: end_date)
 
           Result.new(
             dataset_type: "options",
-            provider_name: provider_name,
+            provider_name: metadata.fetch("provider_name"),
             ticker: canonical_ticker,
             root_symbol: resolve_root_symbol(metadata.fetch("ticker")),
             expiration_date: metadata.fetch("expiration_date"),
             sample_datetime: observed_at,
-            file_path: path
+            file_path: metadata.fetch("path")
           )
         end
+      end
+
+      def seed_metadata(provider_name:)
+        provider_names(provider_name).each do |selected_provider|
+          option_paths_for(selected_provider).each do |path|
+            metadata_for(path, provider_name: selected_provider)
+          end
+        end
+      end
+
+      def provider_names(provider_name)
+        return [provider_name.to_s] if provider_name
+
+        @config.providers.keys.sort
       end
 
       def option_paths_for(provider_name)
@@ -104,6 +127,7 @@ module Tickrake
           provider_name: provider_name,
           ticker: parsed.fetch(:ticker),
           frequency: nil,
+          expiration_date: parsed.fetch(:expiration_date),
           row_count: 1,
           first_observed_at: observed_at,
           last_observed_at: observed_at,
@@ -111,9 +135,7 @@ module Tickrake
           file_size: stat.size,
           updated_at: Time.now
         )
-        @tracker.file_metadata(path).merge(
-          "expiration_date" => parsed.fetch(:expiration_date)
-        )
+        @tracker.file_metadata(path)
       end
 
       def cache_hit?(cached, stat)
@@ -180,11 +202,6 @@ module Tickrake
         true
       end
 
-      def matching_expiration_date?(expiration_value, requested_expiration_date)
-        return true unless requested_expiration_date
-
-        Date.iso8601(expiration_value) == requested_expiration_date
-      end
     end
   end
 end

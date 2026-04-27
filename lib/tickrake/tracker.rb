@@ -8,6 +8,7 @@ module Tickrake
       provider_name
       ticker
       frequency
+      expiration_date
       row_count
       first_observed_at
       last_observed_at
@@ -73,6 +74,13 @@ module Tickrake
       db.get_first_row("SELECT * FROM file_metadata_cache WHERE path = ?", [Tickrake::PathSupport.expand_path(path)])
     end
 
+    def file_metadata_rows(where: nil, binds: [], order_by: nil)
+      sql = +"SELECT * FROM file_metadata_cache"
+      sql << " WHERE #{where}" if where && !where.empty?
+      sql << " ORDER BY #{order_by}" if order_by && !order_by.empty?
+      db.execute(sql, binds)
+    end
+
     def upsert_file_metadata(attrs)
       path = Tickrake::PathSupport.expand_path(attrs.fetch(:path))
       values = {
@@ -81,6 +89,7 @@ module Tickrake
         "provider_name" => attrs.fetch(:provider_name),
         "ticker" => attrs.fetch(:ticker),
         "frequency" => attrs[:frequency],
+        "expiration_date" => attrs[:expiration_date],
         "row_count" => Integer(attrs.fetch(:row_count)),
         "first_observed_at" => attrs[:first_observed_at],
         "last_observed_at" => attrs[:last_observed_at],
@@ -93,12 +102,13 @@ module Tickrake
         <<~SQL,
           INSERT INTO file_metadata_cache (
             #{FILE_METADATA_COLUMNS.join(", ")}
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(path) DO UPDATE SET
             dataset_type = excluded.dataset_type,
             provider_name = excluded.provider_name,
             ticker = excluded.ticker,
             frequency = excluded.frequency,
+            expiration_date = excluded.expiration_date,
             row_count = excluded.row_count,
             first_observed_at = excluded.first_observed_at,
             last_observed_at = excluded.last_observed_at,
@@ -144,6 +154,7 @@ module Tickrake
             provider_name TEXT NOT NULL,
             ticker TEXT NOT NULL,
             frequency TEXT,
+            expiration_date TEXT,
             row_count INTEGER NOT NULL,
             first_observed_at TEXT,
             last_observed_at TEXT,
@@ -154,6 +165,8 @@ module Tickrake
         SQL
       )
       add_column_unless_exists("fetch_runs", "frequency", "TEXT")
+      add_column_unless_exists("file_metadata_cache", "expiration_date", "TEXT")
+      backfill_option_expiration_dates
     end
 
     def add_column_unless_exists(table, column, sql_type)
@@ -161,6 +174,28 @@ module Tickrake
       return if columns.include?(column)
 
       db.execute("ALTER TABLE #{table} ADD COLUMN #{column} #{sql_type}")
+    end
+
+    def backfill_option_expiration_dates
+      rows = db.execute(
+        "SELECT path FROM file_metadata_cache WHERE dataset_type = ? AND expiration_date IS NULL",
+        ["options"]
+      )
+      rows.each do |row|
+        expiration_date = expiration_date_from_path(row.fetch("path"))
+        next unless expiration_date
+
+        db.execute(
+          "UPDATE file_metadata_cache SET expiration_date = ? WHERE path = ? AND expiration_date IS NULL",
+          [expiration_date, row.fetch("path")]
+        )
+      end
+    end
+
+    def expiration_date_from_path(path)
+      basename = File.basename(path.to_s, ".csv")
+      match = /_exp(?<expiration_date>\d{4}-\d{2}-\d{2})_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\z/.match(basename)
+      match && match[:expiration_date]
     end
 
     def iso(value)
