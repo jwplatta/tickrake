@@ -130,4 +130,24 @@ RSpec.describe Tickrake::Tracker do
       expect(option_row_again["expiration_date"]).to eq("2026-04-17")
     end
   end
+
+  it "creates query indexes for file metadata lookups during migration" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.sqlite3")
+      tracker = described_class.new(path)
+      db = SQLite3::Database.new(path)
+      index_names = db.execute("SELECT name FROM sqlite_master WHERE type = 'index'").flatten
+
+      expect(index_names).to include("idx_file_metadata_candles_lookup")
+      expect(index_names).to include("idx_file_metadata_options_lookup")
+
+      tracker_again = described_class.new(path)
+      index_names_again = db.execute("SELECT name FROM sqlite_master WHERE type = 'index'").flatten
+
+      expect(index_names_again).to include("idx_file_metadata_candles_lookup")
+      expect(index_names_again).to include("idx_file_metadata_options_lookup")
+    ensure
+      db&.close
+    end
+  end
 end

@@ -166,6 +166,16 @@ module Tickrake
       )
       add_column_unless_exists("fetch_runs", "frequency", "TEXT")
       add_column_unless_exists("file_metadata_cache", "expiration_date", "TEXT")
+      create_index_unless_exists(
+        "idx_file_metadata_candles_lookup",
+        "file_metadata_cache",
+        "dataset_type, provider_name, ticker, frequency"
+      )
+      create_index_unless_exists(
+        "idx_file_metadata_options_lookup",
+        "file_metadata_cache",
+        "dataset_type, provider_name, expiration_date, last_observed_at"
+      )
       backfill_option_expiration_dates
     end
 
@@ -174,6 +184,10 @@ module Tickrake
       return if columns.include?(column)
 
       db.execute("ALTER TABLE #{table} ADD COLUMN #{column} #{sql_type}")
+    end
+
+    def create_index_unless_exists(name, table, columns)
+      db.execute("CREATE INDEX IF NOT EXISTS #{name} ON #{table} (#{columns})")
     end
 
     def backfill_option_expiration_dates
