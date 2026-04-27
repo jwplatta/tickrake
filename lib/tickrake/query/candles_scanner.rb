@@ -25,39 +25,74 @@ module Tickrake
 
       def scan(provider_name: nil, ticker: nil, frequency: nil, start_date: nil, end_date: nil)
         requested_frequency = @frequency_normalizer.normalize(frequency)
-        provider_names(provider_name).flat_map do |selected_provider|
-          selected_definition = @config.provider_definition(selected_provider)
-          requested_canonical = ticker && @symbol_normalizer.canonical(ticker, provider_definition: selected_definition)
-          candle_paths_for(selected_provider).filter_map do |path|
-            metadata = metadata_for(path, provider_name: selected_provider)
-            next unless metadata
-            next if requested_canonical && metadata.fetch("ticker") != requested_canonical
-            next if requested_frequency && metadata.fetch("frequency") != requested_frequency
+        results = build_results(
+          metadata_rows(provider_name: provider_name),
+          ticker: ticker,
+          requested_frequency: requested_frequency,
+          start_date: start_date,
+          end_date: end_date
+        )
+        return results unless results.empty?
 
-            coverage = coverage_for(
-              start_date: start_date,
-              end_date: end_date,
-              first_observed_at: metadata["first_observed_at"],
-              last_observed_at: metadata["last_observed_at"]
-            )
-            next if coverage == "none"
-
-            Result.new(
-              dataset_type: "candles",
-              provider_name: selected_provider,
-              ticker: metadata.fetch("ticker"),
-              frequency: metadata.fetch("frequency"),
-              path: path,
-              row_count: metadata.fetch("row_count").to_i,
-              first_observed_at: metadata["first_observed_at"],
-              last_observed_at: metadata["last_observed_at"],
-              coverage: coverage
-            )
-          end
-        end.sort_by { |result| [result.provider_name, result.ticker, result.frequency] }
+        seed_metadata(provider_name: provider_name)
+        build_results(
+          metadata_rows(provider_name: provider_name),
+          ticker: ticker,
+          requested_frequency: requested_frequency,
+          start_date: start_date,
+          end_date: end_date
+        )
       end
 
       private
+
+      def metadata_rows(provider_name:)
+        where_clauses = ["dataset_type = ?"]
+        binds = ["candles"]
+        if provider_name
+          where_clauses << "provider_name = ?"
+          binds << provider_name.to_s
+        end
+        @tracker.file_metadata_rows(where: where_clauses.join(" AND "), binds: binds)
+      end
+
+      def build_results(rows, ticker:, requested_frequency:, start_date:, end_date:)
+        rows.filter_map do |metadata|
+          selected_provider = metadata.fetch("provider_name")
+          selected_definition = @config.provider_definition(selected_provider)
+          requested_canonical = ticker && @symbol_normalizer.canonical(ticker, provider_definition: selected_definition)
+          next if requested_canonical && metadata.fetch("ticker") != requested_canonical
+          next if requested_frequency && metadata.fetch("frequency") != requested_frequency
+
+          coverage = coverage_for(
+            start_date: start_date,
+            end_date: end_date,
+            first_observed_at: metadata["first_observed_at"],
+            last_observed_at: metadata["last_observed_at"]
+          )
+          next if coverage == "none"
+
+          Result.new(
+            dataset_type: "candles",
+            provider_name: selected_provider,
+            ticker: metadata.fetch("ticker"),
+            frequency: metadata.fetch("frequency"),
+            path: metadata.fetch("path"),
+            row_count: metadata.fetch("row_count").to_i,
+            first_observed_at: metadata["first_observed_at"],
+            last_observed_at: metadata["last_observed_at"],
+            coverage: coverage
+          )
+        end.sort_by { |result| [result.provider_name, result.ticker, result.frequency] }
+      end
+
+      def seed_metadata(provider_name:)
+        provider_names(provider_name).each do |selected_provider|
+          candle_paths_for(selected_provider).each do |path|
+            metadata_for(path, provider_name: selected_provider)
+          end
+        end
+      end
 
       def provider_names(provider_name)
         return [provider_name.to_s] if provider_name

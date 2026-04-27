@@ -51,4 +51,149 @@ RSpec.describe Tickrake::Tracker do
       expect(row["row_count"]).to eq(120)
     end
   end
+
+  it "records completed migration versions when opening the database" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.sqlite3")
+      described_class.new(path)
+      db = SQLite3::Database.new(path)
+      versions = db.execute("SELECT version FROM schema_migrations ORDER BY version").flatten
+
+      expect(versions).to eq([1, 2, 3, 4])
+    ensure
+      db&.close
+    end
+  end
+
+  it "backfills expiration_date for existing option metadata rows during migration" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.sqlite3")
+      db = SQLite3::Database.new(path)
+      db.execute_batch(
+        <<~SQL
+          CREATE TABLE schema_migrations (
+            version INTEGER PRIMARY KEY
+          );
+
+          CREATE TABLE file_metadata_cache (
+            path TEXT PRIMARY KEY,
+            dataset_type TEXT NOT NULL,
+            provider_name TEXT NOT NULL,
+            ticker TEXT NOT NULL,
+            frequency TEXT,
+            row_count INTEGER NOT NULL,
+            first_observed_at TEXT,
+            last_observed_at TEXT,
+            file_mtime INTEGER NOT NULL,
+            file_size INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+        SQL
+      )
+      db.execute("INSERT INTO schema_migrations (version) VALUES (2)")
+      db.execute(
+        <<~SQL,
+          INSERT INTO file_metadata_cache (
+            path, dataset_type, provider_name, ticker, frequency, row_count,
+            first_observed_at, last_observed_at, file_mtime, file_size, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        SQL
+        [
+          File.join(dir, "options", "schwab", "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv"),
+          "options",
+          "schwab",
+          "SPXW",
+          nil,
+          1,
+          "2026-04-10T14:30:00Z",
+          "2026-04-10T14:30:00Z",
+          1,
+          128,
+          "2026-04-10T14:30:00Z"
+        ]
+      )
+      db.execute(
+        <<~SQL,
+          INSERT INTO file_metadata_cache (
+            path, dataset_type, provider_name, ticker, frequency, row_count,
+            first_observed_at, last_observed_at, file_mtime, file_size, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        SQL
+        [
+          File.join(dir, "history", "ibkr-paper", "SPY_1min.csv"),
+          "candles",
+          "ibkr-paper",
+          "SPY",
+          "1min",
+          120,
+          "2026-04-10T13:30:00Z",
+          "2026-04-10T15:29:00Z",
+          1,
+          4096,
+          "2026-04-10T15:29:00Z"
+        ]
+      )
+      db.close
+
+      tracker = described_class.new(path)
+      option_row = tracker.file_metadata(File.join(dir, "options", "schwab", "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv"))
+      candle_row = tracker.file_metadata(File.join(dir, "history", "ibkr-paper", "SPY_1min.csv"))
+
+      expect(option_row["expiration_date"]).to eq("2026-04-17")
+      expect(candle_row["expiration_date"]).to eq(nil)
+
+      tracker_again = described_class.new(path)
+      option_row_again = tracker_again.file_metadata(File.join(dir, "options", "schwab", "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv"))
+
+      expect(option_row_again["expiration_date"]).to eq("2026-04-17")
+    end
+  end
+
+  it "creates query indexes for file metadata lookups during migration" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.sqlite3")
+      db = SQLite3::Database.new(path)
+      db.execute_batch(
+        <<~SQL
+          CREATE TABLE schema_migrations (
+            version INTEGER PRIMARY KEY
+          );
+
+          CREATE TABLE file_metadata_cache (
+            path TEXT PRIMARY KEY,
+            dataset_type TEXT NOT NULL,
+            provider_name TEXT NOT NULL,
+            ticker TEXT NOT NULL,
+            frequency TEXT,
+            expiration_date TEXT,
+            row_count INTEGER NOT NULL,
+            first_observed_at TEXT,
+            last_observed_at TEXT,
+            file_mtime INTEGER NOT NULL,
+            file_size INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+        SQL
+      )
+      db.execute("INSERT INTO schema_migrations (version) VALUES (1)")
+      db.execute("INSERT INTO schema_migrations (version) VALUES (2)")
+      db.execute("INSERT INTO schema_migrations (version) VALUES (3)")
+      db.close
+
+      tracker = described_class.new(path)
+      db = SQLite3::Database.new(path)
+      index_names = db.execute("SELECT name FROM sqlite_master WHERE type = 'index'").flatten
+
+      expect(index_names).to include("idx_file_metadata_candles_lookup")
+      expect(index_names).to include("idx_file_metadata_options_lookup")
+
+      described_class.new(path)
+      index_names_again = db.execute("SELECT name FROM sqlite_master WHERE type = 'index'").flatten
+
+      expect(index_names_again).to include("idx_file_metadata_candles_lookup")
+      expect(index_names_again).to include("idx_file_metadata_options_lookup")
+    ensure
+      db&.close
+    end
+  end
 end
