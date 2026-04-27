@@ -52,12 +52,29 @@ RSpec.describe Tickrake::Tracker do
     end
   end
 
+  it "records completed migration versions when opening the database" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.sqlite3")
+      described_class.new(path)
+      db = SQLite3::Database.new(path)
+      versions = db.execute("SELECT version FROM schema_migrations ORDER BY version").flatten
+
+      expect(versions).to eq([1, 2, 3, 4])
+    ensure
+      db&.close
+    end
+  end
+
   it "backfills expiration_date for existing option metadata rows during migration" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.sqlite3")
       db = SQLite3::Database.new(path)
       db.execute_batch(
         <<~SQL
+          CREATE TABLE schema_migrations (
+            version INTEGER PRIMARY KEY
+          );
+
           CREATE TABLE file_metadata_cache (
             path TEXT PRIMARY KEY,
             dataset_type TEXT NOT NULL,
@@ -73,6 +90,7 @@ RSpec.describe Tickrake::Tracker do
           );
         SQL
       )
+      db.execute("INSERT INTO schema_migrations (version) VALUES (2)")
       db.execute(
         <<~SQL,
           INSERT INTO file_metadata_cache (
@@ -134,6 +152,34 @@ RSpec.describe Tickrake::Tracker do
   it "creates query indexes for file metadata lookups during migration" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.sqlite3")
+      db = SQLite3::Database.new(path)
+      db.execute_batch(
+        <<~SQL
+          CREATE TABLE schema_migrations (
+            version INTEGER PRIMARY KEY
+          );
+
+          CREATE TABLE file_metadata_cache (
+            path TEXT PRIMARY KEY,
+            dataset_type TEXT NOT NULL,
+            provider_name TEXT NOT NULL,
+            ticker TEXT NOT NULL,
+            frequency TEXT,
+            expiration_date TEXT,
+            row_count INTEGER NOT NULL,
+            first_observed_at TEXT,
+            last_observed_at TEXT,
+            file_mtime INTEGER NOT NULL,
+            file_size INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+        SQL
+      )
+      db.execute("INSERT INTO schema_migrations (version) VALUES (1)")
+      db.execute("INSERT INTO schema_migrations (version) VALUES (2)")
+      db.execute("INSERT INTO schema_migrations (version) VALUES (3)")
+      db.close
+
       tracker = described_class.new(path)
       db = SQLite3::Database.new(path)
       index_names = db.execute("SELECT name FROM sqlite_master WHERE type = 'index'").flatten
@@ -141,7 +187,7 @@ RSpec.describe Tickrake::Tracker do
       expect(index_names).to include("idx_file_metadata_candles_lookup")
       expect(index_names).to include("idx_file_metadata_options_lookup")
 
-      tracker_again = described_class.new(path)
+      described_class.new(path)
       index_names_again = db.execute("SELECT name FROM sqlite_master WHERE type = 'index'").flatten
 
       expect(index_names_again).to include("idx_file_metadata_candles_lookup")
