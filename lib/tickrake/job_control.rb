@@ -43,9 +43,13 @@ module Tickrake
     private
 
     def resolve_job_targets(target, config_path:)
-      return Tickrake::ConfigLoader.load(config_path).jobs.map(&:name) if target.to_s == "all"
+      config = Tickrake::ConfigLoader.load(config_path)
+      return config.jobs.select(&:scheduled?).map(&:name) if target.to_s == "all"
 
-      [Tickrake::ConfigLoader.load(config_path).job(target).name]
+      job = config.job(target)
+      raise Tickrake::Error, "Manual job `#{job.name}` cannot be controlled as a background scheduler. Use `tickrake run --job #{job.name}`." if job.manual?
+
+      [job.name]
     end
 
     def stop_one(name, timeout_seconds:, waiting_message: nil)

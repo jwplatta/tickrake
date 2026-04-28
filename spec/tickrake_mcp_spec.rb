@@ -62,12 +62,14 @@ RSpec.describe Tickrake::MCPServer do
         {
           "name" => "index_options",
           "type" => "options",
+          "manual" => false,
           "state" => "running",
           "log_path" => "/tmp/index_options.log"
         },
         {
           "name" => "eod_candles",
           "type" => "candles",
+          "manual" => false,
           "state" => "stopped",
           "log_path" => "/tmp/eod_candles.log"
         }

@@ -4,12 +4,13 @@ RSpec.describe Tickrake::ConfigLoader do
   it "loads the example config with typed scheduled jobs" do
     config = described_class.load(File.expand_path("../config/tickrake.example.yml", __dir__))
 
-    expect(config.jobs.map(&:name)).to eq(%w[index_options eod_candles spx_min_candles])
+    expect(config.jobs.map(&:name)).to eq(%w[index_options eod_candles spx_min_candles manual_candles])
     expect(config.job("index_options").type).to eq("options")
     expect(config.job("index_options").interval_seconds).to eq(300)
     expect(config.job("index_options").dte_buckets).to include(0, 10, 30)
     expect(config.job("eod_candles").type).to eq("candles")
     expect(config.job("eod_candles").lookback_days).to eq(7)
+    expect(config.job("manual_candles")).to be_manual
     expect(config.default_provider_name).to eq("schwab")
     expect(config.provider_definition("schwab").adapter).to eq("schwab")
     expect(config.provider_definition("massive").adapter).to eq("massive")
@@ -82,6 +83,72 @@ RSpec.describe Tickrake::ConfigLoader do
       expect(config.option_root_tickers).to eq("SPXW" => "SPX")
       expect(config.ticker_for_option_root("SPXW")).to eq("SPX")
       expect(config.ticker_for_option_root("SPX")).to eq("SPX")
+    end
+  end
+
+  it "loads manual configured jobs without scheduler fields" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "manual-jobs.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+          ibkr-paper:
+            adapter: ibkr
+        schedule:
+          manual_options:
+            type: options
+            manual: true
+            provider: schwab
+            dte_buckets: [0DTE, 30DTE]
+            universe:
+              - symbol: $SPX
+                option_root: SPXW
+              - symbol: SPY
+          manual_candles:
+            type: candles
+            manual: true
+            provider: ibkr-paper
+            lookback_days: 14
+            universe:
+              - symbol: SPY
+                start_date: "2020-01-01"
+                frequencies: [day, minute]
+      YAML
+
+      config = described_class.load(path)
+
+      expect(config.job("manual_options")).to be_manual
+      expect(config.job("manual_options").interval_seconds).to be_nil
+      expect(config.job("manual_options").windows).to eq([])
+      expect(config.job("manual_options").dte_buckets).to eq([0, 30])
+      expect(config.job("manual_candles")).to be_manual
+      expect(config.job("manual_candles").run_at).to be_nil
+      expect(config.job("manual_candles").days).to eq([])
+      expect(config.job("manual_candles").universe.first.frequencies).to eq(%w[day 1min])
+    end
+  end
+
+  it "rejects manual jobs with scheduler fields" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "manual-with-schedule.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        schedule:
+          manual_options:
+            type: options
+            manual: true
+            interval_seconds: 300
+            dte_buckets: [0DTE]
+            universe:
+              - symbol: SPY
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /manual job `manual_options` cannot define schedule fields/)
     end
   end
 

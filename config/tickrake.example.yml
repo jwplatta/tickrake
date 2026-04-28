@@ -101,3 +101,15 @@ schedule:
       - symbol: $SPX
         start_date: "2026-03-01"
         frequencies: [30min, 5min, minute]
+  manual_candles:
+    type: candles
+    manual: true
+    provider: ibkr-paper
+    lookback_days: 7
+    universe:
+      - symbol: SPY
+        start_date: "2020-01-01"
+        frequencies: [day, minute]
+      - symbol: QQQ
+        start_date: "2020-01-01"
+        frequencies: [day, minute]

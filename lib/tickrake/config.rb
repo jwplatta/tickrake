@@ -24,6 +24,7 @@ module Tickrake
     :lookback_days,
     :dte_buckets,
     :universe,
+    :manual,
     keyword_init: true
   ) do
     def options?
@@ -40,6 +41,14 @@ module Tickrake
 
     def daily_schedule?
       !run_at.nil?
+    end
+
+    def manual?
+      manual == true
+    end
+
+    def scheduled?
+      !manual?
     end
   end
   ImportJobConfig = Struct.new(:name, :type, :provider, :ticker, :option_root, :paths, :force, keyword_init: true)
