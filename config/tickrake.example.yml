@@ -15,6 +15,20 @@ providers:
       host: 127.0.0.1
       port: 7497
       client_id: 1001
+  massive:
+    adapter: massive
+    settings: {}
+options:
+  root_tickers:
+    SPXW: SPX
+imports:
+  spxw_massive_options:
+    type: options
+    provider: massive
+    ticker: SPX
+    option_root: SPXW
+    paths:
+      - /Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/10/2025-10-01.csv
 storage:
   data_dir: ~/.tickrake/data
   history_dir: ~/.tickrake/data/history

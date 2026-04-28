@@ -31,4 +31,14 @@ RSpec.describe Tickrake::ProviderFactory do
     expect(provider.provider_name).to eq("ib_paper")
     expect(provider.adapter_name).to eq("ibkr")
   end
+
+  it "rejects building import-only Massive providers" do
+    provider_definition = Tickrake::ProviderDefinition.new(name: "massive", adapter: "massive", settings: {})
+    config = instance_double(Tickrake::Config)
+    allow(config).to receive(:provider_definition).with("massive").and_return(provider_definition)
+
+    expect do
+      described_class.new(config, provider_name: "massive", client_factory: instance_double(Tickrake::ClientFactory)).build
+    end.to raise_error(Tickrake::ConfigError, /import-only/)
+  end
 end

@@ -4,7 +4,7 @@ RSpec.describe Tickrake::ConfigLoader do
   it "loads the example config with typed scheduled jobs" do
     config = described_class.load(File.expand_path("../config/tickrake.example.yml", __dir__))
 
-    expect(config.jobs.map(&:name)).to eq(%w[index_options eod_candles])
+    expect(config.jobs.map(&:name)).to eq(%w[index_options eod_candles spx_min_candles])
     expect(config.job("index_options").type).to eq("options")
     expect(config.job("index_options").interval_seconds).to eq(300)
     expect(config.job("index_options").dte_buckets).to include(0, 10, 30)
@@ -12,8 +12,106 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.job("eod_candles").lookback_days).to eq(7)
     expect(config.default_provider_name).to eq("schwab")
     expect(config.provider_definition("schwab").adapter).to eq("schwab")
+    expect(config.provider_definition("massive").adapter).to eq("massive")
+    expect(config.ticker_for_option_root("SPXW")).to eq("SPX")
+    expect(config.ticker_for_option_root("SPX")).to eq("SPX")
+    expect(config.import_job("spxw_massive_options").provider).to eq("massive")
+    expect(config.import_job("spxw_massive_options").option_root).to eq("SPXW")
+    expect(config.import_job("spxw_massive_options").paths).to include(/2025-10-01\.csv/)
     expect(config.options_universe.map(&:symbol)).to include("$SPX", "SPY")
     expect(config.job("eod_candles").universe.first.frequencies).to include("day", "30min", "10min", "5min", "1min")
+  end
+
+  it "loads import-only jobs without requiring a scheduled job" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.yml")
+      File.write(path, <<~YAML)
+        default_provider: massive
+        providers:
+          massive:
+            adapter: massive
+        options:
+          root_tickers:
+            SPXW: SPX
+        imports:
+          spxw_backfill:
+            type: options
+            provider: massive
+            option_root: SPXW
+            paths:
+              - /tmp/2025-10-01.csv
+              - /tmp/2025-10-02.csv
+      YAML
+
+      config = described_class.load(path)
+
+      expect(config.jobs).to eq([])
+      expect(config.import_job("spxw_backfill").ticker).to be_nil
+      expect(config.import_job("spxw_backfill").paths).to eq(["/tmp/2025-10-01.csv", "/tmp/2025-10-02.csv"])
+    end
+  end
+
+  it "loads shared option root ticker exceptions" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.yml")
+      File.write(path, <<~YAML)
+        default_provider: massive
+        providers:
+          massive:
+            adapter: massive
+        options:
+          root_tickers:
+            SPXW: SPX
+        schedule:
+          index_options:
+            type: options
+            provider: massive
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            dte_buckets: [0DTE]
+            universe:
+              - symbol: SPX
+                option_root: SPXW
+      YAML
+
+      config = described_class.load(path)
+
+      expect(config.option_root_tickers).to eq("SPXW" => "SPX")
+      expect(config.ticker_for_option_root("SPXW")).to eq("SPX")
+      expect(config.ticker_for_option_root("SPX")).to eq("SPX")
+    end
+  end
+
+  it "accepts a massive import-only provider" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.yml")
+      File.write(path, <<~YAML)
+        default_provider: massive
+        providers:
+          massive:
+            adapter: massive
+        schedule:
+          index_options:
+            type: options
+            provider: massive
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            dte_buckets: [0DTE]
+            universe:
+              - symbol: SPX
+                option_root: SPXW
+      YAML
+
+      config = described_class.load(path)
+
+      expect(config.provider_definition("massive").adapter).to eq("massive")
+    end
   end
 
   it "loads multiple named jobs with mixed types and job-level/per-symbol providers" do

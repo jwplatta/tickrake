@@ -257,6 +257,113 @@ RSpec.describe Tickrake::CLI do
     expect(stderr.string).to include("invalid option: options")
   end
 
+  it "runs a Massive options import" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    tracker = instance_double(Tickrake::Tracker)
+    runtime = instance_double(Tickrake::Runtime, tracker: tracker, logger: Logger.new(nil))
+    importer = instance_double(Tickrake::Importers::MassiveOptionsImporter)
+    result = Tickrake::Importers::MassiveOptionsImporter::Result.new(path: "/tmp/out.csv", row_count: 2)
+
+    allow(Tickrake::Runtime).to receive(:new).with(
+      config: config,
+      provider_name: "massive",
+      verbose: false,
+      stdout: stdout,
+      log_path: Tickrake::PathSupport.named_log_path("import"),
+      config_path: Tickrake::PathSupport.config_path
+    ).and_return(runtime)
+    allow(Tickrake::Importers::MassiveOptionsImporter).to receive(:new).with(
+      config: config,
+      tracker: tracker,
+      provider_name: "massive",
+      ticker: "SPX",
+      option_root: "SPXW",
+      source_path: "/tmp/2024-12-02.csv",
+      force: true,
+      logger: runtime.logger
+    ).and_return(importer)
+    allow(importer).to receive(:import).and_return([result])
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "import",
+      "--type", "options",
+      "--provider", "massive",
+      "--ticker", "SPX",
+      "--option-root", "SPXW",
+      "--path", "/tmp/2024-12-02.csv",
+      "--force"
+    ])
+
+    expect(exit_code).to eq(0)
+    expect(stdout.string).to include("Imported 2 option rows into 1 snapshot files.")
+  end
+
+  it "runs a configured Massive options import job" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    tracker = instance_double(Tickrake::Tracker)
+    import_job = Tickrake::ImportJobConfig.new(
+      name: "spxw_backfill",
+      type: "options",
+      provider: "massive",
+      ticker: nil,
+      option_root: "SPXW",
+      paths: ["/tmp/2025-10-01.csv", "/tmp/2025-10-02.csv"],
+      force: false
+    )
+    runtime = instance_double(Tickrake::Runtime, tracker: tracker, logger: Logger.new(nil))
+    importer = instance_double(Tickrake::Importers::MassiveOptionsImporter)
+    result = Tickrake::Importers::MassiveOptionsImporter::Result.new(path: "/tmp/out.csv", row_count: 2)
+
+    allow(config).to receive(:import_job).with("spxw_backfill").and_return(import_job)
+    allow(Tickrake::Runtime).to receive(:new).with(
+      config: config,
+      provider_name: "massive",
+      verbose: false,
+      stdout: stdout,
+      log_path: Tickrake::PathSupport.named_log_path("spxw_backfill"),
+      config_path: Tickrake::PathSupport.config_path
+    ).and_return(runtime)
+    allow(Tickrake::Importers::MassiveOptionsImporter).to receive(:new).and_return(importer)
+    allow(importer).to receive(:import).and_return([result])
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["import", "--job", "spxw_backfill", "--force"])
+
+    expect(exit_code).to eq(0)
+    expect(Tickrake::Importers::MassiveOptionsImporter).to have_received(:new).with(
+      config: config,
+      tracker: tracker,
+      provider_name: "massive",
+      ticker: nil,
+      option_root: "SPXW",
+      source_path: "/tmp/2025-10-01.csv",
+      force: true,
+      logger: runtime.logger
+    )
+    expect(Tickrake::Importers::MassiveOptionsImporter).to have_received(:new).with(
+      config: config,
+      tracker: tracker,
+      provider_name: "massive",
+      ticker: nil,
+      option_root: "SPXW",
+      source_path: "/tmp/2025-10-02.csv",
+      force: true,
+      logger: runtime.logger
+    )
+    expect(stdout.string).to include("Imported 4 option rows into 2 snapshot files from 2 source files.")
+  end
+
+  it "rejects incomplete imports" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["import", "--type", "options", "--provider", "massive"])
+
+    expect(exit_code).to eq(1)
+    expect(stderr.string).to include("Option imports require --option-root.")
+  end
+
   it "passes option query expiration and sample-date filters to the query engine" do
     stdout = StringIO.new
     stderr = StringIO.new

@@ -42,16 +42,19 @@ module Tickrake
       !run_at.nil?
     end
   end
+  ImportJobConfig = Struct.new(:name, :type, :provider, :ticker, :option_root, :paths, :force, keyword_init: true)
 
   class Config
     attr_reader :timezone, :sqlite_path, :providers, :default_provider_name, :data_dir, :history_dir, :options_dir, :max_workers,
-                :retry_count, :retry_delay_seconds, :option_fetch_timeout_seconds, :candle_fetch_timeout_seconds, :jobs
+                :retry_count, :retry_delay_seconds, :option_fetch_timeout_seconds, :candle_fetch_timeout_seconds, :jobs, :import_jobs,
+                :option_root_tickers
 
     def initialize(
       timezone:,
       sqlite_path:,
       providers:,
       default_provider_name:,
+      option_root_tickers:,
       data_dir:,
       history_dir:,
       options_dir:,
@@ -60,12 +63,14 @@ module Tickrake
       retry_delay_seconds:,
       option_fetch_timeout_seconds:,
       candle_fetch_timeout_seconds:,
-      jobs:
+      jobs:,
+      import_jobs:
     )
       @timezone = timezone
       @sqlite_path = sqlite_path
       @providers = providers
       @default_provider_name = default_provider_name
+      @option_root_tickers = option_root_tickers
       @data_dir = data_dir
       @history_dir = history_dir
       @options_dir = options_dir
@@ -75,12 +80,21 @@ module Tickrake
       @option_fetch_timeout_seconds = option_fetch_timeout_seconds
       @candle_fetch_timeout_seconds = candle_fetch_timeout_seconds
       @jobs = jobs
+      @import_jobs = import_jobs
     end
 
     def job(name)
       selected_name = name.to_s
       selected_job = jobs.find { |candidate| candidate.name == selected_name }
       raise ConfigError, "Unknown job `#{selected_name}`." unless selected_job
+
+      selected_job
+    end
+
+    def import_job(name)
+      selected_name = name.to_s
+      selected_job = import_jobs.find { |candidate| candidate.name == selected_name }
+      raise ConfigError, "Unknown import job `#{selected_name}`." unless selected_job
 
       selected_job
     end
@@ -139,6 +153,11 @@ module Tickrake
       return override_name.to_s if override_name
 
       provider_name_for_entry(entry, scheduled_job: scheduled_job)
+    end
+
+    def ticker_for_option_root(option_root)
+      normalized_root = option_root.to_s.upcase
+      @option_root_tickers.fetch(normalized_root, normalized_root)
     end
   end
 end

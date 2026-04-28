@@ -2,12 +2,10 @@
 
 module Tickrake
   class ConfigLoader
-    DEFAULT_DTE_BUCKETS = %w[
-      0DTE 1DTE 2DTE 3DTE 4DTE 5DTE 6DTE 7DTE 8DTE 9DTE 10DTE 30DTE
-    ].freeze
-    VALID_ADAPTERS = %w[schwab ibkr].freeze
+    VALID_ADAPTERS = %w[schwab ibkr massive].freeze
     VALID_DAYS = %w[mon tue wed thu fri sat sun].freeze
     VALID_JOB_TYPES = %w[options candles].freeze
+    VALID_IMPORT_TYPES = %w[options].freeze
 
     def self.load(path)
       new(path).load
@@ -23,17 +21,20 @@ module Tickrake
       timezone = data.fetch("timezone", ENV.fetch("TZ", "America/Chicago"))
       sqlite_path = Tickrake::PathSupport.expand_path(data.fetch("sqlite_path", Tickrake::PathSupport.sqlite_path))
       providers, default_provider_name = load_providers(data)
+      option_root_tickers = load_option_root_tickers(data.fetch("options", {}))
       data_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "data_dir", "~/.tickrake/data"))
       history_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "history_dir", File.join(data_dir, "history")))
       options_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "options_dir", File.join(data_dir, "options")))
       runtime = data.fetch("runtime", {})
       jobs = load_jobs(data.fetch("schedule", {}))
+      import_jobs = load_import_jobs(data.fetch("imports", {}))
 
       config = Config.new(
         timezone: timezone,
         sqlite_path: sqlite_path,
         providers: providers,
         default_provider_name: default_provider_name,
+        option_root_tickers: option_root_tickers,
         data_dir: data_dir,
         history_dir: history_dir,
         options_dir: options_dir,
@@ -42,7 +43,8 @@ module Tickrake
         retry_delay_seconds: Integer(runtime.fetch("retry_delay_seconds", 2)),
         option_fetch_timeout_seconds: Integer(runtime.fetch("option_fetch_timeout_seconds", 30)),
         candle_fetch_timeout_seconds: Integer(runtime.fetch("candle_fetch_timeout_seconds", 60)),
-        jobs: jobs
+        jobs: jobs,
+        import_jobs: import_jobs
       )
 
       validate!(config)
@@ -58,7 +60,7 @@ module Tickrake
       end
 
       config.provider_definition(config.default_provider_name)
-      raise ConfigError, "At least one scheduled job is required." if config.jobs.empty?
+      raise ConfigError, "At least one scheduled or import job is required." if config.jobs.empty? && config.import_jobs.empty?
 
       config.jobs.each do |job|
         raise ConfigError, "Unknown job type `#{job.type}` for `#{job.name}`." unless VALID_JOB_TYPES.include?(job.type)
@@ -77,6 +79,13 @@ module Tickrake
         end
       end
 
+      config.import_jobs.each do |job|
+        raise ConfigError, "Unknown import type `#{job.type}` for `#{job.name}`." unless VALID_IMPORT_TYPES.include?(job.type)
+        config.provider_definition(job.provider)
+        raise ConfigError, "import job `#{job.name}` requires option_root." if job.option_root.to_s.empty?
+        raise ConfigError, "import job `#{job.name}` requires at least one path." if job.paths.empty?
+      end
+
       raise ConfigError, "max_workers must be positive." if config.max_workers <= 0
     end
 
@@ -86,6 +95,32 @@ module Tickrake
       schedule.map do |name, raw_job|
         build_job(name, raw_job)
       end
+    end
+
+    def load_import_jobs(imports)
+      raise ConfigError, "imports must be a mapping." unless imports.is_a?(Hash)
+
+      imports.map do |name, raw_job|
+        build_import_job(name, raw_job)
+      end
+    end
+
+    def build_import_job(name, raw_job)
+      raise ConfigError, "import job `#{name}` must be a mapping." unless raw_job.is_a?(Hash)
+      raise ConfigError, "import job `#{name}` must define type." unless raw_job.key?("type")
+
+      type = raw_job.fetch("type").to_s
+      raise ConfigError, "Unknown import type `#{type}` for `#{name}`." unless VALID_IMPORT_TYPES.include?(type)
+
+      ImportJobConfig.new(
+        name: name.to_s,
+        type: type,
+        provider: raw_job.fetch("provider", nil).to_s,
+        ticker: raw_job["ticker"],
+        option_root: raw_job["option_root"],
+        paths: Array(raw_job.fetch("paths")).map(&:to_s),
+        force: !!raw_job.fetch("force", false)
+      )
     end
 
     def build_job(name, raw_job)
@@ -185,6 +220,18 @@ module Tickrake
       providers = parse_named_providers(data.fetch("providers"))
       default_provider_name = data.fetch("default_provider")
       [providers, default_provider_name.to_s]
+    end
+
+    def load_option_root_tickers(raw_options)
+      return {} if raw_options.nil?
+      raise ConfigError, "options must be a mapping." unless raw_options.is_a?(Hash)
+
+      raw_mapping = raw_options.fetch("root_tickers", {})
+      raise ConfigError, "options.root_tickers must be a mapping." unless raw_mapping.is_a?(Hash)
+
+      raw_mapping.each_with_object({}) do |(root, ticker), mapping|
+        mapping[root.to_s.upcase] = ticker.to_s.upcase
+      end
     end
 
     def parse_named_providers(raw_providers)
