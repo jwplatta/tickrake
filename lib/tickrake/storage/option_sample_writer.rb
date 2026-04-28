@@ -9,6 +9,10 @@ module Tickrake
         description
         strike
         expiration_date
+        open
+        high
+        low
+        close
         mark
         bid
         bid_size
@@ -18,6 +22,7 @@ module Tickrake
         last_size
         open_interest
         total_volume
+        transactions
         delta
         gamma
         theta
@@ -39,19 +44,21 @@ module Tickrake
         @csv_writer.write(
           path,
           headers: CSV_HEADERS,
-          rows: rows.map { |row| csv_row(row) }
+          rows: rows.map { |row| self.class.csv_row(row) }
         )
       end
 
-      private
-
-      def csv_row(row)
+      def self.csv_row(row)
         [
           row.contract_type,
           row.symbol,
           row.description,
           row.strike,
           row.expiration_date,
+          row.open,
+          row.high,
+          row.low,
+          row.close,
           row.mark,
           row.bid,
           row.bid_size,
@@ -61,6 +68,7 @@ module Tickrake
           row.last_size,
           row.open_interest,
           row.total_volume,
+          row.transactions,
           row.delta,
           row.gamma,
           row.theta,

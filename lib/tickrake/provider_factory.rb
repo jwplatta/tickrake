@@ -16,6 +16,8 @@ module Tickrake
         Providers::Schwab.new(provider_name: provider.name, client: @client_factory.build)
       when "ibkr"
         Providers::Ibkr.new(provider_name: provider.name, settings: provider.settings)
+      when "massive"
+        raise ConfigError, "Provider adapter massive is import-only."
       else
         raise ConfigError, "Unsupported provider adapter: #{provider.adapter}"
       end

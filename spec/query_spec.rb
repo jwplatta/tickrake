@@ -10,6 +10,7 @@ RSpec.describe "query engine" do
         "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}, symbol_map: { "/ES" => "^ES" })
       },
       default_provider_name: "ibkr-paper",
+      option_root_tickers: { "SPXW" => "SPX" },
       data_dir: File.dirname(history_dir),
       history_dir: history_dir,
       options_dir: options_dir,
@@ -18,6 +19,7 @@ RSpec.describe "query engine" do
       retry_delay_seconds: 1,
       option_fetch_timeout_seconds: 30,
       candle_fetch_timeout_seconds: 30,
+      import_jobs: [],
       jobs: [
         Tickrake::ScheduledJobConfig.new(
           name: "options",

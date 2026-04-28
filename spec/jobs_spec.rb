@@ -13,6 +13,7 @@ RSpec.describe "job execution" do
       sqlite_path: config.sqlite_path,
       providers: config.providers,
       default_provider_name: config.default_provider_name,
+      option_root_tickers: config.option_root_tickers,
       data_dir: config.data_dir,
       history_dir: config.history_dir,
       options_dir: config.options_dir,
@@ -20,7 +21,8 @@ RSpec.describe "job execution" do
       retry_count: config.retry_count,
       retry_delay_seconds: config.retry_delay_seconds,
       option_fetch_timeout_seconds: config.option_fetch_timeout_seconds,
-      candle_fetch_timeout_seconds: config.candle_fetch_timeout_seconds
+      candle_fetch_timeout_seconds: config.candle_fetch_timeout_seconds,
+      import_jobs: config.import_jobs
     }
 
     job_overrides = {
@@ -37,9 +39,26 @@ RSpec.describe "job execution" do
     }
 
     attrs[:jobs] = config.jobs.map(&:dup)
-    attrs[:jobs] = rebuild_jobs(attrs[:jobs], job_overrides) if job_overrides.values.any? { |value| !value.nil? }
+    if job_overrides.values.any? { |value| !value.nil? }
+      attrs[:jobs] = rebuild_jobs(attrs[:jobs], job_overrides)
+      attrs[:jobs] = keep_single_candle_job(attrs[:jobs]) if candle_overrides?(job_overrides)
+    end
 
     Tickrake::Config.new(**attrs.merge(overrides))
+  end
+
+  def candle_overrides?(overrides)
+    %i[candles_provider eod_run_at eod_days candle_lookback_days candles_universe].any? { |key| !overrides[key].nil? }
+  end
+
+  def keep_single_candle_job(jobs)
+    seen_candle = false
+    jobs.select do |job|
+      next true unless job.type == "candles"
+      next false if seen_candle
+
+      seen_candle = true
+    end
   end
 
   def rebuild_jobs(jobs, overrides)

@@ -36,6 +36,7 @@ RSpec.describe Tickrake::Storage::StatsReport do
         sqlite_path: sqlite_path,
         providers: {},
         default_provider_name: "schwab",
+        option_root_tickers: {},
         data_dir: data_dir,
         history_dir: history_dir,
         options_dir: options_dir,
@@ -44,6 +45,7 @@ RSpec.describe Tickrake::Storage::StatsReport do
         retry_delay_seconds: 1,
         option_fetch_timeout_seconds: 30,
         candle_fetch_timeout_seconds: 30,
+        import_jobs: [],
         jobs: []
       )
 
@@ -83,6 +85,7 @@ RSpec.describe Tickrake::Storage::StatsReport do
         sqlite_path: sqlite_path,
         providers: {},
         default_provider_name: "schwab",
+        option_root_tickers: {},
         data_dir: data_dir,
         history_dir: history_dir,
         options_dir: options_dir,
@@ -91,6 +94,7 @@ RSpec.describe Tickrake::Storage::StatsReport do
         retry_delay_seconds: 1,
         option_fetch_timeout_seconds: 30,
         candle_fetch_timeout_seconds: 30,
+        import_jobs: [],
         jobs: []
       )
 
