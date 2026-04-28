@@ -89,8 +89,13 @@ module Tickrake
         load_ib_api!
 
         queue = Queue.new
-        subscription = connection.subscribe(IB::Messages::Incoming::HistoricalData) do |message|
-          queue << message if message.request_id == request_id
+        subscription = connection.subscribe(:HistoricalData, :Alert) do |message|
+          case message
+          when IB::Messages::Incoming::HistoricalData
+            queue << message if message.request_id == request_id
+          when IB::Messages::Incoming::Alert
+            queue << message if message.error_id == request_id
+          end
         end
 
         connection.send_message(
@@ -107,6 +112,8 @@ module Tickrake
         )
 
         message = Timeout.timeout(Integer(@settings.fetch("historical_timeout_seconds", 30))) { queue.pop }
+        return [] if message.is_a?(IB::Messages::Incoming::Alert)
+
         Array(message.results).map do |bar|
           Data::Bar.new(
             datetime: normalize_time(bar.time),
@@ -127,7 +134,7 @@ module Tickrake
       def build_contract(symbol)
         load_ib_api!
 
-        normalized = symbol.to_s.delete_prefix("$").upcase
+        normalized = symbol.to_s.delete_prefix("$").upcase.tr(".", " ")
         if INDEX_CONTRACTS.key?(normalized)
           config = INDEX_CONTRACTS.fetch(normalized)
           IB::Index.new(symbol: config.fetch(:symbol), exchange: config.fetch(:exchange), currency: "USD")
