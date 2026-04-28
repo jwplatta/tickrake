@@ -35,10 +35,25 @@ RSpec.describe Tickrake::CLI do
       universe: [double("candle1")]
     )
   end
+  let(:manual_options_job) do
+    Tickrake::ScheduledJobConfig.new(
+      name: "manual_options",
+      type: "options",
+      interval_seconds: nil,
+      windows: [],
+      run_at: nil,
+      days: [],
+      lookback_days: nil,
+      dte_buckets: [0, 30],
+      universe: [double("opt1")],
+      manual: true
+    )
+  end
 
   before do
     allow(config).to receive(:job).with("index_options").and_return(index_options_job)
     allow(config).to receive(:job).with("eod_candles").and_return(eod_candles_job)
+    allow(config).to receive(:job).with("manual_options").and_return(manual_options_job)
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
   end
 
@@ -84,6 +99,40 @@ RSpec.describe Tickrake::CLI do
 
     expect(exit_code).to eq(0)
     expect(stdout.string).to include("Completed job index_options.")
+  end
+
+  it "runs a manual configured options job once with --job" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    runtime = instance_double(Tickrake::Runtime)
+    progress_reporter = instance_double(Tickrake::ProgressReporter)
+    job = instance_double(Tickrake::OptionsJob, run: true)
+
+    allow(Tickrake::Runtime).to receive(:new).with(
+      config: config,
+      provider_name: nil,
+      verbose: false,
+      stdout: stdout,
+      log_path: Tickrake::PathSupport.named_log_path("manual_options"),
+      config_path: Tickrake::PathSupport.config_path
+    ).and_return(runtime)
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 2, title: "Options", output: stdout).and_return(progress_reporter)
+    allow(Tickrake::OptionsJob).to receive(:new).with(runtime, progress_reporter: progress_reporter, scheduled_job: manual_options_job).and_return(job)
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "--job", "manual_options"])
+
+    expect(exit_code).to eq(0)
+    expect(stdout.string).to include("Completed job manual_options.")
+  end
+
+  it "rejects scheduler mode for manual configured jobs" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "--job", "manual_options", "--scheduler"])
+
+    expect(exit_code).to eq(1)
+    expect(stderr.string).to include("Manual job `manual_options` cannot run as a scheduler")
   end
 
   it "runs a configured candles job once with --job" do

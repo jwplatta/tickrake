@@ -46,6 +46,7 @@ to set:
 - job-specific universes
 - option job DTE buckets, intervals, and windows
 - candle job lookback windows and run times
+- optional `manual: true` jobs that are available through config but only run when triggered
 
 Run a one-off command to verify the setup:
 
@@ -75,6 +76,7 @@ tickrake logs eod_candles --tail 100
 tickrake run --job index_options
 tickrake run --job eod_candles
 tickrake run --job eod_candles --from-config-start
+tickrake run --job manual_candles
 tickrake run --job index_options --verbose
 tickrake run --type candles --provider ibkr-paper --ticker SPY --start-date 2026-04-01 --end-date 2026-04-11 --frequency minute
 tickrake run --type options --provider schwab --ticker '$SPX' --expiration-date 2026-04-11 --option-root SPXW
@@ -253,7 +255,24 @@ schedule:
       - symbol: $SPX
         start_date: "2026-03-01"
         frequencies: [30min, 5min, 1min]
+  manual_candles:
+    type: candles
+    manual: true
+    provider: ibkr-paper
+    lookback_days: 7
+    universe:
+      - symbol: SPY
+        start_date: "2020-01-01"
+        frequencies: [day, 1min]
+      - symbol: QQQ
+        start_date: "2020-01-01"
+        frequencies: [day, 1min]
 ```
+
+Manual jobs stay under `schedule` so they can reuse the same configured universes and
+provider precedence as scheduled jobs. Run them with `tickrake run --job JOB_NAME`.
+They are not started by `tickrake start --job all` or `tickrake restart --job all`, and
+they cannot be launched as background schedulers.
 
 Provider precedence is:
 - CLI `--provider`

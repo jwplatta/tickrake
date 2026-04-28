@@ -36,6 +36,7 @@ module Tickrake
               {
                 "name" => job.name,
                 "type" => job.type,
+                "manual" => job.manual?,
                 "state" => status.fetch(:state, "stopped"),
                 "log_path" => status[:log_path] || Tickrake::PathSupport.named_log_path(job.name)
               }

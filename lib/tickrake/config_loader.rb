@@ -67,8 +67,10 @@ module Tickrake
         config.provider_definition(job.provider) if job.provider
 
         if job.options?
-          raise ConfigError, "options job `#{job.name}` interval must be positive." if job.interval_seconds.to_i <= 0
-          raise ConfigError, "At least one options job window is required for `#{job.name}`." if job.windows.empty?
+          unless job.manual?
+            raise ConfigError, "options job `#{job.name}` interval must be positive." if job.interval_seconds.to_i <= 0
+            raise ConfigError, "At least one options job window is required for `#{job.name}`." if job.windows.empty?
+          end
           raise ConfigError, "At least one options universe symbol is required for `#{job.name}`." if job.universe.empty?
           job.universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
         elsif job.candles?
@@ -140,21 +142,27 @@ module Tickrake
     end
 
     def build_options_job(name, raw_job)
+      manual = manual_job?(raw_job)
+      validate_no_schedule_fields!(name, raw_job, %w[interval_seconds windows]) if manual
+
       ScheduledJobConfig.new(
         name: name.to_s,
         type: "options",
         provider: raw_job["provider"],
-        interval_seconds: Integer(raw_job.fetch("interval_seconds")),
-        windows: load_scheduler_windows(raw_job.fetch("windows")),
+        interval_seconds: manual ? nil : Integer(raw_job.fetch("interval_seconds")),
+        windows: manual ? [] : load_scheduler_windows(raw_job.fetch("windows")),
         run_at: nil,
         days: [],
         lookback_days: nil,
         dte_buckets: Array(raw_job.fetch("dte_buckets")).map { |bucket| parse_bucket(bucket) },
-        universe: Array(raw_job.fetch("universe")).map { |row| load_option_symbol(row) }
+        universe: Array(raw_job.fetch("universe")).map { |row| load_option_symbol(row) },
+        manual: manual
       )
     end
 
     def build_candles_job(name, raw_job)
+      manual = manual_job?(raw_job)
+      validate_no_schedule_fields!(name, raw_job, %w[interval_seconds windows run_at days]) if manual
       uses_interval_schedule = raw_job.key?("interval_seconds") || raw_job.key?("windows")
       uses_daily_schedule = raw_job.key?("run_at") || raw_job.key?("days")
 
@@ -168,11 +176,14 @@ module Tickrake
         days: uses_daily_schedule ? normalize_days(raw_job.fetch("days")) : [],
         lookback_days: Integer(raw_job.fetch("lookback_days")),
         dte_buckets: [],
-        universe: Array(raw_job.fetch("universe")).map { |row| load_candle_symbol(row) }
+        universe: Array(raw_job.fetch("universe")).map { |row| load_candle_symbol(row) },
+        manual: manual
       )
     end
 
     def validate_candle_schedule!(job)
+      return if job.manual?
+
       if job.interval_schedule? && job.daily_schedule?
         raise ConfigError, "candles job `#{job.name}` must use either interval_seconds/windows or run_at/days, not both."
       end
@@ -186,6 +197,17 @@ module Tickrake
       if job.daily_schedule?
         raise ConfigError, "At least one candles job day is required for `#{job.name}`." if job.days.empty?
       end
+    end
+
+    def manual_job?(raw_job)
+      raw_job.fetch("manual", false) == true
+    end
+
+    def validate_no_schedule_fields!(name, raw_job, fields)
+      present = fields.select { |field| raw_job.key?(field) }
+      return if present.empty?
+
+      raise ConfigError, "manual job `#{name}` cannot define schedule fields: #{present.join(", ")}."
     end
 
     def load_scheduler_windows(raw_windows)

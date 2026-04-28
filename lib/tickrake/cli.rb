@@ -418,6 +418,9 @@ module Tickrake
       raise Tickrake::Error, "--scheduler requires --job." if options[:scheduler] && options[:job].nil?
       raise Tickrake::Error, "--supervisor requires --job." if options[:supervisor] && options[:job].nil?
       raise Tickrake::Error, "--scheduler cannot be combined with --supervisor." if options[:scheduler] && options[:supervisor]
+      if job.manual? && (options[:scheduler] || options[:supervisor])
+        raise Tickrake::Error, "Manual job `#{job.name}` cannot run as a scheduler. Use `tickrake run --job #{job.name}`."
+      end
       if options[:from_config_start] && job.type != "candles"
         raise Tickrake::Error, "--from-config-start is only valid for candles jobs."
       end
