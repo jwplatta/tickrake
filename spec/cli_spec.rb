@@ -312,6 +312,7 @@ RSpec.describe Tickrake::CLI do
     tracker = instance_double(Tickrake::Tracker)
     runtime = instance_double(Tickrake::Runtime, tracker: tracker, logger: Logger.new(nil))
     importer = instance_double(Tickrake::Importers::MassiveOptionsImporter)
+    progress_reporter = instance_double(Tickrake::ProgressReporter, advance: true, finish: true)
     result = Tickrake::Importers::MassiveOptionsImporter::Result.new(path: "/tmp/out.csv", row_count: 2)
 
     allow(Tickrake::Runtime).to receive(:new).with(
@@ -333,6 +334,7 @@ RSpec.describe Tickrake::CLI do
       logger: runtime.logger
     ).and_return(importer)
     allow(importer).to receive(:import).and_return([result])
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 1, title: "Import", output: stdout).and_return(progress_reporter)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
       "import",
@@ -345,6 +347,8 @@ RSpec.describe Tickrake::CLI do
     ])
 
     expect(exit_code).to eq(0)
+    expect(progress_reporter).to have_received(:advance).with(title: "Import 2024-12-02.csv")
+    expect(progress_reporter).to have_received(:finish)
     expect(stdout.string).to include("Imported 2 option rows into 1 snapshot files.")
   end
 
@@ -363,6 +367,7 @@ RSpec.describe Tickrake::CLI do
     )
     runtime = instance_double(Tickrake::Runtime, tracker: tracker, logger: Logger.new(nil))
     importer = instance_double(Tickrake::Importers::MassiveOptionsImporter)
+    progress_reporter = instance_double(Tickrake::ProgressReporter, advance: true, finish: true)
     result = Tickrake::Importers::MassiveOptionsImporter::Result.new(path: "/tmp/out.csv", row_count: 2)
 
     allow(config).to receive(:import_job).with("spxw_backfill").and_return(import_job)
@@ -376,6 +381,7 @@ RSpec.describe Tickrake::CLI do
     ).and_return(runtime)
     allow(Tickrake::Importers::MassiveOptionsImporter).to receive(:new).and_return(importer)
     allow(importer).to receive(:import).and_return([result])
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 2, title: "Import", output: stdout).and_return(progress_reporter)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["import", "--job", "spxw_backfill", "--force"])
 
@@ -400,7 +406,54 @@ RSpec.describe Tickrake::CLI do
       force: true,
       logger: runtime.logger
     )
+    expect(progress_reporter).to have_received(:advance).with(title: "Import 2025-10-01.csv")
+    expect(progress_reporter).to have_received(:advance).with(title: "Import 2025-10-02.csv")
+    expect(progress_reporter).to have_received(:finish)
     expect(stdout.string).to include("Imported 4 option rows into 2 snapshot files from 2 source files.")
+  end
+
+  it "finishes import progress when a Massive options import fails" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    tracker = instance_double(Tickrake::Tracker)
+    runtime = instance_double(Tickrake::Runtime, tracker: tracker, logger: Logger.new(nil))
+    importer = instance_double(Tickrake::Importers::MassiveOptionsImporter)
+    progress_reporter = instance_double(Tickrake::ProgressReporter, advance: true, finish: true)
+
+    allow(Tickrake::Runtime).to receive(:new).with(
+      config: config,
+      provider_name: "massive",
+      verbose: false,
+      stdout: stdout,
+      log_path: Tickrake::PathSupport.named_log_path("import"),
+      config_path: Tickrake::PathSupport.config_path
+    ).and_return(runtime)
+    allow(Tickrake::Importers::MassiveOptionsImporter).to receive(:new).with(
+      config: config,
+      tracker: tracker,
+      provider_name: "massive",
+      ticker: "SPX",
+      option_root: "SPXW",
+      source_path: "/tmp/2024-12-02.csv",
+      force: false,
+      logger: runtime.logger
+    ).and_return(importer)
+    allow(importer).to receive(:import).and_raise(Tickrake::Error, "Import target already exists")
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 1, title: "Import", output: stdout).and_return(progress_reporter)
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "import",
+      "--type", "options",
+      "--provider", "massive",
+      "--ticker", "SPX",
+      "--option-root", "SPXW",
+      "--path", "/tmp/2024-12-02.csv"
+    ])
+
+    expect(exit_code).to eq(1)
+    expect(progress_reporter).to have_received(:advance).with(title: "Import 2024-12-02.csv failed")
+    expect(progress_reporter).to have_received(:finish)
+    expect(stderr.string).to include("Import target already exists")
   end
 
   it "rejects incomplete imports" do

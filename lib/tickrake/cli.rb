@@ -103,7 +103,8 @@ module Tickrake
         ticker: job.ticker,
         option_root: job.option_root,
         paths: job.paths,
-        force: options[:force] || job.force
+        force: options[:force] || job.force,
+        progress_reporter: build_import_progress_reporter(job.paths)
       )
       @stdout.puts("Imported #{results.sum(&:row_count)} option rows into #{results.length} snapshot files from #{job.paths.length} source files.")
       0
@@ -121,6 +122,7 @@ module Tickrake
         config_path: common_options[:config_path]
       )
 
+      import_paths = [options[:path]]
       results = import_paths(
         type: options[:type],
         config: config,
@@ -128,31 +130,51 @@ module Tickrake
         provider_name: options[:provider],
         ticker: options[:ticker],
         option_root: options[:option_root],
-        paths: [options[:path]],
-        force: options[:force]
+        paths: import_paths,
+        force: options[:force],
+        progress_reporter: build_import_progress_reporter(import_paths)
       )
       @stdout.puts("Imported #{results.sum(&:row_count)} option rows into #{results.length} snapshot files.")
       0
     end
 
-    def import_paths(type:, config:, runtime:, provider_name:, ticker:, option_root:, paths:, force:)
-      case type
-      when "options"
-        paths.flat_map do |path|
-          Tickrake::Importers::MassiveOptionsImporter.new(
-            config: config,
-            tracker: runtime.tracker,
-            provider_name: provider_name,
-            ticker: ticker,
-            option_root: option_root,
-            source_path: path,
-            force: force,
-            logger: runtime.logger
-          ).import
+    def import_paths(type:, config:, runtime:, provider_name:, ticker:, option_root:, paths:, force:, progress_reporter:)
+      begin
+        case type
+        when "options"
+          paths.flat_map do |path|
+            begin
+              Tickrake::Importers::MassiveOptionsImporter.new(
+                config: config,
+                tracker: runtime.tracker,
+                provider_name: provider_name,
+                ticker: ticker,
+                option_root: option_root,
+                source_path: path,
+                force: force,
+                logger: runtime.logger
+              ).import.tap do
+                progress_reporter&.advance(title: import_progress_title(path))
+              end
+            rescue StandardError
+              progress_reporter&.advance(title: "#{import_progress_title(path)} failed")
+              raise
+            end
+          end
+        else
+          raise Tickrake::Error, "Unsupported import type `#{type}`."
         end
-      else
-        raise Tickrake::Error, "Unsupported import type `#{type}`."
+      ensure
+        progress_reporter&.finish
       end
+    end
+
+    def build_import_progress_reporter(paths)
+      Tickrake::ProgressReporter.build(total: paths.length, title: "Import", output: @stdout)
+    end
+
+    def import_progress_title(path)
+      "Import #{File.basename(path)}"
     end
 
     def run_command(argv, config, common_options)
