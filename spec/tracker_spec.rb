@@ -52,6 +52,137 @@ RSpec.describe Tickrake::Tracker do
     end
   end
 
+  it "configures sqlite for WAL and busy timeout" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.sqlite3")
+      tracker = described_class.new(path)
+      database = tracker.send(:db)
+
+      expect(database.get_first_value("PRAGMA journal_mode").to_s.downcase).to eq("wal")
+      expect(database.get_first_value("PRAGMA busy_timeout")).to eq(described_class::SQLITE_BUSY_TIMEOUT_MS)
+    end
+  end
+
+  it "bulk upserts multiple metadata rows in one transaction" do
+    Dir.mktmpdir do |dir|
+      tracker = described_class.new(File.join(dir, "tickrake.sqlite3"))
+      tracker.bulk_upsert_file_metadata(
+        [
+          {
+            path: File.join(dir, "history", "ibkr-paper", "SPY_1min.csv"),
+            dataset_type: "candles",
+            provider_name: "ibkr-paper",
+            ticker: "SPY",
+            frequency: "1min",
+            row_count: 120,
+            first_observed_at: "2026-04-11T13:30:00Z",
+            last_observed_at: "2026-04-11T15:29:00Z",
+            file_mtime: 1_744_462_800,
+            file_size: 4096
+          },
+          {
+            path: File.join(dir, "options", "massive", "SPXW_exp2026-04-11_2026-04-11_13-30-00.csv"),
+            dataset_type: "options",
+            provider_name: "massive",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-11",
+            row_count: 42,
+            first_observed_at: "2026-04-11T13:30:00Z",
+            last_observed_at: "2026-04-11T13:30:00Z",
+            file_mtime: 1_744_462_801,
+            file_size: 2048
+          }
+        ]
+      )
+
+      rows = tracker.file_metadata_rows(order_by: "path")
+
+      expect(rows.length).to eq(2)
+      expect(rows.map { |row| row["path"] }).to all(include(dir))
+    end
+  end
+
+  it "bulk upsert updates existing metadata rows on conflict" do
+    Dir.mktmpdir do |dir|
+      tracker = described_class.new(File.join(dir, "tickrake.sqlite3"))
+      path = File.join(dir, "options", "massive", "SPXW_exp2026-04-11_2026-04-11_13-30-00.csv")
+
+      tracker.upsert_file_metadata(
+        path: path,
+        dataset_type: "options",
+        provider_name: "massive",
+        ticker: "SPXW",
+        frequency: nil,
+        expiration_date: "2026-04-11",
+        row_count: 1,
+        first_observed_at: "2026-04-11T13:30:00Z",
+        last_observed_at: "2026-04-11T13:30:00Z",
+        file_mtime: 1,
+        file_size: 100
+      )
+
+      tracker.bulk_upsert_file_metadata(
+        [
+          {
+            path: path,
+            dataset_type: "options",
+            provider_name: "massive",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-11",
+            row_count: 99,
+            first_observed_at: "2026-04-11T13:30:00Z",
+            last_observed_at: "2026-04-11T13:31:00Z",
+            file_mtime: 2,
+            file_size: 200
+          }
+        ]
+      )
+
+      row = tracker.file_metadata(path)
+
+      expect(row["row_count"]).to eq(99)
+      expect(row["last_observed_at"]).to eq("2026-04-11T13:31:00Z")
+      expect(row["file_size"]).to eq(200)
+    end
+  end
+
+  it "allows batched metadata writes while another connection holds a read transaction" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.sqlite3")
+      tracker = described_class.new(path)
+      reader = SQLite3::Database.new(path)
+      reader.results_as_hash = true
+      reader.execute("PRAGMA journal_mode = WAL")
+      reader.transaction
+      reader.execute("SELECT * FROM file_metadata_cache")
+
+      expect do
+        tracker.bulk_upsert_file_metadata(
+          [
+            {
+              path: File.join(dir, "options", "massive", "SPXW_exp2026-04-11_2026-04-11_13-30-00.csv"),
+              dataset_type: "options",
+              provider_name: "massive",
+              ticker: "SPXW",
+              frequency: nil,
+              expiration_date: "2026-04-11",
+              row_count: 42,
+              first_observed_at: "2026-04-11T13:30:00Z",
+              last_observed_at: "2026-04-11T13:30:00Z",
+              file_mtime: 1_744_462_801,
+              file_size: 2048
+            }
+          ]
+        )
+      end.not_to raise_error
+    ensure
+      reader&.rollback if reader&.transaction_active?
+      reader&.close
+    end
+  end
+
   it "records completed migration versions when opening the database" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.sqlite3")

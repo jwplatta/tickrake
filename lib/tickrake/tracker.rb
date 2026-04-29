@@ -2,6 +2,8 @@
 
 module Tickrake
   class Tracker
+    SQLITE_BUSY_TIMEOUT_MS = 10_000
+
     FILE_METADATA_COLUMNS = %w[
       path
       dataset_type
@@ -82,8 +84,61 @@ module Tickrake
     end
 
     def upsert_file_metadata(attrs)
+      bulk_upsert_file_metadata([attrs])
+    end
+
+    def bulk_upsert_file_metadata(attrs_list)
+      return if attrs_list.empty?
+
+      with_transaction do
+        attrs_list.each do |attrs|
+          values = normalized_file_metadata_values(attrs)
+          db.execute(
+            <<~SQL,
+              INSERT INTO file_metadata_cache (
+                #{FILE_METADATA_COLUMNS.join(", ")}
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(path) DO UPDATE SET
+                dataset_type = excluded.dataset_type,
+                provider_name = excluded.provider_name,
+                ticker = excluded.ticker,
+                frequency = excluded.frequency,
+                expiration_date = excluded.expiration_date,
+                row_count = excluded.row_count,
+                first_observed_at = excluded.first_observed_at,
+                last_observed_at = excluded.last_observed_at,
+                file_mtime = excluded.file_mtime,
+                file_size = excluded.file_size,
+                updated_at = excluded.updated_at
+            SQL
+            FILE_METADATA_COLUMNS.map { |column| values.fetch(column) }
+          )
+        end
+      end
+    end
+
+    def with_transaction
+      db.transaction
+      yield
+      db.commit
+    rescue StandardError
+      db.rollback if db.transaction_active?
+      raise
+    end
+
+    private
+
+    def db
+      @db ||= SQLite3::Database.new(@path).tap do |database|
+        database.busy_timeout(SQLITE_BUSY_TIMEOUT_MS)
+        database.execute("PRAGMA journal_mode = WAL")
+        database.results_as_hash = true
+      end
+    end
+
+    def normalized_file_metadata_values(attrs)
       path = Tickrake::PathSupport.expand_path(attrs.fetch(:path))
-      values = {
+      {
         "path" => path,
         "dataset_type" => attrs.fetch(:dataset_type),
         "provider_name" => attrs.fetch(:provider_name),
@@ -97,35 +152,6 @@ module Tickrake
         "file_size" => attrs.fetch(:file_size).to_i,
         "updated_at" => iso(attrs[:updated_at] || Time.now)
       }
-
-      db.execute(
-        <<~SQL,
-          INSERT INTO file_metadata_cache (
-            #{FILE_METADATA_COLUMNS.join(", ")}
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(path) DO UPDATE SET
-            dataset_type = excluded.dataset_type,
-            provider_name = excluded.provider_name,
-            ticker = excluded.ticker,
-            frequency = excluded.frequency,
-            expiration_date = excluded.expiration_date,
-            row_count = excluded.row_count,
-            first_observed_at = excluded.first_observed_at,
-            last_observed_at = excluded.last_observed_at,
-            file_mtime = excluded.file_mtime,
-            file_size = excluded.file_size,
-            updated_at = excluded.updated_at
-        SQL
-        FILE_METADATA_COLUMNS.map { |column| values.fetch(column) }
-      )
-    end
-
-    private
-
-    def db
-      @db ||= SQLite3::Database.new(@path).tap do |database|
-        database.results_as_hash = true
-      end
     end
 
     def migrate!

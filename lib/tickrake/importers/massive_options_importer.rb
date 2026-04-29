@@ -126,12 +126,13 @@ module Tickrake
       end
 
       def move_targets
-        @targets.values.map do |target|
+        metadata_batch = []
+        results = @targets.values.map do |target|
           next if target.row_count.zero?
 
           FileUtils.mkdir_p(File.dirname(target.path))
           FileUtils.mv(target.tmp_path, target.path, force: @force)
-          record_metadata(target)
+          metadata_batch << metadata_attributes_for(target)
           @logger.info("Imported #{target.row_count} Massive option rows to #{target.path}")
           Result.new(
             path: target.path,
@@ -140,12 +141,19 @@ module Tickrake
             sample_datetime: target.sample_datetime
           )
         end.compact
+
+        unless metadata_batch.empty?
+          @tracker.bulk_upsert_file_metadata(metadata_batch)
+          @logger.info("Committed #{metadata_batch.length} metadata cache rows for Massive import #{@source_path}")
+        end
+
+        results
       end
 
-      def record_metadata(target)
+      def metadata_attributes_for(target)
         stat = File.stat(target.path)
         observed_at = target.sample_datetime.utc.iso8601
-        @tracker.upsert_file_metadata(
+        {
           path: target.path,
           dataset_type: "options",
           provider_name: @provider_name,
@@ -158,7 +166,7 @@ module Tickrake
           file_mtime: stat.mtime.to_i,
           file_size: stat.size,
           updated_at: Time.now
-        )
+        }
       end
     end
   end
