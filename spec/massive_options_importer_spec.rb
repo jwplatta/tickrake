@@ -103,6 +103,29 @@ RSpec.describe Tickrake::Importers::MassiveOptionsImporter do
     end
   end
 
+  it "batches metadata cache writes once per source import" do
+    Dir.mktmpdir do |dir|
+      source_path = File.join(dir, "2024-12-02.csv")
+      write_source(source_path)
+      config = build_config(dir)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      allow(tracker).to receive(:bulk_upsert_file_metadata).and_call_original
+
+      described_class.new(
+        config: config,
+        tracker: tracker,
+        provider_name: "massive",
+        ticker: "SPX",
+        option_root: "SPXW",
+        source_path: source_path
+      ).import
+
+      expect(tracker).to have_received(:bulk_upsert_file_metadata).once do |rows|
+        expect(rows.length).to eq(3)
+      end
+    end
+  end
+
   it "keeps Massive SPX and SPXW contracts separate by the parsed Massive root token" do
     Dir.mktmpdir do |dir|
       source_path = File.join(dir, "2024-12-02.csv")
