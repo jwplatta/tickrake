@@ -15,6 +15,14 @@ bundle install
 bundle exec exe/tickrake init
 ```
 
+## Workflow
+
+1. Start from a focused branch named `feature/...`, `fix/...`, `chore/...`, or `refactor/...`.
+2. Keep changes targeted. Do not mix unrelated cleanup into the same branch.
+3. Add or update specs for behavior changes.
+4. Run relevant checks before opening a pull request.
+5. Use conventional commits, for example `feat: add importer resume support` or `fix: refresh metadata after import`.
+
 ## Running checks
 
 Run the test suite before opening a pull request:
@@ -35,5 +43,6 @@ bundle exec rspec
 ## Pull requests
 
 - Keep commits focused and intentional.
+- Use conventional commit messages.
 - Include tests for changes to scheduling, config parsing, DTE resolution, or persistence.
 - Document any changes to config shape or operational behavior in `README.md`.
