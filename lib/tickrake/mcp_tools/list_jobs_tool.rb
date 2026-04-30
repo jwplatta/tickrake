@@ -13,8 +13,7 @@ module Tickrake
             type: "string",
             description: "Optional config path override."
           }
-        },
-        required: []
+        }
       )
 
       annotations(

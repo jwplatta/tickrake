@@ -45,8 +45,7 @@ module Tickrake
             type: "string",
             description: "Optional inclusive end date in YYYY-MM-DD."
           }
-        },
-        required: []
+        }
       )
 
       annotations(

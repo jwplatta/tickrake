@@ -20,8 +20,7 @@ module Tickrake
             type: "integer",
             description: "Number of lines to read from the end of the file. Defaults to 10."
           }
-        },
-        required: []
+        }
       )
 
       annotations(

@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - Fixed IBKR provider hangs on early-date fetches and improved symbol period resolution.
 - Stabilized metadata writes during massive imports.
 - Fixed option queries to stay on SQLite metadata lookups for large caches instead of falling back to filesystem discovery.
+- Fixed MCP tool schemas to avoid invalid empty `required` arrays under newer `mcp` gem validation.
 
 ### Changed
 - Updated contributor and agent documentation.
