@@ -10,6 +10,38 @@ module Tickrake
       "30min" => 1800,
       "day" => 86_400
     }.freeze
+    CANDLE_FLOAT_FIELDS = %w[open high low close].freeze
+    CANDLE_INTEGER_FIELDS = %w[volume].freeze
+    OPTION_FLOAT_FIELDS = %w[
+      strike
+      open
+      high
+      low
+      close
+      mark
+      bid
+      ask
+      last
+      delta
+      gamma
+      theta
+      vega
+      rho
+      volatility
+      theoretical_volatility
+      theoretical_option_value
+      intrinsic_value
+      extrinsic_value
+      underlying_price
+    ].freeze
+    OPTION_INTEGER_FIELDS = %w[
+      bid_size
+      ask_size
+      last_size
+      open_interest
+      total_volume
+      transactions
+    ].freeze
 
     def initialize(config_path: Tickrake::PathSupport.config_path, config: nil, tracker: nil)
       @config = config || Tickrake::ConfigLoader.load(config_path)
@@ -37,7 +69,7 @@ module Tickrake
             next if after_end_date?(observed_at, end_date)
 
             yielder << with_metadata(
-              row.to_h,
+              parse_candle_row(row),
               include_metadata: include_metadata,
               metadata: {
                 "dataset_type" => result.dataset_type,
@@ -71,7 +103,7 @@ module Tickrake
         selected_results.each do |result|
           CSV.foreach(result.file_path, headers: true) do |row|
             yielder << with_metadata(
-              row.to_h,
+              parse_option_row(row),
               include_metadata: include_metadata,
               metadata: {
                 "dataset_type" => result.dataset_type,
@@ -79,8 +111,8 @@ module Tickrake
                 "ticker" => result.ticker,
                 "option_root" => result.root_symbol,
                 "source_path" => result.file_path,
-                "sampled_at" => result.sample_datetime,
-                "expiration_date" => result.expiration_date
+                "sampled_at" => Time.iso8601(result.sample_datetime).utc,
+                "expiration_date" => Date.iso8601(result.expiration_date)
               }
             )
           end
@@ -139,6 +171,42 @@ module Tickrake
       return row unless include_metadata
 
       row.merge("metadata" => metadata)
+    end
+
+    def parse_candle_row(row)
+      row.to_h.each_with_object({}) do |(key, value), parsed|
+        parsed[key] =
+          case key
+          when "datetime"
+            Time.iso8601(value).utc
+          else
+            coerce_value(key, value, float_fields: CANDLE_FLOAT_FIELDS, integer_fields: CANDLE_INTEGER_FIELDS)
+          end
+      end
+    end
+
+    def parse_option_row(row)
+      row.to_h.each_with_object({}) do |(key, value), parsed|
+        parsed[key] =
+          case key
+          when "expiration_date"
+            blank?(value) ? nil : Date.iso8601(value)
+          else
+            coerce_value(key, value, float_fields: OPTION_FLOAT_FIELDS, integer_fields: OPTION_INTEGER_FIELDS)
+          end
+      end
+    end
+
+    def coerce_value(key, value, float_fields:, integer_fields:)
+      return nil if blank?(value)
+      return value.to_f if float_fields.include?(key)
+      return value.to_i if integer_fields.include?(key)
+
+      value
+    end
+
+    def blank?(value)
+      value.nil? || value.strip.empty?
     end
   end
 end

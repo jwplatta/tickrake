@@ -201,6 +201,11 @@ CSV row fields. Pass `include_metadata: true` to attach a separate `metadata` ha
 This is most useful for option-chain snapshots, where fields such as `sampled_at`,
 `expiration_date`, and `option_root` identify the chain sample being replayed.
 
+Returned rows are typed for Ruby consumers rather than left as raw CSV strings. For
+example, candle timestamps are returned as `Time`, candle prices as `Float`, candle
+volume as `Integer`, option `expiration_date` as `Date`, and option numeric fields as
+`Float` or `Integer`. Blank numeric CSV cells are returned as `nil`.
+
 ## Storage
 
 - Market data root: `~/.tickrake/data`
