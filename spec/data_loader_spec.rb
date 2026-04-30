@@ -84,7 +84,7 @@ RSpec.describe Tickrake::DataLoader do
     end
   end
 
-  it "loads candles as streamed hashes with metadata and row-level date filtering" do
+  it "loads candles as streamed hashes with row-level date filtering by default" do
     Dir.mktmpdir do |dir|
       history_dir = File.join(dir, "history")
       options_dir = File.join(dir, "options")
@@ -112,15 +112,8 @@ RSpec.describe Tickrake::DataLoader do
       ).to_a
 
       expect(rows.length).to eq(1)
-      expect(rows.first).to include(
-        "dataset_type" => "candles",
-        "provider_name" => "ibkr-paper",
-        "ticker" => "SPY",
-        "frequency" => "1min",
-        "sampled_at" => "2026-04-10T13:30:00Z",
-        "source_path" => path,
-        "open" => "2"
-      )
+      expect(rows.first).to include("datetime" => "2026-04-10T13:30:00Z", "open" => "2")
+      expect(rows.first).not_to have_key("metadata")
     end
   end
 
@@ -150,11 +143,11 @@ RSpec.describe Tickrake::DataLoader do
       )
 
       expect(enumerator).to be_a(Enumerator)
-      expect(enumerator.next.fetch("sampled_at")).to eq("2026-04-10T13:30:00Z")
+      expect(enumerator.next.fetch("datetime")).to eq("2026-04-10T13:30:00Z")
     end
   end
 
-  it "loads option chains as hashes with metadata using canonical ticker aliases" do
+  it "loads option chains as plain hashes by default using canonical ticker aliases" do
     Dir.mktmpdir do |dir|
       history_dir = File.join(dir, "history")
       options_dir = File.join(dir, "options")
@@ -209,14 +202,55 @@ RSpec.describe Tickrake::DataLoader do
       ).to_a
 
       expect(rows.map { |row| row.fetch("description") }).to eq(%w[first second])
-      expect(rows.first).to include(
+      expect(rows.first).to include("contract_type" => "CALL", "symbol" => "SPXW", "description" => "first")
+      expect(rows.first).not_to have_key("metadata")
+    end
+  end
+
+  it "includes option snapshot metadata under a dedicated metadata key when requested" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
+      File.write(path, "contract_type,symbol,description\nCALL,SPXW,first\n")
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.upsert_file_metadata(
+        path: path,
+        dataset_type: "options",
+        provider_name: "schwab",
+        ticker: "SPXW",
+        frequency: nil,
+        expiration_date: "2026-04-17",
+        row_count: 1,
+        first_observed_at: "2026-04-10T14:30:00Z",
+        last_observed_at: "2026-04-10T14:30:00Z",
+        file_mtime: 1,
+        file_size: 46
+      )
+      loader = described_class.new(config: config, tracker: tracker)
+
+      row = loader.load_option_chains(
+        provider: "schwab",
+        ticker: "$SPX",
+        expiration_date: Date.iso8601("2026-04-17"),
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10"),
+        include_metadata: true
+      ).first
+
+      expect(row.fetch("metadata")).to eq(
         "dataset_type" => "options",
         "provider_name" => "schwab",
         "ticker" => "SPX",
         "option_root" => "SPXW",
-        "expiration_date" => "2026-04-17",
+        "source_path" => path,
         "sampled_at" => "2026-04-10T14:30:00Z",
-        "source_path" => first_path
+        "expiration_date" => "2026-04-17"
       )
     end
   end

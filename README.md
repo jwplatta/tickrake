@@ -176,7 +176,7 @@ loader.load_candles(
   start_date: Date.iso8601("2026-04-01"),
   end_date: Date.iso8601("2026-04-11")
 ).each do |row|
-  puts row["sampled_at"]
+  puts row["datetime"]
 end
 ```
 
@@ -189,15 +189,17 @@ loader.load_option_chains(
   expiration_date: Date.iso8601("2026-04-17"),
   start_date: Date.iso8601("2026-04-10"),
   end_date: Date.iso8601("2026-04-10"),
-  frequency: "5min"
+  frequency: "5min",
+  include_metadata: true
 ).each do |row|
-  puts row["symbol"]
+  puts row["metadata"]["sampled_at"]
 end
 ```
 
-Both methods return `Enumerator` instances and yield plain Ruby hashes that include the
-CSV row fields plus Tickrake metadata such as `dataset_type`, `provider_name`,
-`ticker`, `source_path`, and `sampled_at`.
+Both methods return `Enumerator` instances and yield plain Ruby hashes containing the
+CSV row fields. Pass `include_metadata: true` to attach a separate `metadata` hash.
+This is most useful for option-chain snapshots, where fields such as `sampled_at`,
+`expiration_date`, and `option_root` identify the chain sample being replayed.
 
 ## Storage
 

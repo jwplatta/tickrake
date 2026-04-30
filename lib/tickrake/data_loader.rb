@@ -17,7 +17,7 @@ module Tickrake
       @frequency_normalizer = Tickrake::Query::FrequencyNormalizer.new
     end
 
-    def load_candles(provider:, ticker:, frequency:, start_date:, end_date:)
+    def load_candles(provider:, ticker:, frequency:, start_date:, end_date:, include_metadata: false)
       results = Tickrake::Query::CandlesScanner.new(
         config: @config,
         tracker: @tracker
@@ -32,24 +32,27 @@ module Tickrake
       Enumerator.new do |yielder|
         results.each do |result|
           CSV.foreach(result.path, headers: true) do |row|
-            sampled_at = Time.iso8601(row.fetch("datetime")).utc
-            next if before_start_date?(sampled_at, start_date)
-            next if after_end_date?(sampled_at, end_date)
+            observed_at = Time.iso8601(row.fetch("datetime")).utc
+            next if before_start_date?(observed_at, start_date)
+            next if after_end_date?(observed_at, end_date)
 
-            yielder << row.to_h.merge(
-              "dataset_type" => result.dataset_type,
-              "provider_name" => result.provider_name,
-              "ticker" => result.ticker,
-              "source_path" => result.path,
-              "sampled_at" => sampled_at.iso8601,
-              "frequency" => result.frequency
+            yielder << with_metadata(
+              row.to_h,
+              include_metadata: include_metadata,
+              metadata: {
+                "dataset_type" => result.dataset_type,
+                "provider_name" => result.provider_name,
+                "ticker" => result.ticker,
+                "source_path" => result.path,
+                "frequency" => result.frequency
+              }
             )
           end
         end
       end
     end
 
-    def load_option_chains(provider:, ticker:, option_root: nil, expiration_date: nil, start_date:, end_date:, frequency: nil, bucket_selector: :last)
+    def load_option_chains(provider:, ticker:, option_root: nil, expiration_date: nil, start_date:, end_date:, frequency: nil, bucket_selector: :last, include_metadata: false)
       normalized_selector = normalize_bucket_selector(bucket_selector)
       results = Tickrake::Query::OptionsScanner.new(
         config: @config,
@@ -67,14 +70,18 @@ module Tickrake
       Enumerator.new do |yielder|
         selected_results.each do |result|
           CSV.foreach(result.file_path, headers: true) do |row|
-            yielder << row.to_h.merge(
-              "dataset_type" => result.dataset_type,
-              "provider_name" => result.provider_name,
-              "ticker" => result.ticker,
-              "option_root" => result.root_symbol,
-              "source_path" => result.file_path,
-              "sampled_at" => result.sample_datetime,
-              "expiration_date" => result.expiration_date
+            yielder << with_metadata(
+              row.to_h,
+              include_metadata: include_metadata,
+              metadata: {
+                "dataset_type" => result.dataset_type,
+                "provider_name" => result.provider_name,
+                "ticker" => result.ticker,
+                "option_root" => result.root_symbol,
+                "source_path" => result.file_path,
+                "sampled_at" => result.sample_datetime,
+                "expiration_date" => result.expiration_date
+              }
             )
           end
         end
@@ -126,6 +133,12 @@ module Tickrake
       return value if %i[first last].include?(value)
 
       raise Tickrake::Error, "Unsupported bucket selector: #{value}"
+    end
+
+    def with_metadata(row, include_metadata:, metadata:)
+      return row unless include_metadata
+
+      row.merge("metadata" => metadata)
     end
   end
 end
