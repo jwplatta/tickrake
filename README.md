@@ -4,6 +4,10 @@
 fetches data through `schwab_rb`, stores datasets in Tickrake-managed directories, and
 tracks fetch activity plus cached dataset-summary metadata in SQLite.
 
+For gem consumers reading stored data, prefer `Tickrake::DataLoader` instead of scanning
+the raw storage directories directly. This is especially important for large local
+installations where the data tree can contain millions of files.
+
 ## Install
 
 Install Tickrake as a global gem:
@@ -156,6 +160,46 @@ Example Claude Desktop MCP entry:
   }
 }
 ```
+
+## Ruby Data Loading API
+
+Use `Tickrake::DataLoader` when application code needs to read stored Tickrake data
+through the SQLite metadata cache instead of crawling the filesystem.
+
+```ruby
+loader = Tickrake::DataLoader.new
+
+loader.load_candles(
+  provider: "ibkr-paper",
+  ticker: "SPY",
+  frequency: "1min",
+  start_date: Date.iso8601("2026-04-01"),
+  end_date: Date.iso8601("2026-04-11")
+).each do |row|
+  puts row["datetime"]
+end
+```
+
+```ruby
+loader = Tickrake::DataLoader.new
+
+loader.load_option_chains(
+  provider: "schwab",
+  ticker: "$SPX",
+  expiration_date: Date.iso8601("2026-04-17"),
+  start_date: Date.iso8601("2026-04-10"),
+  end_date: Date.iso8601("2026-04-10"),
+  frequency: "5min",
+  include_metadata: true
+).each do |row|
+  puts row["metadata"]["sampled_at"]
+end
+```
+
+Both methods return `Enumerator` instances and yield plain Ruby hashes containing the
+CSV row fields. Pass `include_metadata: true` to attach a separate `metadata` hash.
+This is most useful for option-chain snapshots, where fields such as `sampled_at`,
+`expiration_date`, and `option_root` identify the chain sample being replayed.
 
 ## Storage
 
