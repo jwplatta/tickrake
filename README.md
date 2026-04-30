@@ -4,6 +4,10 @@
 fetches data through `schwab_rb`, stores datasets in Tickrake-managed directories, and
 tracks fetch activity plus cached dataset-summary metadata in SQLite.
 
+For gem consumers reading stored data, prefer `Tickrake::DataLoader` instead of scanning
+the raw storage directories directly. This is especially important for large local
+installations where the data tree can contain millions of files.
+
 ## Install
 
 Install Tickrake as a global gem:
@@ -156,6 +160,44 @@ Example Claude Desktop MCP entry:
   }
 }
 ```
+
+## Ruby Data Loading API
+
+Use `Tickrake::DataLoader` when application code needs to read stored Tickrake data
+through the SQLite metadata cache instead of crawling the filesystem.
+
+```ruby
+loader = Tickrake::DataLoader.new
+
+loader.load_candles(
+  provider: "ibkr-paper",
+  ticker: "SPY",
+  frequency: "1min",
+  start_date: Date.iso8601("2026-04-01"),
+  end_date: Date.iso8601("2026-04-11")
+).each do |row|
+  puts row["sampled_at"]
+end
+```
+
+```ruby
+loader = Tickrake::DataLoader.new
+
+loader.load_option_chains(
+  provider: "schwab",
+  ticker: "$SPX",
+  expiration_date: Date.iso8601("2026-04-17"),
+  start_date: Date.iso8601("2026-04-10"),
+  end_date: Date.iso8601("2026-04-10"),
+  frequency: "5min"
+).each do |row|
+  puts row["symbol"]
+end
+```
+
+Both methods return `Enumerator` instances and yield plain Ruby hashes that include the
+CSV row fields plus Tickrake metadata such as `dataset_type`, `provider_name`,
+`ticker`, `source_path`, and `sampled_at`.
 
 ## Storage
 
