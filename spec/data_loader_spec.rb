@@ -84,7 +84,7 @@ RSpec.describe Tickrake::DataLoader do
     end
   end
 
-  it "loads candles as streamed hashes with row-level date filtering by default" do
+  it "loads candles as typed streamed hashes with row-level date filtering by default" do
     Dir.mktmpdir do |dir|
       history_dir = File.join(dir, "history")
       options_dir = File.join(dir, "options")
@@ -112,7 +112,13 @@ RSpec.describe Tickrake::DataLoader do
       ).to_a
 
       expect(rows.length).to eq(1)
-      expect(rows.first).to include("datetime" => "2026-04-10T13:30:00Z", "open" => "2")
+      expect(rows.first).to include(
+        "datetime" => Time.iso8601("2026-04-10T13:30:00Z"),
+        "open" => 2.0,
+        "high" => 3.0,
+        "close" => 2.5,
+        "volume" => 11
+      )
       expect(rows.first).not_to have_key("metadata")
     end
   end
@@ -143,11 +149,11 @@ RSpec.describe Tickrake::DataLoader do
       )
 
       expect(enumerator).to be_a(Enumerator)
-      expect(enumerator.next.fetch("datetime")).to eq("2026-04-10T13:30:00Z")
+      expect(enumerator.next.fetch("datetime")).to eq(Time.iso8601("2026-04-10T13:30:00Z"))
     end
   end
 
-  it "loads option chains as plain hashes by default using canonical ticker aliases" do
+  it "loads option chains as typed plain hashes by default using canonical ticker aliases" do
     Dir.mktmpdir do |dir|
       history_dir = File.join(dir, "history")
       options_dir = File.join(dir, "options")
@@ -156,8 +162,8 @@ RSpec.describe Tickrake::DataLoader do
       FileUtils.mkdir_p(provider_dir)
       first_path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
       second_path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-35-00.csv")
-      File.write(first_path, "contract_type,symbol,description\nCALL,SPXW,first\n")
-      File.write(second_path, "contract_type,symbol,description\nCALL,SPXW,second\n")
+      File.write(first_path, "contract_type,symbol,description,strike,bid,ask,expiration_date,open_interest\nCALL,SPXW,first,5100,1.25,1.35,2026-04-17,42\n")
+      File.write(second_path, "contract_type,symbol,description,strike,bid,ask,expiration_date,open_interest\nCALL,SPXW,second,5105,1.45,1.6,2026-04-17,55\n")
 
       config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
@@ -202,12 +208,21 @@ RSpec.describe Tickrake::DataLoader do
       ).to_a
 
       expect(rows.map { |row| row.fetch("description") }).to eq(%w[first second])
-      expect(rows.first).to include("contract_type" => "CALL", "symbol" => "SPXW", "description" => "first")
+      expect(rows.first).to include(
+        "contract_type" => "CALL",
+        "symbol" => "SPXW",
+        "description" => "first",
+        "strike" => 5100.0,
+        "bid" => 1.25,
+        "ask" => 1.35,
+        "expiration_date" => Date.iso8601("2026-04-17"),
+        "open_interest" => 42
+      )
       expect(rows.first).not_to have_key("metadata")
     end
   end
 
-  it "includes option snapshot metadata under a dedicated metadata key when requested" do
+  it "includes typed option snapshot metadata under a dedicated metadata key when requested" do
     Dir.mktmpdir do |dir|
       history_dir = File.join(dir, "history")
       options_dir = File.join(dir, "options")
@@ -215,7 +230,7 @@ RSpec.describe Tickrake::DataLoader do
       provider_dir = File.join(options_dir, "schwab")
       FileUtils.mkdir_p(provider_dir)
       path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
-      File.write(path, "contract_type,symbol,description\nCALL,SPXW,first\n")
+      File.write(path, "contract_type,symbol,description,delta,bid_size,expiration_date\nCALL,SPXW,first,0.35,10,2026-04-17\n")
 
       config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
@@ -249,9 +264,53 @@ RSpec.describe Tickrake::DataLoader do
         "ticker" => "SPX",
         "option_root" => "SPXW",
         "source_path" => path,
-        "sampled_at" => "2026-04-10T14:30:00Z",
-        "expiration_date" => "2026-04-17"
+        "sampled_at" => Time.iso8601("2026-04-10T14:30:00Z"),
+        "expiration_date" => Date.iso8601("2026-04-17")
       )
+      expect(row.fetch("delta")).to eq(0.35)
+      expect(row.fetch("bid_size")).to eq(10)
+      expect(row.fetch("expiration_date")).to eq(Date.iso8601("2026-04-17"))
+    end
+  end
+
+  it "coerces blank numeric option fields to nil" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
+      File.write(path, "contract_type,symbol,bid,ask,last_size,expiration_date\nCALL,SPXW,,, ,2026-04-17\n")
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.upsert_file_metadata(
+        path: path,
+        dataset_type: "options",
+        provider_name: "schwab",
+        ticker: "SPXW",
+        frequency: nil,
+        expiration_date: "2026-04-17",
+        row_count: 1,
+        first_observed_at: "2026-04-10T14:30:00Z",
+        last_observed_at: "2026-04-10T14:30:00Z",
+        file_mtime: 1,
+        file_size: 46
+      )
+      loader = described_class.new(config: config, tracker: tracker)
+
+      row = loader.load_option_chains(
+        provider: "schwab",
+        ticker: "$SPX",
+        expiration_date: Date.iso8601("2026-04-17"),
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10")
+      ).first
+
+      expect(row.fetch("bid")).to be_nil
+      expect(row.fetch("ask")).to be_nil
+      expect(row.fetch("last_size")).to be_nil
     end
   end
 
