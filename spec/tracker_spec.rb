@@ -190,7 +190,7 @@ RSpec.describe Tickrake::Tracker do
       db = SQLite3::Database.new(path)
       versions = db.execute("SELECT version FROM schema_migrations ORDER BY version").flatten
 
-      expect(versions).to eq([1, 2, 3, 4])
+      expect(versions).to eq([1, 2, 3, 4, 5])
     ensure
       db&.close
     end
@@ -317,12 +317,14 @@ RSpec.describe Tickrake::Tracker do
 
       expect(index_names).to include("idx_file_metadata_candles_lookup")
       expect(index_names).to include("idx_file_metadata_options_lookup")
+      expect(index_names).to include("idx_file_metadata_options_ticker_time_lookup")
 
       described_class.new(path)
       index_names_again = db.execute("SELECT name FROM sqlite_master WHERE type = 'index'").flatten
 
       expect(index_names_again).to include("idx_file_metadata_candles_lookup")
       expect(index_names_again).to include("idx_file_metadata_options_lookup")
+      expect(index_names_again).to include("idx_file_metadata_options_ticker_time_lookup")
     ensure
       db&.close
     end

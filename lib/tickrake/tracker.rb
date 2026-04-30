@@ -76,10 +76,11 @@ module Tickrake
       db.get_first_row("SELECT * FROM file_metadata_cache WHERE path = ?", [Tickrake::PathSupport.expand_path(path)])
     end
 
-    def file_metadata_rows(where: nil, binds: [], order_by: nil)
+    def file_metadata_rows(where: nil, binds: [], order_by: nil, limit: nil)
       sql = +"SELECT * FROM file_metadata_cache"
       sql << " WHERE #{where}" if where && !where.empty?
       sql << " ORDER BY #{order_by}" if order_by && !order_by.empty?
+      sql << " LIMIT #{Integer(limit)}" if limit
       db.execute(sql, binds)
     end
 
@@ -161,7 +162,8 @@ module Tickrake
           Tickrake::DB::Migrations::CreateFetchRuns,
           Tickrake::DB::Migrations::CreateFileMetadataCache,
           Tickrake::DB::Migrations::AddFetchRunsFrequency,
-          Tickrake::DB::Migrations::AddOptionExpirationAndIndexes
+          Tickrake::DB::Migrations::AddOptionExpirationAndIndexes,
+          Tickrake::DB::Migrations::AddOptionTickerTimeIndex
         ]
       ).migrate!
     end

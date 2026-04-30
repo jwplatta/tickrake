@@ -138,6 +138,36 @@ RSpec.describe "query engine" do
       File.write(File.join(provider_dir, "SPXW_exp2026-04-18_2026-04-11_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
       config = build_config(history_dir: history_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.bulk_upsert_file_metadata(
+        [
+          {
+            path: File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv"),
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-17",
+            row_count: 1,
+            first_observed_at: "2026-04-10T14:30:00Z",
+            last_observed_at: "2026-04-10T14:30:00Z",
+            file_mtime: 1,
+            file_size: 32
+          },
+          {
+            path: File.join(provider_dir, "SPXW_exp2026-04-18_2026-04-11_14-30-00.csv"),
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-18",
+            row_count: 1,
+            first_observed_at: "2026-04-11T14:30:00Z",
+            last_observed_at: "2026-04-11T14:30:00Z",
+            file_mtime: 1,
+            file_size: 32
+          }
+        ]
+      )
       scanner = Tickrake::Query::OptionsScanner.new(config: config, tracker: tracker)
 
       results = scanner.scan(provider_name: "schwab", ticker: "$SPX")
@@ -161,6 +191,19 @@ RSpec.describe "query engine" do
       File.write(File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
       config = build_config(history_dir: history_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.upsert_file_metadata(
+        path: File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv"),
+        dataset_type: "options",
+        provider_name: "schwab",
+        ticker: "SPXW",
+        frequency: nil,
+        expiration_date: "2026-04-17",
+        row_count: 1,
+        first_observed_at: "2026-04-10T14:30:00Z",
+        last_observed_at: "2026-04-10T14:30:00Z",
+        file_mtime: 1,
+        file_size: 32
+      )
       scanner = Tickrake::Query::OptionsScanner.new(config: config, tracker: tracker)
 
       results = scanner.scan(provider_name: "schwab", ticker: "SPXW")
@@ -183,6 +226,49 @@ RSpec.describe "query engine" do
       File.write(File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-31_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
       config = build_config(history_dir: history_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.bulk_upsert_file_metadata(
+        [
+          {
+            path: File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-30_14-30-00.csv"),
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-06",
+            row_count: 1,
+            first_observed_at: "2026-03-30T14:30:00Z",
+            last_observed_at: "2026-03-30T14:30:00Z",
+            file_mtime: 1,
+            file_size: 32
+          },
+          {
+            path: File.join(provider_dir, "SPXW_exp2026-04-07_2026-03-30_15-00-00.csv"),
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-07",
+            row_count: 1,
+            first_observed_at: "2026-03-30T15:00:00Z",
+            last_observed_at: "2026-03-30T15:00:00Z",
+            file_mtime: 1,
+            file_size: 32
+          },
+          {
+            path: File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-31_14-30-00.csv"),
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-06",
+            row_count: 1,
+            first_observed_at: "2026-03-31T14:30:00Z",
+            last_observed_at: "2026-03-31T14:30:00Z",
+            file_mtime: 1,
+            file_size: 32
+          }
+        ]
+      )
       scanner = Tickrake::Query::OptionsScanner.new(config: config, tracker: tracker)
 
       results = scanner.scan(
@@ -211,6 +297,49 @@ RSpec.describe "query engine" do
       File.write(File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-30_15-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
       config = build_config(history_dir: history_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.bulk_upsert_file_metadata(
+        [
+          {
+            path: File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-30_13-30-00.csv"),
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-06",
+            row_count: 1,
+            first_observed_at: "2026-03-30T13:30:00Z",
+            last_observed_at: "2026-03-30T13:30:00Z",
+            file_mtime: 1,
+            file_size: 32
+          },
+          {
+            path: File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-30_14-30-00.csv"),
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-06",
+            row_count: 1,
+            first_observed_at: "2026-03-30T14:30:00Z",
+            last_observed_at: "2026-03-30T14:30:00Z",
+            file_mtime: 1,
+            file_size: 32
+          },
+          {
+            path: File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-30_15-30-00.csv"),
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-06",
+            row_count: 1,
+            first_observed_at: "2026-03-30T15:30:00Z",
+            last_observed_at: "2026-03-30T15:30:00Z",
+            file_mtime: 1,
+            file_size: 32
+          }
+        ]
+      )
       scanner = Tickrake::Query::OptionsScanner.new(config: config, tracker: tracker)
 
       ascending_results = scanner.scan(provider_name: "schwab", ticker: "SPXW", limit: 2)
@@ -227,6 +356,77 @@ RSpec.describe "query engine" do
     end
   end
 
+  it "keeps option queries on the metadata cache when no cached rows match" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      File.write(File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
+      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      scanner = Tickrake::Query::OptionsScanner.new(config: config, tracker: tracker)
+
+      allow(Dir).to receive(:glob).and_raise("unexpected file enumeration")
+
+      expect(scanner.scan(provider_name: "schwab", ticker: "SPXW")).to eq([])
+    end
+  end
+
+  it "pushes option ticker filters, ordering, and limits into sqlite" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.bulk_upsert_file_metadata(
+        [
+          {
+            path: File.join(options_dir, "schwab", "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv"),
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-17",
+            row_count: 1,
+            first_observed_at: "2026-04-10T14:30:00Z",
+            last_observed_at: "2026-04-10T14:30:00Z",
+            file_mtime: 1,
+            file_size: 100
+          },
+          {
+            path: File.join(options_dir, "schwab", "SPY_exp2026-04-17_2026-04-10_14-31-00.csv"),
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPY",
+            frequency: nil,
+            expiration_date: "2026-04-17",
+            row_count: 1,
+            first_observed_at: "2026-04-10T14:31:00Z",
+            last_observed_at: "2026-04-10T14:31:00Z",
+            file_mtime: 1,
+            file_size: 100
+          }
+        ]
+      )
+      scanner = Tickrake::Query::OptionsScanner.new(config: config, tracker: tracker)
+
+      expect(tracker).to receive(:file_metadata_rows).with(
+        hash_including(
+          where: include("ticker IN (?, ?)"),
+          binds: ["options", "schwab", "SPX", "SPXW"],
+          order_by: "last_observed_at DESC, provider_name DESC, ticker DESC, expiration_date DESC",
+          limit: 1
+        )
+      ).and_call_original
+
+      results = scanner.scan(provider_name: "schwab", ticker: "$SPX", limit: 1, ascending: false)
+
+      expect(results.length).to eq(1)
+      expect(results.first.root_symbol).to eq("SPXW")
+    end
+  end
+
   it "returns option rows backfilled with expiration dates from cached metadata without rediscovery" do
     Dir.mktmpdir do |dir|
       history_dir = File.join(dir, "history")
@@ -240,12 +440,17 @@ RSpec.describe "query engine" do
       db = SQLite3::Database.new(config.sqlite_path)
       db.execute_batch(
         <<~SQL
+          CREATE TABLE schema_migrations (
+            version INTEGER PRIMARY KEY
+          );
+
           CREATE TABLE file_metadata_cache (
             path TEXT PRIMARY KEY,
             dataset_type TEXT NOT NULL,
             provider_name TEXT NOT NULL,
             ticker TEXT NOT NULL,
             frequency TEXT,
+            expiration_date TEXT,
             row_count INTEGER NOT NULL,
             first_observed_at TEXT,
             last_observed_at TEXT,
@@ -255,6 +460,7 @@ RSpec.describe "query engine" do
           );
         SQL
       )
+      db.execute("INSERT INTO schema_migrations (version) VALUES (2)")
       db.execute(
         <<~SQL,
           INSERT INTO file_metadata_cache (
