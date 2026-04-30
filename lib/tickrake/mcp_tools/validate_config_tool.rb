@@ -13,8 +13,7 @@ module Tickrake
             type: "string",
             description: "Optional path to a Tickrake config file. Defaults to ~/.tickrake/tickrake.yml."
           }
-        },
-        required: []
+        }
       )
 
       annotations(

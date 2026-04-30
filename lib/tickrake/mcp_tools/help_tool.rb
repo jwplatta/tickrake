@@ -8,8 +8,7 @@ module Tickrake
       description "Describe the Tickrake MCP server and the tools it exposes."
 
       input_schema(
-        properties: {},
-        required: []
+        properties: {}
       )
 
       annotations(
