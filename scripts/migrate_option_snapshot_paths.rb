@@ -28,13 +28,17 @@ class OptionSnapshotPathMigrator
           next
         end
 
-        move_with_metadata_update(source_path, target_path)
-        moved_count += 1
+        result = move_with_metadata_update(source_path, target_path)
+        if result == :skipped
+          skipped_count += 1
+        else
+          moved_count += 1
+        end
       end
     end
 
     @stdout.puts("Moved #{moved_count} option snapshot files.")
-    @stdout.puts("Skipped #{skipped_count} files already in the dated layout.") if skipped_count.positive?
+    @stdout.puts("Skipped #{skipped_count} files already migrated or blocked by existing targets.") if skipped_count.positive?
   end
 
   private
@@ -92,15 +96,23 @@ class OptionSnapshotPathMigrator
 
   def move_with_metadata_update(source_path, target_path)
     metadata_row = tracker_db.get_first_row("SELECT path FROM file_metadata_cache WHERE path = ?", [source_path])
-    raise Tickrake::Error, "Missing metadata row for #{source_path}" unless metadata_row
-    raise Tickrake::Error, "Target already exists: #{target_path}" if File.exist?(target_path)
+    if File.exist?(target_path)
+      @stdout.puts("Skipped #{source_path} because target already exists: #{target_path}")
+      return :skipped
+    end
 
     FileUtils.mkdir_p(File.dirname(target_path))
     tracker_db.transaction
     FileUtils.mv(source_path, target_path)
-    tracker_db.execute("UPDATE file_metadata_cache SET path = ? WHERE path = ?", [target_path, source_path])
+    if metadata_row
+      tracker_db.execute("UPDATE file_metadata_cache SET path = ? WHERE path = ?", [target_path, source_path])
+    else
+      tracker.upsert_file_metadata(inferred_metadata_for(target_path))
+      @stdout.puts("Inserted fresh metadata row for #{target_path}")
+    end
     tracker_db.commit
     @stdout.puts("Moved #{source_path} -> #{target_path}")
+    :moved
   rescue StandardError => e
     tracker_db.rollback if tracker_db.transaction_active?
     rollback_move(target_path, source_path)
@@ -116,11 +128,48 @@ class OptionSnapshotPathMigrator
     @stderr.puts("Rolled back move for #{source_path}")
   end
 
+  def inferred_metadata_for(path)
+    provider_name = provider_name_for(path)
+    parsed = parse_snapshot_filename(path)
+    stat = File.stat(path)
+    observed_at = parsed.fetch(:sample_timestamp).utc.iso8601
+
+    {
+      path: path,
+      dataset_type: "options",
+      provider_name: provider_name,
+      ticker: parsed.fetch(:root),
+      frequency: nil,
+      expiration_date: parsed.fetch(:expiration_date),
+      row_count: csv_row_count(path),
+      first_observed_at: observed_at,
+      last_observed_at: observed_at,
+      file_mtime: stat.mtime.to_i,
+      file_size: stat.size,
+      updated_at: Time.now
+    }
+  end
+
+  def provider_name_for(path)
+    relative_path = path.delete_prefix("#{File.expand_path(@config.options_dir)}/")
+    relative_path.split(File::SEPARATOR).first
+  end
+
+  def csv_row_count(path)
+    count = 0
+    CSV.foreach(path, headers: true) { |_row| count += 1 }
+    count
+  end
+
+  def tracker
+    @tracker ||= Tickrake::Tracker.new(@config.sqlite_path)
+  end
+
   def tracker_db
     @tracker_db ||= begin
       # Reuse Tickrake's additive DB setup so the metadata cache table exists even
       # if the local runtime has not touched this SQLite file yet.
-      Tickrake::Tracker.new(@config.sqlite_path)
+      tracker
       SQLite3::Database.new(@config.sqlite_path).tap do |database|
         database.results_as_hash = true
         database.busy_timeout(Tickrake::Tracker::SQLITE_BUSY_TIMEOUT_MS)

@@ -83,27 +83,39 @@ RSpec.describe OptionSnapshotPathMigrator do
       described_class.new(config: config, stdout: stdout, stderr: StringIO.new).run
 
       expect(File.exist?(target_path)).to eq(true)
-      expect(stdout.string).to include("Skipped 1 files already in the dated layout.")
+      expect(stdout.string).to include("Skipped 1 files already migrated or blocked by existing targets.")
     end
   end
 
-  it "ignores non-matching files and fails clearly when metadata is missing" do
+  it "ignores non-matching files and inserts fresh metadata when a legacy file is missing a cache row" do
     Dir.mktmpdir do |dir|
       config = build_config(dir)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
       provider_dir = File.join(config.options_dir, "schwab")
       FileUtils.mkdir_p(provider_dir)
       File.write(File.join(provider_dir, "README.txt"), "ignore\n")
       source_path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
-      File.write(source_path, "contract_type,symbol\nCALL,SPXW\n")
+      File.write(source_path, "contract_type,symbol\nCALL,SPXW\nPUT,SPXW\n")
 
-      migrator = described_class.new(config: config, stdout: StringIO.new, stderr: StringIO.new)
+      stdout = StringIO.new
+      described_class.new(config: config, stdout: stdout, stderr: StringIO.new).run
 
-      expect { migrator.run }.to raise_error(Tickrake::Error, /Missing metadata row/)
-      expect(File.exist?(source_path)).to eq(true)
+      target_path = File.join(config.options_dir, "schwab", "2026", "04", "10", "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
+      metadata = tracker.file_metadata(target_path)
+
+      expect(File.exist?(source_path)).to eq(false)
+      expect(File.exist?(target_path)).to eq(true)
+      expect(metadata).not_to be_nil
+      expect(metadata["provider_name"]).to eq("schwab")
+      expect(metadata["ticker"]).to eq("SPXW")
+      expect(metadata["expiration_date"]).to eq("2026-04-17")
+      expect(metadata["row_count"]).to eq(2)
+      expect(metadata["last_observed_at"]).to eq("2026-04-10T14:30:00Z")
+      expect(stdout.string).to include("Inserted fresh metadata row")
     end
   end
 
-  it "fails on destination collisions without changing metadata" do
+  it "skips destination collisions without changing metadata" do
     Dir.mktmpdir do |dir|
       config = build_config(dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
@@ -128,12 +140,13 @@ RSpec.describe OptionSnapshotPathMigrator do
         file_size: 32
       )
 
-      expect do
-        described_class.new(config: config, stdout: StringIO.new, stderr: StringIO.new).run
-      end.to raise_error(Tickrake::Error, /Target already exists/)
+      stdout = StringIO.new
+      described_class.new(config: config, stdout: stdout, stderr: StringIO.new).run
 
       expect(File.exist?(source_path)).to eq(true)
+      expect(File.exist?(target_path)).to eq(true)
       expect(tracker.file_metadata(source_path)).not_to be_nil
+      expect(stdout.string).to include("target already exists")
     end
   end
 end
