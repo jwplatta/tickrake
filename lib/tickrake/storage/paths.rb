@@ -16,6 +16,9 @@ module Tickrake
         selected_root = root || symbol
         File.join(
           provider_options_dir(provider),
+          timestamp.utc.strftime("%Y"),
+          timestamp.utc.strftime("%m"),
+          timestamp.utc.strftime("%d"),
           [
             sanitize_symbol(selected_root),
             "exp#{expiration_date.iso8601}",
