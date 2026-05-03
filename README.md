@@ -210,7 +210,7 @@ volume as `Integer`, option `expiration_date` as `Date`, and option numeric fiel
 
 - Market data root: `~/.tickrake/data`
 - Candle payloads: `~/.tickrake/data/history/<provider>`
-- Option payloads: `~/.tickrake/data/options/<provider>`
+- Option payloads: `~/.tickrake/data/options/<provider>/<YYYY>/<MM>/<DD>`
 - Tickrake config: `~/.tickrake/tickrake.yml`
 - Tickrake metadata DB: `~/.tickrake/tickrake.sqlite3`
 - Tickrake CLI log: `~/.tickrake/cli.log`
@@ -352,7 +352,7 @@ That produces provider-separated output paths like:
 
 - `~/.tickrake/data/history/schwab/SPY_day.csv`
 - `~/.tickrake/data/history/ibkr-paper/SPY_day.csv`
-- `~/.tickrake/data/options/schwab/SPXW_exp2026-04-11_2026-04-11_10-30-00.csv`
+- `~/.tickrake/data/options/schwab/2026/04/11/SPXW_exp2026-04-11_2026-04-11_10-30-00.csv`
 
 If you need a custom layout, you can still set:
 
@@ -369,8 +369,14 @@ those roots.
 ## Querying Stored Data
 
 Use `tickrake query` to inspect the data already persisted on disk without printing raw
-rows. Queries are filesystem-backed and use the Tickrake SQLite database as a cache for
-summary metadata.
+rows. Queries use the Tickrake SQLite database as the authoritative cache for summary
+metadata and stored file paths.
+
+To migrate older flat option snapshot folders into the dated layout, run:
+
+```bash
+ruby scripts/migrate_option_snapshot_paths.rb [--config path/to/tickrake.yml]
+```
 
 At least one of `--provider` or `--ticker` is required.
 

@@ -32,7 +32,7 @@ Applies to Codex and Gemini. Keep changes small, additive, and compatible with e
 - Config: `~/.tickrake/tickrake.yml`
 - Metadata DB: `~/.tickrake/tickrake.sqlite3`
 - Candles: `~/.tickrake/data/history/<provider>/<ticker>_<frequency>.csv`
-- Options: `~/.tickrake/data/options/<provider>/<ticker>_exp<date>_<timestamp>.csv`
+- Options: `~/.tickrake/data/options/<provider>/<YYYY>/<MM>/<DD>/<ticker>_exp<date>_<timestamp>.csv`
 
 ## Local Notes
 

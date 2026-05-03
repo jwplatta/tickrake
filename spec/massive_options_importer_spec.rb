@@ -80,7 +80,7 @@ RSpec.describe Tickrake::Importers::MassiveOptionsImporter do
         "SPXW_exp2024-12-03_2024-12-02_05-00-00.csv"
       )
 
-      first_path = File.join(config.options_dir, "massive", "SPXW_exp2024-12-02_2024-12-02_05-00-00.csv")
+      first_path = File.join(config.options_dir, "massive", "2024", "12", "02", "SPXW_exp2024-12-02_2024-12-02_05-00-00.csv")
       rows = CSV.read(first_path, headers: true)
       expect(rows.length).to eq(2)
       expect(rows.first["contract_type"]).to eq("CALL")
@@ -178,7 +178,7 @@ RSpec.describe Tickrake::Importers::MassiveOptionsImporter do
       write_source(source_path)
       config = build_config(dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
-      existing_path = File.join(config.options_dir, "massive", "SPXW_exp2024-12-02_2024-12-02_05-00-00.csv")
+      existing_path = File.join(config.options_dir, "massive", "2024", "12", "02", "SPXW_exp2024-12-02_2024-12-02_05-00-00.csv")
       FileUtils.mkdir_p(File.dirname(existing_path))
       File.write(existing_path, "old\n")
 

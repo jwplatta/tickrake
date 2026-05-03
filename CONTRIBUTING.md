@@ -41,6 +41,7 @@ bundle exec rspec
 - Keep market-data payload files in Tickrake-managed directories:
   - `~/.tickrake/data/history`
   - `~/.tickrake/data/options`
+- Option snapshots live under dated provider subfolders inside `~/.tickrake/data/options`.
 - Prefer extending Tickrake for scheduling, orchestration, and tracking concerns.
 - Keep broker/API primitives in the underlying client gem when possible.
 

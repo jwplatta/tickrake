@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Updated contributor and agent documentation.
+- Reworked option snapshot storage into dated provider folders and added a one-off migration script for legacy flat paths.
 
 ## [0.3.0] - 2026-04-26
 

@@ -159,7 +159,7 @@ RSpec.describe "job execution" do
 
       Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
 
-      expected_path = File.join(dir, "schwab", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv")
+      expected_path = File.join(dir, "schwab", "2026", "04", "06", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv")
       expect(File.exist?(expected_path)).to eq(true)
       expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("success"))
       expect(tracker.fetch_runs.map { |row| row["output_path"] }).to all(end_with(".csv"))
@@ -288,8 +288,8 @@ RSpec.describe "job execution" do
 
       Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
 
-      expect(File.exist?(File.join(dir, "schwab", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "ibkr-paper", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "schwab", "2026", "04", "06", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "2026", "04", "06", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(false)
     end
   end
 
@@ -330,8 +330,8 @@ RSpec.describe "job execution" do
 
       Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
 
-      expect(File.exist?(File.join(dir, "schwab", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "ibkr-paper", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "schwab", "2026", "04", "06", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "2026", "04", "06", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(false)
     end
   end
 
@@ -373,8 +373,8 @@ RSpec.describe "job execution" do
 
       Tickrake::OptionsJob.new(runtime, scheduled_job: scheduled_job).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
 
-      expect(File.exist?(File.join(dir, "schwab", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "ibkr-paper", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "schwab", "2026", "04", "06", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "2026", "04", "06", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(false)
     end
   end
 
@@ -417,8 +417,8 @@ RSpec.describe "job execution" do
 
       Tickrake::OptionsJob.new(runtime, scheduled_job: scheduled_job).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
 
-      expect(File.exist?(File.join(dir, "schwab", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "ibkr-paper", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "schwab", "2026", "04", "06", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "2026", "04", "06", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv"))).to eq(false)
     end
   end
 
