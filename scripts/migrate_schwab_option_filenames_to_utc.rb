@@ -13,43 +13,92 @@ require_relative "../lib/tickrake"
 class SchwabOptionFilenameUtcMigrator
   FILENAME_PATTERN = /\A(?<root>.+)_exp(?<expiration_date>\d{4}-\d{2}-\d{2})_(?<sample_date>\d{4}-\d{2}-\d{2})_(?<sample_time>\d{2}-\d{2}-\d{2})\.csv\z/.freeze
 
-  def initialize(config:, stdout: $stdout, stderr: $stderr)
+  def initialize(config:, ticker: nil, plan_csv_path:, apply: false, stdout: $stdout, stderr: $stderr)
     @config = config
+    @ticker = ticker&.to_s&.upcase
+    @plan_csv_path = File.expand_path(plan_csv_path)
+    @apply = apply
     @stdout = stdout
     @stderr = stderr
   end
 
   def run
+    plan_rows = build_plan
+    write_plan_csv(plan_rows)
+
+    @stdout.puts("Wrote migration plan to #{@plan_csv_path}")
+    unless @apply
+      @stdout.puts("Dry run only. No files or SQLite metadata were changed#{selection_summary}.")
+      return
+    end
+
     moved_count = 0
     skipped_count = 0
 
-    each_option_snapshot do |source_path|
-      target_path, observed_at = target_path_for(source_path)
-      if source_path == target_path
+    plan_rows.each do |row|
+      if row.fetch(:action) == "migrate"
+        move_with_metadata_update(row)
+        moved_count += 1
+      else
         skipped_count += 1
-        next
+        @stdout.puts("Skipped #{row.fetch(:source_path)} because target already exists: #{row.fetch(:target_path)}")
       end
-
-      result = move_with_metadata_update(source_path, target_path, observed_at)
-      result == :skipped ? skipped_count += 1 : moved_count += 1
     end
 
-    @stdout.puts("Moved #{moved_count} Schwab option snapshot files to UTC filenames.")
+    @stdout.puts("Moved #{moved_count} Schwab option snapshot files to UTC filenames#{selection_summary}.")
     @stdout.puts("Skipped #{skipped_count} files already migrated or blocked by existing targets.") if skipped_count.positive?
   end
 
   private
 
-  def each_option_snapshot
-    return unless Dir.exist?(provider_dir)
+  def build_plan
+    rows = []
 
-    Dir.glob(File.join(provider_dir, "**", "*.csv")).sort.each do |candidate|
-      next unless File.file?(candidate)
-      next unless option_snapshot?(candidate)
-      next if already_migrated?(candidate)
+    each_option_snapshot_from_metadata do |source_path, metadata_row|
+      target_path, observed_at, metadata = target_path_for(source_path)
 
-      yield(candidate)
+      rows << {
+        action: source_path == target_path || File.exist?(target_path) ? "skip" : "migrate",
+        reason: source_path == target_path ? "already_utc_filename" : (File.exist?(target_path) ? "target_exists" : "rename_to_utc"),
+        ticker: metadata.fetch(:root),
+        expiration_date: metadata.fetch(:expiration_date),
+        source_path: source_path,
+        target_path: target_path,
+        source_first_observed_at: metadata_row && metadata_row["first_observed_at"],
+        source_last_observed_at: metadata_row && metadata_row["last_observed_at"],
+        target_first_observed_at: observed_at.iso8601,
+        target_last_observed_at: observed_at.iso8601,
+        metadata_present: !metadata_row.nil?
+      }
     end
+
+    rows
+  end
+
+  def each_option_snapshot_from_metadata
+    tracker.file_metadata_rows(
+      where: metadata_where_clause,
+      binds: metadata_binds,
+      order_by: "expiration_date ASC, ticker ASC, path ASC"
+    ).each do |metadata_row|
+      source_path = metadata_row.fetch("path")
+      next unless File.file?(source_path)
+      next unless option_snapshot?(source_path)
+
+      yield(source_path, metadata_row)
+    end
+  end
+
+  def metadata_where_clause
+    clauses = ["dataset_type = ?", "provider_name = ?"]
+    clauses << "ticker = ?" if @ticker
+    clauses.join(" AND ")
+  end
+
+  def metadata_binds
+    binds = ["options", "schwab"]
+    binds << @ticker if @ticker
+    binds
   end
 
   def provider_dir
@@ -74,7 +123,7 @@ class SchwabOptionFilenameUtcMigrator
         observed_at.strftime("%Y-%m-%d_%H-%M-%S")
       ].join("_") + ".csv"
     )
-    [target_path, observed_at]
+    [target_path, observed_at, metadata]
   end
 
   def parse_snapshot_filename(path)
@@ -97,12 +146,11 @@ class SchwabOptionFilenameUtcMigrator
     Time.new(date.year, date.month, date.day, hour, minute, second, offset).utc
   end
 
-  def move_with_metadata_update(source_path, target_path, observed_at)
+  def move_with_metadata_update(row)
+    source_path = row.fetch(:source_path)
+    target_path = row.fetch(:target_path)
+    observed_at = Time.iso8601(row.fetch(:target_first_observed_at)).utc
     metadata_row = tracker.file_metadata(source_path)
-    if File.exist?(target_path)
-      @stdout.puts("Skipped #{source_path} because target already exists: #{target_path}")
-      return :skipped
-    end
 
     FileUtils.mkdir_p(File.dirname(target_path))
     tracker_db.transaction
@@ -123,24 +171,10 @@ class SchwabOptionFilenameUtcMigrator
     end
     tracker_db.commit
     @stdout.puts("Moved #{source_path} -> #{target_path}")
-    :moved
   rescue StandardError => e
     tracker_db.rollback if tracker_db.transaction_active?
     rollback_move(target_path, source_path)
     raise e
-  end
-
-  def already_migrated?(path)
-    metadata = tracker.file_metadata(path)
-    return false unless metadata
-
-    observed_at = metadata["last_observed_at"] || metadata["first_observed_at"]
-    return false if observed_at.to_s.empty?
-
-    expected_path = utc_path_for(path, Time.iso8601(observed_at).utc)
-    path == expected_path
-  rescue ArgumentError
-    false
   end
 
   def rollback_move(target_path, source_path)
@@ -172,19 +206,38 @@ class SchwabOptionFilenameUtcMigrator
     }
   end
 
-  def utc_path_for(path, observed_at)
-    parsed = parse_snapshot_filename(path)
-    File.join(
-      provider_dir,
-      observed_at.strftime("%Y"),
-      observed_at.strftime("%m"),
-      observed_at.strftime("%d"),
-      [
-        parsed.fetch(:root),
-        "exp#{parsed.fetch(:expiration_date)}",
-        observed_at.strftime("%Y-%m-%d_%H-%M-%S")
-      ].join("_") + ".csv"
-    )
+  def write_plan_csv(rows)
+    FileUtils.mkdir_p(File.dirname(@plan_csv_path))
+    CSV.open(@plan_csv_path, "wb") do |csv|
+      csv << %w[
+        action
+        reason
+        ticker
+        expiration_date
+        source_path
+        target_path
+        source_first_observed_at
+        source_last_observed_at
+        target_first_observed_at
+        target_last_observed_at
+        metadata_present
+      ]
+      rows.each do |row|
+        csv << [
+          row.fetch(:action),
+          row.fetch(:reason),
+          row.fetch(:ticker),
+          row.fetch(:expiration_date),
+          row.fetch(:source_path),
+          row.fetch(:target_path),
+          row[:source_first_observed_at],
+          row[:source_last_observed_at],
+          row.fetch(:target_first_observed_at),
+          row.fetch(:target_last_observed_at),
+          row.fetch(:metadata_present)
+        ]
+      end
+    end
   end
 
   def csv_row_count(path)
@@ -208,16 +261,37 @@ class SchwabOptionFilenameUtcMigrator
   def timezone
     @timezone ||= TZInfo::Timezone.get(@config.timezone)
   end
+
+  def selection_summary
+    @ticker ? " for ticker #{@ticker}" : " for all Schwab option snapshots"
+  end
 end
 
 if $PROGRAM_NAME == __FILE__
-  options = { config_path: Tickrake::PathSupport.config_path }
+  options = {
+    config_path: Tickrake::PathSupport.config_path,
+    ticker: nil,
+    plan_csv_path: nil,
+    apply: false
+  }
 
   OptionParser.new do |parser|
-    parser.banner = "Usage: ruby scripts/migrate_schwab_option_filenames_to_utc.rb [--config path/to/tickrake.yml]"
+    parser.banner = "Usage: ruby scripts/migrate_schwab_option_filenames_to_utc.rb [--config path/to/tickrake.yml] --plan-csv path/to/plan.csv [--ticker SYMBOL] [--apply]"
     parser.on("--config PATH", "Tickrake config path") { |value| options[:config_path] = value }
+    parser.on("--plan-csv PATH", "Write planned file and metadata changes to CSV before applying them") { |value| options[:plan_csv_path] = value }
+    parser.on("--ticker SYMBOL", "Only plan and migrate one option root ticker, such as SPXW") { |value| options[:ticker] = value }
+    parser.on("--apply", "Apply the migration after writing the plan CSV. Without this flag the script is dry-run only.") do
+      options[:apply] = true
+    end
   end.parse!
 
+  raise OptionParser::MissingArgument, "--plan-csv" if options[:plan_csv_path].to_s.empty?
+
   config = Tickrake::ConfigLoader.load(options[:config_path])
-  SchwabOptionFilenameUtcMigrator.new(config: config).run
+  SchwabOptionFilenameUtcMigrator.new(
+    config: config,
+    ticker: options[:ticker],
+    plan_csv_path: options[:plan_csv_path],
+    apply: options[:apply]
+  ).run
 end
