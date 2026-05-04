@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Added support for manual configured jobs and importer progress reporting.
 - Added `Tickrake::DataLoader` as a public cache-backed Ruby API for loading stored candle and option data.
 - Added typed `Tickrake::DataLoader` rows so numeric fields no longer come back as raw CSV strings.
+- Added an opt-in `order: :sample_time_asc` mode to `Tickrake::DataLoader` for chronological candle and option snapshot loading.
 
 ### Fixed
 - Fixed IBKR provider hangs on early-date fetches and improved symbol period resolution.

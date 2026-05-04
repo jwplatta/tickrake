@@ -424,4 +424,278 @@ RSpec.describe Tickrake::DataLoader do
       ).to eq([])
     end
   end
+
+  it "orders candle rows by sample time when requested" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(history_dir, "ibkr-paper")
+      FileUtils.mkdir_p(provider_dir)
+      path = File.join(provider_dir, "SPY_1min.csv")
+      File.write(path, <<~CSV)
+        datetime,open,high,low,close,volume
+        2026-04-10T13:32:00Z,3,4,2.5,3.5,12
+        2026-04-10T13:30:00Z,1,2,0.5,1.5,10
+        2026-04-10T13:31:00Z,2,3,1.5,2.5,11
+      CSV
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      loader = described_class.new(config: config, tracker: tracker)
+
+      rows = loader.load_candles(
+        provider: "ibkr-paper",
+        ticker: "SPY",
+        frequency: "minute",
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10"),
+        order: :sample_time_asc
+      ).to_a
+
+      expect(rows.map { |row| row.fetch("datetime") }).to eq([
+        Time.iso8601("2026-04-10T13:30:00Z"),
+        Time.iso8601("2026-04-10T13:31:00Z"),
+        Time.iso8601("2026-04-10T13:32:00Z")
+      ])
+    end
+  end
+
+  it "orders option chains by sample time when requested across multiple sample dates" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      first_path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-35-00.csv")
+      second_path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
+      third_path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-11_14-30-00.csv")
+      File.write(first_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,second,2026-04-17\n")
+      File.write(second_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,first,2026-04-17\n")
+      File.write(third_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,third,2026-04-17\n")
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.bulk_upsert_file_metadata(
+        [
+          {
+            path: first_path,
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-17",
+            row_count: 1,
+            first_observed_at: "2026-04-10T14:35:00Z",
+            last_observed_at: "2026-04-10T14:35:00Z",
+            file_mtime: 1,
+            file_size: 46
+          },
+          {
+            path: second_path,
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-17",
+            row_count: 1,
+            first_observed_at: "2026-04-10T14:30:00Z",
+            last_observed_at: "2026-04-10T14:30:00Z",
+            file_mtime: 1,
+            file_size: 46
+          },
+          {
+            path: third_path,
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-17",
+            row_count: 1,
+            first_observed_at: "2026-04-11T14:30:00Z",
+            last_observed_at: "2026-04-11T14:30:00Z",
+            file_mtime: 1,
+            file_size: 46
+          }
+        ]
+      )
+      loader = described_class.new(config: config, tracker: tracker)
+
+      rows = loader.load_option_chains(
+        provider: "schwab",
+        ticker: "$SPX",
+        expiration_date: Date.iso8601("2026-04-17"),
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-11"),
+        order: :sample_time_asc,
+        include_metadata: true
+      ).to_a
+
+      expect(rows.map { |row| row.fetch("description") }).to eq(%w[first second third])
+      expect(rows.map { |row| row.fetch("metadata").fetch("sampled_at") }).to eq([
+        Time.iso8601("2026-04-10T14:30:00Z"),
+        Time.iso8601("2026-04-10T14:35:00Z"),
+        Time.iso8601("2026-04-11T14:30:00Z")
+      ])
+    end
+  end
+
+  it "keeps the default option chain ordering unchanged" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      earlier_path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
+      later_path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-35-00.csv")
+      File.write(earlier_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,first,2026-04-17\n")
+      File.write(later_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,second,2026-04-17\n")
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.bulk_upsert_file_metadata(
+        [
+          {
+            path: earlier_path,
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-17",
+            row_count: 1,
+            first_observed_at: "2026-04-10T14:30:00Z",
+            last_observed_at: "2026-04-10T14:30:00Z",
+            file_mtime: 1,
+            file_size: 46
+          },
+          {
+            path: later_path,
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-17",
+            row_count: 1,
+            first_observed_at: "2026-04-10T14:35:00Z",
+            last_observed_at: "2026-04-10T14:35:00Z",
+            file_mtime: 1,
+            file_size: 46
+          }
+        ]
+      )
+      loader = described_class.new(config: config, tracker: tracker)
+
+      rows = loader.load_option_chains(
+        provider: "schwab",
+        ticker: "$SPX",
+        expiration_date: Date.iso8601("2026-04-17"),
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10")
+      ).to_a
+
+      expect(rows.map { |row| row.fetch("description") }).to eq(%w[first second])
+    end
+  end
+
+  it "orders bucketed option chains by selected sample time when requested" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      first_path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-34-00.csv")
+      second_path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
+      third_path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-39-00.csv")
+      File.write(first_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,second,2026-04-17\n")
+      File.write(second_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,first,2026-04-17\n")
+      File.write(third_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,third,2026-04-17\n")
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.bulk_upsert_file_metadata(
+        [
+          {
+            path: first_path,
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-17",
+            row_count: 1,
+            first_observed_at: "2026-04-10T14:34:00Z",
+            last_observed_at: "2026-04-10T14:34:00Z",
+            file_mtime: 1,
+            file_size: 46
+          },
+          {
+            path: second_path,
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-17",
+            row_count: 1,
+            first_observed_at: "2026-04-10T14:30:00Z",
+            last_observed_at: "2026-04-10T14:30:00Z",
+            file_mtime: 1,
+            file_size: 46
+          },
+          {
+            path: third_path,
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: "2026-04-17",
+            row_count: 1,
+            first_observed_at: "2026-04-10T14:39:00Z",
+            last_observed_at: "2026-04-10T14:39:00Z",
+            file_mtime: 1,
+            file_size: 46
+          }
+        ]
+      )
+      loader = described_class.new(config: config, tracker: tracker)
+
+      rows = loader.load_option_chains(
+        provider: "schwab",
+        ticker: "$SPX",
+        expiration_date: Date.iso8601("2026-04-17"),
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10"),
+        frequency: "5min",
+        order: :sample_time_asc,
+        include_metadata: true
+      ).to_a
+
+      expect(rows.map { |row| row.fetch("description") }).to eq(%w[second third])
+      expect(rows.map { |row| row.fetch("metadata").fetch("sampled_at") }).to eq([
+        Time.iso8601("2026-04-10T14:34:00Z"),
+        Time.iso8601("2026-04-10T14:39:00Z")
+      ])
+    end
+  end
+
+  it "rejects unsupported order values" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
+
+      expect do
+        loader.load_option_chains(
+          provider: "schwab",
+          ticker: "$SPX",
+          start_date: Date.iso8601("2026-04-10"),
+          end_date: Date.iso8601("2026-04-10"),
+          order: :newest_first
+        ).to_a
+      end.to raise_error(Tickrake::Error, "Unsupported order: newest_first")
+    end
+  end
 end
