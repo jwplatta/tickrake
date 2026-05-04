@@ -49,7 +49,8 @@ module Tickrake
       @frequency_normalizer = Tickrake::Query::FrequencyNormalizer.new
     end
 
-    def load_candles(provider:, ticker:, frequency:, start_date:, end_date:, include_metadata: false)
+    def load_candles(provider:, ticker:, frequency:, start_date:, end_date:, include_metadata: false, order: :default)
+      normalized_order = normalize_order(order)
       results = Tickrake::Query::CandlesScanner.new(
         config: @config,
         tracker: @tracker
@@ -62,29 +63,30 @@ module Tickrake
       )
 
       Enumerator.new do |yielder|
-        results.each do |result|
-          CSV.foreach(result.path, headers: true) do |row|
-            observed_at = Time.iso8601(row.fetch("datetime")).utc
-            next if before_start_date?(observed_at, start_date)
-            next if after_end_date?(observed_at, end_date)
-
-            yielder << with_metadata(
-              parse_candle_row(row),
-              include_metadata: include_metadata,
-              metadata: {
-                "dataset_type" => result.dataset_type,
-                "provider_name" => result.provider_name,
-                "ticker" => result.ticker,
-                "source_path" => result.path,
-                "frequency" => result.frequency
-              }
-            )
+        if normalized_order == :sample_time_asc
+          build_candle_rows(
+            results,
+            start_date: start_date,
+            end_date: end_date,
+            include_metadata: include_metadata
+          ).sort_by { |row| row.fetch("datetime") }.each do |row|
+            yielder << row
+          end
+        else
+          each_candle_row(
+            results,
+            start_date: start_date,
+            end_date: end_date,
+            include_metadata: include_metadata
+          ) do |row|
+            yielder << row
           end
         end
       end
     end
 
-    def load_option_chains(provider:, ticker:, option_root: nil, expiration_date: nil, start_date:, end_date:, frequency: nil, bucket_selector: :last, include_metadata: false)
+    def load_option_chains(provider:, ticker:, option_root: nil, expiration_date: nil, start_date:, end_date:, frequency: nil, bucket_selector: :last, include_metadata: false, order: :default)
+      normalized_order = normalize_order(order)
       normalized_selector = normalize_bucket_selector(bucket_selector)
       results = Tickrake::Query::OptionsScanner.new(
         config: @config,
@@ -98,9 +100,10 @@ module Tickrake
       )
       filtered_results = filter_option_results(results, ticker: ticker, option_root: option_root)
       selected_results = select_option_results(filtered_results, frequency: frequency, bucket_selector: normalized_selector)
+      ordered_results = order_option_results(selected_results, order: normalized_order)
 
       Enumerator.new do |yielder|
-        selected_results.each do |result|
+        ordered_results.each do |result|
           CSV.foreach(result.file_path, headers: true) do |row|
             yielder << with_metadata(
               parse_option_row(row),
@@ -121,6 +124,36 @@ module Tickrake
     end
 
     private
+
+    def each_candle_row(results, start_date:, end_date:, include_metadata:)
+      results.each do |result|
+        CSV.foreach(result.path, headers: true) do |row|
+          observed_at = Time.iso8601(row.fetch("datetime")).utc
+          next if before_start_date?(observed_at, start_date)
+          next if after_end_date?(observed_at, end_date)
+
+          yield with_metadata(
+            parse_candle_row(row),
+            include_metadata: include_metadata,
+            metadata: {
+              "dataset_type" => result.dataset_type,
+              "provider_name" => result.provider_name,
+              "ticker" => result.ticker,
+              "source_path" => result.path,
+              "frequency" => result.frequency
+            }
+          )
+        end
+      end
+    end
+
+    def build_candle_rows(results, start_date:, end_date:, include_metadata:)
+      rows = []
+      each_candle_row(results, start_date: start_date, end_date: end_date, include_metadata: include_metadata) do |row|
+        rows << row
+      end
+      rows
+    end
 
     def before_start_date?(time, start_date)
       start_date && time < Time.utc(start_date.year, start_date.month, start_date.day)
@@ -160,11 +193,24 @@ module Tickrake
       end.sort_by { |result| Time.iso8601(result.sample_datetime) }
     end
 
+    def order_option_results(results, order:)
+      return results if order == :default
+
+      results.sort_by { |result| Time.iso8601(result.sample_datetime) }
+    end
+
     def normalize_bucket_selector(value)
       return :last if value.nil?
       return value if %i[first last].include?(value)
 
       raise Tickrake::Error, "Unsupported bucket selector: #{value}"
+    end
+
+    def normalize_order(value)
+      return :default if value.nil?
+      return value if %i[default sample_time_asc].include?(value)
+
+      raise Tickrake::Error, "Unsupported order: #{value}"
     end
 
     def with_metadata(row, include_metadata:, metadata:)
