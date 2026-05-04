@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Added `Tickrake::DataLoader` as a public cache-backed Ruby API for loading stored candle and option data.
 - Added typed `Tickrake::DataLoader` rows so numeric fields no longer come back as raw CSV strings.
 - Added an opt-in `order: :sample_time_asc` mode to `Tickrake::DataLoader` for chronological candle and option snapshot loading.
+- Added `options.snapshot_filename_timezone` and a Schwab filename migration script for UTC option snapshot naming.
 
 ### Fixed
 - Fixed IBKR provider hangs on early-date fetches and improved symbol period resolution.

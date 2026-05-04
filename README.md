@@ -49,6 +49,8 @@ to set:
 - each job's `type`
 - job-specific universes
 - option job DTE buckets, intervals, and windows
+- `timezone` for scheduler windows and daily run times in local market time
+- `options.snapshot_filename_timezone` for option snapshot filenames, typically `utc`
 - candle job lookback windows and run times
 - optional `manual: true` jobs that are available through config but only run when triggered
 
@@ -211,6 +213,7 @@ volume as `Integer`, option `expiration_date` as `Date`, and option numeric fiel
 - Market data root: `~/.tickrake/data`
 - Candle payloads: `~/.tickrake/data/history/<provider>`
 - Option payloads: `~/.tickrake/data/options/<provider>/<YYYY>/<MM>/<DD>`
+- Option snapshot filenames can use `options.snapshot_filename_timezone` independently of scheduler `timezone`.
 - Tickrake config: `~/.tickrake/tickrake.yml`
 - Tickrake metadata DB: `~/.tickrake/tickrake.sqlite3`
 - Tickrake CLI log: `~/.tickrake/cli.log`
