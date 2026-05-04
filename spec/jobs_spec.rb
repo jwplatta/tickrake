@@ -14,6 +14,7 @@ RSpec.describe "job execution" do
       providers: config.providers,
       default_provider_name: config.default_provider_name,
       option_root_tickers: config.option_root_tickers,
+      option_snapshot_filename_timezone: config.option_snapshot_filename_timezone,
       data_dir: config.data_dir,
       history_dir: config.history_dir,
       options_dir: config.options_dir,

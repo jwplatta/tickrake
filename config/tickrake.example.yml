@@ -19,6 +19,7 @@ providers:
     adapter: massive
     settings: {}
 options:
+  snapshot_filename_timezone: utc
   root_tickers:
     SPXW: SPX
 imports:

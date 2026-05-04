@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "tzinfo"
+
 module Tickrake
   class ConfigLoader
     VALID_ADAPTERS = %w[schwab ibkr massive].freeze
@@ -21,7 +23,9 @@ module Tickrake
       timezone = data.fetch("timezone", ENV.fetch("TZ", "America/Chicago"))
       sqlite_path = Tickrake::PathSupport.expand_path(data.fetch("sqlite_path", Tickrake::PathSupport.sqlite_path))
       providers, default_provider_name = load_providers(data)
-      option_root_tickers = load_option_root_tickers(data.fetch("options", {}))
+      options_config = data.fetch("options", {})
+      option_root_tickers = load_option_root_tickers(options_config)
+      option_snapshot_filename_timezone = load_option_snapshot_filename_timezone(options_config)
       data_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "data_dir", "~/.tickrake/data"))
       history_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "history_dir", File.join(data_dir, "history")))
       options_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "options_dir", File.join(data_dir, "options")))
@@ -35,6 +39,7 @@ module Tickrake
         providers: providers,
         default_provider_name: default_provider_name,
         option_root_tickers: option_root_tickers,
+        option_snapshot_filename_timezone: option_snapshot_filename_timezone,
         data_dir: data_dir,
         history_dir: history_dir,
         options_dir: options_dir,
@@ -89,6 +94,19 @@ module Tickrake
       end
 
       raise ConfigError, "max_workers must be positive." if config.max_workers <= 0
+    end
+
+    def load_option_snapshot_filename_timezone(raw_options)
+      return "utc" if raw_options.nil?
+      raise ConfigError, "options must be a mapping." unless raw_options.is_a?(Hash)
+
+      raw_value = raw_options.fetch("snapshot_filename_timezone", "utc").to_s.strip
+      return "utc" if raw_value.casecmp("utc").zero?
+
+      TZInfo::Timezone.get(raw_value)
+      raw_value
+    rescue TZInfo::InvalidTimezoneIdentifier
+      raise ConfigError, "Invalid options.snapshot_filename_timezone: #{raw_value}"
     end
 
     def load_jobs(schedule)

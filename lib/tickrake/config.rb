@@ -56,7 +56,7 @@ module Tickrake
   class Config
     attr_reader :timezone, :sqlite_path, :providers, :default_provider_name, :data_dir, :history_dir, :options_dir, :max_workers,
                 :retry_count, :retry_delay_seconds, :option_fetch_timeout_seconds, :candle_fetch_timeout_seconds, :jobs, :import_jobs,
-                :option_root_tickers
+                :option_root_tickers, :option_snapshot_filename_timezone
 
     def initialize(
       timezone:,
@@ -64,6 +64,7 @@ module Tickrake
       providers:,
       default_provider_name:,
       option_root_tickers:,
+      option_snapshot_filename_timezone: "utc",
       data_dir:,
       history_dir:,
       options_dir:,
@@ -80,6 +81,7 @@ module Tickrake
       @providers = providers
       @default_provider_name = default_provider_name
       @option_root_tickers = option_root_tickers
+      @option_snapshot_filename_timezone = option_snapshot_filename_timezone
       @data_dir = data_dir
       @history_dir = history_dir
       @options_dir = options_dir

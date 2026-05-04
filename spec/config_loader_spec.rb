@@ -15,6 +15,7 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.provider_definition("schwab").adapter).to eq("schwab")
     expect(config.provider_definition("massive").adapter).to eq("massive")
     expect(config.ticker_for_option_root("SPXW")).to eq("SPX")
+    expect(config.option_snapshot_filename_timezone).to eq("utc")
     expect(config.ticker_for_option_root("SPX")).to eq("SPX")
     expect(config.import_job("spxw_massive_options").provider).to eq("massive")
     expect(config.import_job("spxw_massive_options").option_root).to eq("SPXW")
@@ -49,6 +50,62 @@ RSpec.describe Tickrake::ConfigLoader do
       expect(config.jobs).to eq([])
       expect(config.import_job("spxw_backfill").ticker).to be_nil
       expect(config.import_job("spxw_backfill").paths).to eq(["/tmp/2025-10-01.csv", "/tmp/2025-10-02.csv"])
+    end
+  end
+
+  it "loads an explicit option snapshot filename timezone" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        options:
+          snapshot_filename_timezone: America/Chicago
+        schedule:
+          index_options:
+            type: options
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            dte_buckets: [0DTE]
+            universe:
+              - symbol: SPY
+      YAML
+
+      config = described_class.load(path)
+
+      expect(config.option_snapshot_filename_timezone).to eq("America/Chicago")
+    end
+  end
+
+  it "rejects an invalid option snapshot filename timezone" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        options:
+          snapshot_filename_timezone: Mars/Olympus
+        schedule:
+          index_options:
+            type: options
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            dte_buckets: [0DTE]
+            universe:
+              - symbol: SPY
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Invalid options\.snapshot_filename_timezone/)
     end
   end
 
