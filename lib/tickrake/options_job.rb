@@ -175,6 +175,7 @@ module Tickrake
         path = result.fetch(:path)
         @runtime.logger.info("Wrote option chain for #{job.fetch(:symbol)} to #{path}")
         @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
+        upsert_file_metadata(job: job, path: path, row_count: result.fetch(:row_count), sampled_at: run_time)
         @progress_reporter&.advance(title: option_progress_title(job))
       rescue StandardError => e
         @runtime.logger.error("Failed option fetch for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}: #{e.message}")
@@ -283,6 +284,26 @@ module Tickrake
 
     def client
       @client ||= @runtime.client_factory.build
+    end
+
+    def upsert_file_metadata(job:, path:, row_count:, sampled_at:)
+      stat = File.stat(path)
+      observed_at = sampled_at.utc.iso8601
+      ticker = job[:option_root] || job.fetch(:symbol)
+      @runtime.tracker.upsert_file_metadata(
+        path: path,
+        dataset_type: "options",
+        provider_name: job.fetch(:provider_name),
+        ticker: ticker,
+        frequency: nil,
+        expiration_date: job.fetch(:expiration_date).iso8601,
+        row_count: row_count,
+        first_observed_at: observed_at,
+        last_observed_at: observed_at,
+        file_mtime: stat.mtime.to_i,
+        file_size: stat.size,
+        updated_at: Time.now
+      )
     end
 
     def with_retries(label, on_retry: nil)

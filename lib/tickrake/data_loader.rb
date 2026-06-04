@@ -49,8 +49,11 @@ module Tickrake
       @frequency_normalizer = Tickrake::Query::FrequencyNormalizer.new
     end
 
-    def load_candles(provider:, ticker:, frequency:, start_date:, end_date:, include_metadata: false, order: :default)
+    def load_candles(provider:, ticker:, frequency:, start_date:, end_date:, timezone: nil, include_metadata: false, order: :default)
       normalized_order = normalize_order(order)
+      tz = resolve_tz(timezone)
+      scanner_start = tz ? tz_date_to_utc(start_date, tz).to_date : start_date
+      scanner_end = tz && end_date ? tz_date_to_utc(end_date + 1, tz).utc.to_date - 1 : end_date
       results = Tickrake::Query::CandlesScanner.new(
         config: @config,
         tracker: @tracker
@@ -58,8 +61,8 @@ module Tickrake
         provider_name: provider,
         ticker: ticker,
         frequency: frequency,
-        start_date: start_date,
-        end_date: end_date
+        start_date: scanner_start,
+        end_date: scanner_end
       )
 
       Enumerator.new do |yielder|
@@ -68,8 +71,9 @@ module Tickrake
             results,
             start_date: start_date,
             end_date: end_date,
+            tz: tz,
             include_metadata: include_metadata
-          ).sort_by { |row| row.fetch("datetime") }.each do |row|
+          ).sort_by { |row| row.fetch("datetime_utc") }.each do |row|
             yielder << row
           end
         else
@@ -77,6 +81,7 @@ module Tickrake
             results,
             start_date: start_date,
             end_date: end_date,
+            tz: tz,
             include_metadata: include_metadata
           ) do |row|
             yielder << row
@@ -85,9 +90,10 @@ module Tickrake
       end
     end
 
-    def load_option_chains(provider:, ticker:, option_root: nil, expiration_date: nil, start_date:, end_date:, frequency: nil, bucket_selector: :last, include_metadata: false, order: :default)
+    def load_option_chains(provider:, ticker:, option_root: nil, expiration_date: nil, start_date:, end_date:, frequency: nil, bucket_selector: :last, timezone: nil, include_metadata: false, order: :default)
       normalized_order = normalize_order(order)
       normalized_selector = normalize_bucket_selector(bucket_selector)
+      tz = resolve_tz(timezone)
       results = Tickrake::Query::OptionsScanner.new(
         config: @config,
         tracker: @tracker
@@ -104,9 +110,14 @@ module Tickrake
 
       Enumerator.new do |yielder|
         ordered_results.each do |result|
+          sampled_at_utc = Time.iso8601(result.sample_datetime).utc
+          sampled_at_tz = apply_tz(sampled_at_utc, tz)
           CSV.foreach(result.file_path, headers: true) do |row|
+            parsed = parse_option_row(row)
+            parsed["sampled_at_utc"] = sampled_at_utc
+            parsed["sampled_at_tz"] = sampled_at_tz
             yielder << with_metadata(
-              parse_option_row(row),
+              parsed,
               include_metadata: include_metadata,
               metadata: {
                 "dataset_type" => result.dataset_type,
@@ -114,7 +125,8 @@ module Tickrake
                 "ticker" => result.ticker,
                 "option_root" => result.root_symbol,
                 "source_path" => result.file_path,
-                "sampled_at" => Time.iso8601(result.sample_datetime).utc,
+                "sampled_at_utc" => sampled_at_utc,
+                "sampled_at_tz" => sampled_at_tz,
                 "expiration_date" => Date.iso8601(result.expiration_date)
               }
             )
@@ -125,15 +137,20 @@ module Tickrake
 
     private
 
-    def each_candle_row(results, start_date:, end_date:, include_metadata:)
+    def each_candle_row(results, start_date:, end_date:, tz:, include_metadata:)
+      start_bound = start_date && (tz ? tz_date_to_utc(start_date, tz) : Time.utc(start_date.year, start_date.month, start_date.day))
+      end_bound = end_date && (tz ? tz_date_to_utc(end_date + 1, tz) : Time.utc(end_date.year, end_date.month, end_date.day) + 86_400)
+
       results.each do |result|
         CSV.foreach(result.path, headers: true) do |row|
           observed_at = Time.iso8601(row.fetch("datetime")).utc
-          next if before_start_date?(observed_at, start_date)
-          next if after_end_date?(observed_at, end_date)
+          next if start_bound && observed_at < start_bound
+          next if end_bound && observed_at >= end_bound
 
+          parsed = parse_candle_row(row)
+          parsed["datetime_tz"] = apply_tz(parsed.fetch("datetime_utc"), tz)
           yield with_metadata(
-            parse_candle_row(row),
+            parsed,
             include_metadata: include_metadata,
             metadata: {
               "dataset_type" => result.dataset_type,
@@ -147,20 +164,12 @@ module Tickrake
       end
     end
 
-    def build_candle_rows(results, start_date:, end_date:, include_metadata:)
+    def build_candle_rows(results, start_date:, end_date:, tz:, include_metadata:)
       rows = []
-      each_candle_row(results, start_date: start_date, end_date: end_date, include_metadata: include_metadata) do |row|
+      each_candle_row(results, start_date: start_date, end_date: end_date, tz: tz, include_metadata: include_metadata) do |row|
         rows << row
       end
       rows
-    end
-
-    def before_start_date?(time, start_date)
-      start_date && time < Time.utc(start_date.year, start_date.month, start_date.day)
-    end
-
-    def after_end_date?(time, end_date)
-      end_date && time >= Time.utc(end_date.year, end_date.month, end_date.day) + 86_400
     end
 
     def filter_option_results(results, ticker:, option_root:)
@@ -199,6 +208,23 @@ module Tickrake
       results.sort_by { |result| Time.iso8601(result.sample_datetime) }
     end
 
+    def resolve_tz(timezone)
+      return nil if timezone.nil? || timezone.to_s.casecmp("utc").zero?
+
+      TZInfo::Timezone.get(timezone.to_s)
+    end
+
+    def tz_date_to_utc(date, tz)
+      local_midnight = tz.local_time(date.year, date.month, date.day, 0, 0, 0)
+      tz.local_to_utc(local_midnight)
+    end
+
+    def apply_tz(time_utc, tz)
+      return time_utc if tz.nil?
+
+      tz.utc_to_local(time_utc)
+    end
+
     def normalize_bucket_selector(value)
       return :last if value.nil?
       return value if %i[first last].include?(value)
@@ -221,13 +247,12 @@ module Tickrake
 
     def parse_candle_row(row)
       row.to_h.each_with_object({}) do |(key, value), parsed|
-        parsed[key] =
-          case key
-          when "datetime"
-            Time.iso8601(value).utc
-          else
-            coerce_value(key, value, float_fields: CANDLE_FLOAT_FIELDS, integer_fields: CANDLE_INTEGER_FIELDS)
-          end
+        case key
+        when "datetime"
+          parsed["datetime_utc"] = Time.iso8601(value).utc
+        else
+          parsed[key] = coerce_value(key, value, float_fields: CANDLE_FLOAT_FIELDS, integer_fields: CANDLE_INTEGER_FIELDS)
+        end
       end
     end
 
