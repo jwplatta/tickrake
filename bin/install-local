@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -e
+
+cd "$(dirname "$0")/.."
+
+echo "Building gem..."
+gem build tickrake.gemspec
+
+GEM_FILE=$(ls -t tickrake-*.gem | head -1)
+echo "Installing $GEM_FILE..."
+gem install "$GEM_FILE"
+
+rm -f "$GEM_FILE"
+echo "Done. $(tickrake --version 2>/dev/null || true)"
