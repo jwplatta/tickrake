@@ -10,7 +10,8 @@ module Tickrake
         "VIX1D" => { symbol: "VIX1D", exchange: "CBOE" },
         "XSP" => { symbol: "XSP", exchange: "CBOE" },
         "NDX" => { symbol: "NDX", exchange: "NASDAQ" },
-        "RUT" => { symbol: "RUT", exchange: "RUSSELL" }
+        "RUT" => { symbol: "RUT", exchange: "RUSSELL" },
+        "COR1M" => { symbol: "COR1M", exchange: "CBOE" }
       }.freeze
       FREQUENCY_CONFIG = {
         "1min" => { bar_size: "1 min", chunk_days: 6 },
@@ -155,7 +156,10 @@ module Tickrake
       end
 
       def duration_string(start_date, end_date)
-        "#{(end_date - start_date).to_i + 1} D"
+        days = (end_date - start_date).to_i + 1
+        return "#{(days / 365.0).ceil} Y" if days > 365
+
+        "#{days} D"
       end
 
       def end_datetime_string(date)
