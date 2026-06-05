@@ -504,7 +504,8 @@ module Tickrake
     def storage_stats_command(argv, config)
       raise OptionParser::InvalidOption, argv.first if argv.any?
 
-      @stdout.puts(Tickrake::Storage::StatsReport.new(config).render)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      @stdout.puts(Tickrake::Storage::StatsReport.new(config, tracker: tracker).render)
       0
     end
 

@@ -76,6 +76,26 @@ module Tickrake
       db.get_first_row("SELECT * FROM file_metadata_cache WHERE path = ?", [Tickrake::PathSupport.expand_path(path)])
     end
 
+    def file_metadata_aggregate(where: nil, binds: [])
+      base = "SELECT COUNT(*) AS file_count, COALESCE(SUM(file_size), 0) AS total_bytes, MIN(last_observed_at) AS oldest_observed_at, MAX(last_observed_at) AS newest_observed_at FROM file_metadata_cache"
+      sql = where && !where.empty? ? "#{base} WHERE #{where}" : base
+      db.get_first_row(sql, binds)
+    end
+
+    def file_metadata_aggregate_by_provider(where: nil, binds: [])
+      base = "SELECT provider_name, COUNT(*) AS file_count, COALESCE(SUM(file_size), 0) AS total_bytes, MIN(last_observed_at) AS oldest_observed_at, MAX(last_observed_at) AS newest_observed_at FROM file_metadata_cache"
+      sql = where && !where.empty? ? "#{base} WHERE #{where}" : base
+      sql += " GROUP BY provider_name ORDER BY provider_name"
+      db.execute(sql, binds)
+    end
+
+    def file_metadata_largest(where: nil, binds: [], limit: 5)
+      base = "SELECT path, file_size FROM file_metadata_cache"
+      sql = where && !where.empty? ? "#{base} WHERE #{where}" : base
+      sql += " ORDER BY file_size DESC LIMIT #{Integer(limit)}"
+      db.execute(sql, binds)
+    end
+
     def file_metadata_rows(where: nil, binds: [], order_by: nil, limit: nil)
       sql = +"SELECT * FROM file_metadata_cache"
       sql << " WHERE #{where}" if where && !where.empty?
