@@ -113,7 +113,8 @@ RSpec.describe Tickrake::DataLoader do
 
       expect(rows.length).to eq(1)
       expect(rows.first).to include(
-        "datetime" => Time.iso8601("2026-04-10T13:30:00Z"),
+        "datetime_utc" => Time.iso8601("2026-04-10T13:30:00Z"),
+        "datetime_tz" => Time.iso8601("2026-04-10T13:30:00Z"),
         "open" => 2.0,
         "high" => 3.0,
         "close" => 2.5,
@@ -149,7 +150,7 @@ RSpec.describe Tickrake::DataLoader do
       )
 
       expect(enumerator).to be_a(Enumerator)
-      expect(enumerator.next.fetch("datetime")).to eq(Time.iso8601("2026-04-10T13:30:00Z"))
+      expect(enumerator.next.fetch("datetime_utc")).to eq(Time.iso8601("2026-04-10T13:30:00Z"))
     end
   end
 
@@ -264,7 +265,8 @@ RSpec.describe Tickrake::DataLoader do
         "ticker" => "SPX",
         "option_root" => "SPXW",
         "source_path" => path,
-        "sampled_at" => Time.iso8601("2026-04-10T14:30:00Z"),
+        "sampled_at_utc" => Time.iso8601("2026-04-10T14:30:00Z"),
+        "sampled_at_tz" => Time.iso8601("2026-04-10T14:30:00Z"),
         "expiration_date" => Date.iso8601("2026-04-17")
       )
       expect(row.fetch("delta")).to eq(0.35)
@@ -453,7 +455,7 @@ RSpec.describe Tickrake::DataLoader do
         order: :sample_time_asc
       ).to_a
 
-      expect(rows.map { |row| row.fetch("datetime") }).to eq([
+      expect(rows.map { |row| row.fetch("datetime_utc") }).to eq([
         Time.iso8601("2026-04-10T13:30:00Z"),
         Time.iso8601("2026-04-10T13:31:00Z"),
         Time.iso8601("2026-04-10T13:32:00Z")
@@ -533,7 +535,7 @@ RSpec.describe Tickrake::DataLoader do
       ).to_a
 
       expect(rows.map { |row| row.fetch("description") }).to eq(%w[first second third])
-      expect(rows.map { |row| row.fetch("metadata").fetch("sampled_at") }).to eq([
+      expect(rows.map { |row| row.fetch("metadata").fetch("sampled_at_utc") }).to eq([
         Time.iso8601("2026-04-10T14:30:00Z"),
         Time.iso8601("2026-04-10T14:35:00Z"),
         Time.iso8601("2026-04-11T14:30:00Z")
@@ -672,7 +674,7 @@ RSpec.describe Tickrake::DataLoader do
       ).to_a
 
       expect(rows.map { |row| row.fetch("description") }).to eq(%w[second third])
-      expect(rows.map { |row| row.fetch("metadata").fetch("sampled_at") }).to eq([
+      expect(rows.map { |row| row.fetch("metadata").fetch("sampled_at_utc") }).to eq([
         Time.iso8601("2026-04-10T14:34:00Z"),
         Time.iso8601("2026-04-10T14:39:00Z")
       ])

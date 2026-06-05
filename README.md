@@ -178,7 +178,7 @@ loader.load_candles(
   start_date: Date.iso8601("2026-04-01"),
   end_date: Date.iso8601("2026-04-11")
 ).each do |row|
-  puts row["datetime"]
+  puts row["datetime_utc"]
 end
 ```
 
@@ -194,19 +194,64 @@ loader.load_option_chains(
   frequency: "5min",
   include_metadata: true
 ).each do |row|
-  puts row["metadata"]["sampled_at"]
+  puts row["sampled_at_utc"]
+  puts row["metadata"]["sampled_at_utc"]
 end
 ```
 
 Both methods return `Enumerator` instances and yield plain Ruby hashes containing the
-CSV row fields. Pass `include_metadata: true` to attach a separate `metadata` hash.
-This is most useful for option-chain snapshots, where fields such as `sampled_at`,
-`expiration_date`, and `option_root` identify the chain sample being replayed.
+CSV row fields. Pass `include_metadata: true` to attach a separate `metadata` hash
+with fields such as `sampled_at_utc`, `expiration_date`, and `option_root` that
+identify the chain sample being replayed.
 
-Returned rows are typed for Ruby consumers rather than left as raw CSV strings. For
-example, candle timestamps are returned as `Time`, candle prices as `Float`, candle
-volume as `Integer`, option `expiration_date` as `Date`, and option numeric fields as
-`Float` or `Integer`. Blank numeric CSV cells are returned as `nil`.
+Returned rows are typed for Ruby consumers rather than left as raw CSV strings.
+Candle timestamps are returned as `Time`, candle prices as `Float`, candle volume as
+`Integer`, option `expiration_date` as `Date`, and option numeric fields as `Float`
+or `Integer`. Blank numeric CSV cells are returned as `nil`.
+
+### Timezone support
+
+Both `load_candles` and `load_option_chains` accept an optional `timezone:` parameter
+(a TZInfo timezone identifier string such as `"America/New_York"` or
+`"America/Chicago"`). When provided:
+
+- `start_date` and `end_date` are interpreted as **midnight in that timezone** rather
+  than midnight UTC, so the date range matches the local trading calendar.
+- Every returned row includes **both** a UTC timestamp and a local timestamp:
+  - Candles: `"datetime_utc"` and `"datetime_tz"`
+  - Option chains: `"sampled_at_utc"` and `"sampled_at_tz"`
+
+```ruby
+loader = Tickrake::DataLoader.new
+
+loader.load_candles(
+  provider: "ibkr-paper",
+  ticker: "SPY",
+  frequency: "1min",
+  start_date: Date.iso8601("2026-04-10"),
+  end_date: Date.iso8601("2026-04-10"),
+  timezone: "America/New_York"
+).each do |row|
+  puts row["datetime_utc"]   # => 2026-04-10 13:30:00 UTC
+  puts row["datetime_tz"]    # => 2026-04-10 09:30:00 -0400
+end
+```
+
+```ruby
+loader.load_option_chains(
+  provider: "schwab",
+  ticker: "AAPL",
+  start_date: Date.iso8601("2026-05-01"),
+  end_date: Date.iso8601("2026-05-01"),
+  timezone: "America/Chicago"
+).each do |row|
+  puts row["sampled_at_utc"]  # => 2026-05-01 18:30:00 UTC
+  puts row["sampled_at_tz"]   # => 2026-05-01 13:30:00 -0500
+end
+```
+
+Omitting `timezone:` (or passing `"UTC"`) returns timestamps in UTC and sets
+`datetime_tz`/`sampled_at_tz` equal to their `_utc` counterparts.
 
 ## Storage
 
