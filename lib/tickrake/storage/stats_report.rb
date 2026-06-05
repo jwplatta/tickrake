@@ -7,21 +7,19 @@ module Tickrake
     class StatsReport
       DEFAULT_LARGEST_FILES_LIMIT = 5
 
-      def initialize(config, log_paths: nil, largest_files_limit: DEFAULT_LARGEST_FILES_LIMIT)
+      def initialize(config, log_paths: nil, largest_files_limit: DEFAULT_LARGEST_FILES_LIMIT, tracker: nil)
         @config = config
         @log_paths = log_paths || default_log_paths
         @largest_files_limit = largest_files_limit
+        @tracker = tracker
       end
 
       def render
-        data_summary = combine_summaries(
-          scan_dir(@config.history_dir),
-          scan_dir(@config.options_dir)
-        )
         history_summary = scan_dir(@config.history_dir)
-        options_summary = scan_dir(@config.options_dir)
+        options_summary = options_summary_from_cache
         history_providers = provider_summaries(@config.history_dir)
-        options_providers = provider_summaries(@config.options_dir)
+        options_providers = options_provider_summaries_from_cache
+        data_summary = combine_summaries(history_summary, options_summary)
         sqlite_summary = file_summary(@config.sqlite_path)
         log_summaries = @log_paths.to_h { |name, path| [name, file_summary(path)] }
 
@@ -81,6 +79,48 @@ module Tickrake
 
       def provider_count(*provider_groups)
         provider_groups.flatten.count { |provider| provider[:summary][:file_count].positive? }
+      end
+
+      def options_summary_from_cache
+        return scan_dir(@config.options_dir) unless @tracker && Dir.exist?(@config.options_dir)
+
+        agg = @tracker.file_metadata_aggregate(where: "dataset_type = ?", binds: ["options"])
+        return scan_dir(@config.options_dir) if agg.nil? || agg["file_count"].to_i.zero?
+
+        largest = @tracker.file_metadata_largest(where: "dataset_type = ?", binds: ["options"], limit: @largest_files_limit)
+        aggregate_to_summary(agg, largest, @config.options_dir)
+      end
+
+      def options_provider_summaries_from_cache
+        return provider_summaries(@config.options_dir) unless @tracker && Dir.exist?(@config.options_dir)
+
+        provider_rows = @tracker.file_metadata_aggregate_by_provider(where: "dataset_type = ?", binds: ["options"])
+        return provider_summaries(@config.options_dir) if provider_rows.empty?
+
+        provider_rows.map do |row|
+          provider_name = row["provider_name"]
+          largest = @tracker.file_metadata_largest(
+            where: "dataset_type = ? AND provider_name = ?",
+            binds: ["options", provider_name],
+            limit: @largest_files_limit
+          )
+          { name: provider_name, summary: aggregate_to_summary(row, largest, @config.options_dir) }
+        end
+      end
+
+      def aggregate_to_summary(agg, largest_rows, root_path)
+        total_bytes = agg["total_bytes"].to_i
+        file_count = agg["file_count"].to_i
+        {
+          exists: true,
+          path: root_path,
+          file_count: file_count,
+          total_bytes: total_bytes,
+          average_file_size: average_file_size(total_bytes, file_count),
+          oldest_mtime: agg["oldest_observed_at"] && Time.iso8601(agg["oldest_observed_at"]),
+          newest_mtime: agg["newest_observed_at"] && Time.iso8601(agg["newest_observed_at"]),
+          largest_files: largest_rows.map { |r| { path: r["path"], size_bytes: r["file_size"].to_i } }
+        }
       end
 
       def provider_summaries(root_path)
