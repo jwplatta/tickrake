@@ -49,21 +49,50 @@ module Tickrake
       @frequency_normalizer = Tickrake::Query::FrequencyNormalizer.new
     end
 
+    def candles_available?(provider:, ticker:, frequency:, start_date:, end_date:, timezone: nil)
+      scan_candles(provider: provider, ticker: ticker, frequency: frequency,
+                   start_date: start_date, end_date: end_date, timezone: timezone).any?
+    end
+
+    def candles_availability(provider:, ticker:, frequency:, start_date:, end_date:, timezone: nil)
+      results = scan_candles(provider: provider, ticker: ticker, frequency: frequency,
+                             start_date: start_date, end_date: end_date, timezone: timezone)
+      return { available: false, sample_count: 0, earliest: nil, latest: nil, coverage: nil } if results.empty?
+
+      {
+        available: true,
+        sample_count: results.sum(&:row_count),
+        earliest: results.map { |r| Time.iso8601(r.first_observed_at).utc }.min,
+        latest:   results.map { |r| Time.iso8601(r.last_observed_at).utc }.max,
+        coverage: results.all? { |r| r.coverage == "full" } ? "full" : "partial"
+      }
+    end
+
+    def options_available?(provider:, ticker:, option_root: nil, expiration_date: nil, start_date:, end_date:)
+      scan_options(provider: provider, ticker: ticker, option_root: option_root,
+                   expiration_date: expiration_date, start_date: start_date, end_date: end_date).any?
+    end
+
+    def options_availability(provider:, ticker:, option_root: nil, expiration_date: nil, start_date:, end_date:)
+      results = scan_options(provider: provider, ticker: ticker, option_root: option_root,
+                             expiration_date: expiration_date, start_date: start_date, end_date: end_date)
+      return { available: false, sample_count: 0, earliest: nil, latest: nil, expirations: [] } if results.empty?
+
+      sorted = results.sort_by { |r| Time.iso8601(r.sample_datetime) }
+      {
+        available: true,
+        sample_count: results.length,
+        earliest: Time.iso8601(sorted.first.sample_datetime).utc,
+        latest:   Time.iso8601(sorted.last.sample_datetime).utc,
+        expirations: results.map { |r| Date.iso8601(r.expiration_date) }.uniq.sort
+      }
+    end
+
     def load_candles(provider:, ticker:, frequency:, start_date:, end_date:, timezone: nil, include_metadata: false, order: :default)
       normalized_order = normalize_order(order)
       tz = resolve_tz(timezone)
-      scanner_start = tz ? tz_date_to_utc(start_date, tz).to_date : start_date
-      scanner_end = tz && end_date ? tz_date_to_utc(end_date + 1, tz).utc.to_date - 1 : end_date
-      results = Tickrake::Query::CandlesScanner.new(
-        config: @config,
-        tracker: @tracker
-      ).scan(
-        provider_name: provider,
-        ticker: ticker,
-        frequency: frequency,
-        start_date: scanner_start,
-        end_date: scanner_end
-      )
+      results = scan_candles(provider: provider, ticker: ticker, frequency: frequency,
+                             start_date: start_date, end_date: end_date, timezone: timezone)
 
       Enumerator.new do |yielder|
         if normalized_order == :sample_time_asc
@@ -94,17 +123,8 @@ module Tickrake
       normalized_order = normalize_order(order)
       normalized_selector = normalize_bucket_selector(bucket_selector)
       tz = resolve_tz(timezone)
-      results = Tickrake::Query::OptionsScanner.new(
-        config: @config,
-        tracker: @tracker
-      ).scan(
-        provider_name: provider,
-        ticker: option_root || ticker,
-        start_date: start_date,
-        end_date: end_date,
-        expiration_date: expiration_date
-      )
-      filtered_results = filter_option_results(results, ticker: ticker, option_root: option_root)
+      filtered_results = scan_options(provider: provider, ticker: ticker, option_root: option_root,
+                                      expiration_date: expiration_date, start_date: start_date, end_date: end_date)
       selected_results = select_option_results(filtered_results, frequency: frequency, bucket_selector: normalized_selector)
       ordered_results = order_option_results(selected_results, order: normalized_order)
 
@@ -136,6 +156,30 @@ module Tickrake
     end
 
     private
+
+    def scan_candles(provider:, ticker:, frequency:, start_date:, end_date:, timezone: nil)
+      tz = resolve_tz(timezone)
+      scanner_start = tz ? tz_date_to_utc(start_date, tz).to_date : start_date
+      scanner_end = tz && end_date ? tz_date_to_utc(end_date + 1, tz).utc.to_date - 1 : end_date
+      Tickrake::Query::CandlesScanner.new(config: @config, tracker: @tracker).scan(
+        provider_name: provider,
+        ticker: ticker,
+        frequency: frequency,
+        start_date: scanner_start,
+        end_date: scanner_end
+      )
+    end
+
+    def scan_options(provider:, ticker:, option_root: nil, expiration_date: nil, start_date:, end_date:)
+      results = Tickrake::Query::OptionsScanner.new(config: @config, tracker: @tracker).scan(
+        provider_name: provider,
+        ticker: option_root || ticker,
+        start_date: start_date,
+        end_date: end_date,
+        expiration_date: expiration_date
+      )
+      filter_option_results(results, ticker: ticker, option_root: option_root)
+    end
 
     def each_candle_row(results, start_date:, end_date:, tz:, include_metadata:)
       start_bound = start_date && (tz ? tz_date_to_utc(start_date, tz) : Time.utc(start_date.year, start_date.month, start_date.day))

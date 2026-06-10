@@ -700,4 +700,349 @@ RSpec.describe Tickrake::DataLoader do
       end.to raise_error(Tickrake::Error, "Unsupported order: newest_first")
     end
   end
+
+  it "candles_available? returns false when no matching candle files exist" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
+
+      expect(loader.candles_available?(
+        provider: "ibkr-paper",
+        ticker: "SPY",
+        frequency: "1min",
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10")
+      )).to be false
+    end
+  end
+
+  it "candles_available? returns true when a matching candle file exists" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(history_dir, "ibkr-paper")
+      FileUtils.mkdir_p(provider_dir)
+      File.write(File.join(provider_dir, "SPY_1min.csv"), <<~CSV)
+        datetime,open,high,low,close,volume
+        2026-04-10T13:30:00Z,1,2,0.5,1.5,10
+      CSV
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
+
+      expect(loader.candles_available?(
+        provider: "ibkr-paper",
+        ticker: "SPY",
+        frequency: "1min",
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10")
+      )).to be true
+    end
+  end
+
+  it "candles_availability returns zero-value hash when no matching candle files exist" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
+
+      result = loader.candles_availability(
+        provider: "ibkr-paper",
+        ticker: "SPY",
+        frequency: "1min",
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10")
+      )
+
+      expect(result).to eq({ available: false, sample_count: 0, earliest: nil, latest: nil, coverage: nil })
+    end
+  end
+
+  it "candles_availability returns full metadata for a file that fully covers the requested range" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(history_dir, "ibkr-paper")
+      FileUtils.mkdir_p(provider_dir)
+      File.write(File.join(provider_dir, "SPY_1min.csv"), <<~CSV)
+        datetime,open,high,low,close,volume
+        2026-04-10T13:30:00Z,1,2,0.5,1.5,10
+        2026-04-10T13:31:00Z,2,3,1.5,2.5,11
+        2026-04-10T13:32:00Z,3,4,2.5,3.5,12
+      CSV
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
+
+      result = loader.candles_availability(
+        provider: "ibkr-paper",
+        ticker: "SPY",
+        frequency: "1min",
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10")
+      )
+
+      expect(result[:available]).to be true
+      expect(result[:sample_count]).to eq(3)
+      expect(result[:earliest]).to eq(Time.iso8601("2026-04-10T13:30:00Z"))
+      expect(result[:latest]).to eq(Time.iso8601("2026-04-10T13:32:00Z"))
+      expect(result[:coverage]).to eq("full")
+    end
+  end
+
+  it "candles_availability returns partial coverage when the file only partially covers the requested range" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(history_dir, "ibkr-paper")
+      FileUtils.mkdir_p(provider_dir)
+      File.write(File.join(provider_dir, "SPY_1min.csv"), <<~CSV)
+        datetime,open,high,low,close,volume
+        2026-04-10T13:30:00Z,1,2,0.5,1.5,10
+      CSV
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
+
+      result = loader.candles_availability(
+        provider: "ibkr-paper",
+        ticker: "SPY",
+        frequency: "1min",
+        start_date: Date.iso8601("2026-04-09"),
+        end_date: Date.iso8601("2026-04-11")
+      )
+
+      expect(result[:available]).to be true
+      expect(result[:coverage]).to eq("partial")
+    end
+  end
+
+  it "candles_availability sums sample_count across multiple files" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(history_dir, "ibkr-paper")
+      FileUtils.mkdir_p(provider_dir)
+      File.write(File.join(provider_dir, "SPY_1min.csv"), <<~CSV)
+        datetime,open,high,low,close,volume
+        2026-04-10T13:30:00Z,1,2,0.5,1.5,10
+        2026-04-10T13:31:00Z,2,3,1.5,2.5,11
+      CSV
+      File.write(File.join(provider_dir, "SPY_5min.csv"), <<~CSV)
+        datetime,open,high,low,close,volume
+        2026-04-10T13:30:00Z,1,2,0.5,1.5,50
+        2026-04-10T13:35:00Z,2,3,1.5,2.5,55
+        2026-04-10T13:40:00Z,3,4,2.5,3.5,60
+      CSV
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
+
+      result = loader.candles_availability(
+        provider: "ibkr-paper",
+        ticker: "SPY",
+        frequency: "1min",
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10")
+      )
+
+      expect(result[:available]).to be true
+      expect(result[:sample_count]).to eq(2)
+    end
+  end
+
+  it "options_available? returns false when no matching option records exist" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
+
+      expect(loader.options_available?(
+        provider: "schwab",
+        ticker: "$SPX",
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10")
+      )).to be false
+    end
+  end
+
+  it "options_available? returns true when matching option records exist" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
+      File.write(path, "contract_type,symbol,expiration_date\nCALL,SPXW,2026-04-17\n")
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.upsert_file_metadata(
+        path: path,
+        dataset_type: "options",
+        provider_name: "schwab",
+        ticker: "SPXW",
+        frequency: nil,
+        expiration_date: "2026-04-17",
+        row_count: 1,
+        first_observed_at: "2026-04-10T14:30:00Z",
+        last_observed_at: "2026-04-10T14:30:00Z",
+        file_mtime: 1,
+        file_size: 40
+      )
+      loader = described_class.new(config: config, tracker: tracker)
+
+      expect(loader.options_available?(
+        provider: "schwab",
+        ticker: "$SPX",
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10")
+      )).to be true
+    end
+  end
+
+  it "options_availability returns zero-value hash when no matching option records exist" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
+
+      result = loader.options_availability(
+        provider: "schwab",
+        ticker: "$SPX",
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10")
+      )
+
+      expect(result).to eq({ available: false, sample_count: 0, earliest: nil, latest: nil, expirations: [] })
+    end
+  end
+
+  it "options_availability returns full metadata for multi-snapshot multi-expiration query" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      path_a = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
+      path_b = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-35-00.csv")
+      path_c = File.join(provider_dir, "SPXW_exp2026-04-24_2026-04-10_14-30-00.csv")
+      [path_a, path_b, path_c].each { |p| File.write(p, "contract_type,symbol,expiration_date\nCALL,SPXW,2026-04-17\n") }
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.bulk_upsert_file_metadata([
+        { path: path_a, dataset_type: "options", provider_name: "schwab", ticker: "SPXW", frequency: nil,
+          expiration_date: "2026-04-17", row_count: 1, first_observed_at: "2026-04-10T14:30:00Z",
+          last_observed_at: "2026-04-10T14:30:00Z", file_mtime: 1, file_size: 40 },
+        { path: path_b, dataset_type: "options", provider_name: "schwab", ticker: "SPXW", frequency: nil,
+          expiration_date: "2026-04-17", row_count: 1, first_observed_at: "2026-04-10T14:35:00Z",
+          last_observed_at: "2026-04-10T14:35:00Z", file_mtime: 1, file_size: 40 },
+        { path: path_c, dataset_type: "options", provider_name: "schwab", ticker: "SPXW", frequency: nil,
+          expiration_date: "2026-04-24", row_count: 1, first_observed_at: "2026-04-10T14:30:00Z",
+          last_observed_at: "2026-04-10T14:30:00Z", file_mtime: 1, file_size: 40 }
+      ])
+      loader = described_class.new(config: config, tracker: tracker)
+
+      result = loader.options_availability(
+        provider: "schwab",
+        ticker: "$SPX",
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10")
+      )
+
+      expect(result[:available]).to be true
+      expect(result[:sample_count]).to eq(3)
+      expect(result[:earliest]).to eq(Time.iso8601("2026-04-10T14:30:00Z"))
+      expect(result[:latest]).to eq(Time.iso8601("2026-04-10T14:35:00Z"))
+      expect(result[:expirations]).to eq([Date.iso8601("2026-04-17"), Date.iso8601("2026-04-24")])
+    end
+  end
+
+  it "options_availability with expiration_date filter returns single-element expirations array" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      path_a = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
+      path_b = File.join(provider_dir, "SPXW_exp2026-04-24_2026-04-10_14-30-00.csv")
+      [path_a, path_b].each { |p| File.write(p, "contract_type,symbol,expiration_date\nCALL,SPXW,2026-04-17\n") }
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.bulk_upsert_file_metadata([
+        { path: path_a, dataset_type: "options", provider_name: "schwab", ticker: "SPXW", frequency: nil,
+          expiration_date: "2026-04-17", row_count: 1, first_observed_at: "2026-04-10T14:30:00Z",
+          last_observed_at: "2026-04-10T14:30:00Z", file_mtime: 1, file_size: 40 },
+        { path: path_b, dataset_type: "options", provider_name: "schwab", ticker: "SPXW", frequency: nil,
+          expiration_date: "2026-04-24", row_count: 1, first_observed_at: "2026-04-10T14:30:00Z",
+          last_observed_at: "2026-04-10T14:30:00Z", file_mtime: 1, file_size: 40 }
+      ])
+      loader = described_class.new(config: config, tracker: tracker)
+
+      result = loader.options_availability(
+        provider: "schwab",
+        ticker: "$SPX",
+        expiration_date: Date.iso8601("2026-04-17"),
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10")
+      )
+
+      expect(result[:expirations]).to eq([Date.iso8601("2026-04-17")])
+    end
+  end
+
+  it "options_available? returns false when option_root is set but no records match that root" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      provider_dir = File.join(options_dir, "schwab")
+      FileUtils.mkdir_p(provider_dir)
+      path = File.join(provider_dir, "SPY_exp2026-04-17_2026-04-10_14-30-00.csv")
+      File.write(path, "contract_type,symbol,expiration_date\nCALL,SPY,2026-04-17\n")
+
+      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.upsert_file_metadata(
+        path: path,
+        dataset_type: "options",
+        provider_name: "schwab",
+        ticker: "SPY",
+        frequency: nil,
+        expiration_date: "2026-04-17",
+        row_count: 1,
+        first_observed_at: "2026-04-10T14:30:00Z",
+        last_observed_at: "2026-04-10T14:30:00Z",
+        file_mtime: 1,
+        file_size: 40
+      )
+      loader = described_class.new(config: config, tracker: tracker)
+
+      expect(loader.options_available?(
+        provider: "schwab",
+        ticker: "$SPX",
+        option_root: "SPXW",
+        start_date: Date.iso8601("2026-04-10"),
+        end_date: Date.iso8601("2026-04-10")
+      )).to be false
+    end
+  end
 end
