@@ -20,34 +20,34 @@ RSpec.describe Tickrake::Scripts::Sp500CanonicalDataGenerator do
 
       expect(File.exist?(File.join(dir, "market_index_memberships.csv"))).to eq(true)
       expect(File.exist?(File.join(dir, "tickers.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "ticker_alias_history.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ticker_aliases.csv"))).to eq(true)
 
       expect(result[:memberships]).to include(
-        a_hash_including("canonical_ticker" => "META", "start_date" => "2013-12-23", "end_date" => nil),
-        a_hash_including("canonical_ticker" => "COR", "start_date" => "2001-08-30", "end_date" => nil),
-        a_hash_including("canonical_ticker" => "BFH", "start_date" => "2013-12-23", "end_date" => "2020-06-22")
+        a_hash_including("ticker" => "META", "start_date" => "2013-12-23", "end_date" => nil),
+        a_hash_including("ticker" => "COR", "start_date" => "2001-08-30", "end_date" => nil),
+        a_hash_including("ticker" => "BFH", "start_date" => "2013-12-23", "end_date" => "2020-06-22")
       )
 
       expect(result[:memberships]).to include(
-        a_hash_including("canonical_ticker" => "BF-B", "start_date" => "1996-01-02"),
-        a_hash_including("canonical_ticker" => "BRK-B", "start_date" => "2010-02-16")
+        a_hash_including("ticker" => "BF-B", "start_date" => "1996-01-02"),
+        a_hash_including("ticker" => "BRK-B", "start_date" => "2010-02-16")
       )
-      expect(result[:memberships].any? { |row| row["canonical_ticker"] == "FB" }).to eq(false)
-      expect(result[:memberships].any? { |row| row["canonical_ticker"] == "ABC" }).to eq(false)
+      expect(result[:memberships].any? { |row| row["ticker"] == "FB" }).to eq(false)
+      expect(result[:memberships].any? { |row| row["ticker"] == "ABC" }).to eq(false)
 
       expect(result[:tickers]).to include(
-        a_hash_including("canonical_ticker" => "META", "security_name" => "Meta Platforms", "status" => "active"),
-        a_hash_including("canonical_ticker" => "COR", "security_name" => "Cencora", "status" => "active")
+        a_hash_including("ticker" => "META", "security_name" => "Meta Platforms", "status" => "active"),
+        a_hash_including("ticker" => "COR", "security_name" => "Cencora", "status" => "active")
       )
 
-      expect(result[:alias_history]).to include(
-        a_hash_including("canonical_ticker" => "META", "alias_ticker" => "FB"),
-        a_hash_including("canonical_ticker" => "COR", "alias_ticker" => "ABC"),
-        a_hash_including("canonical_ticker" => "BFH", "alias_ticker" => "ADS")
+      expect(result[:aliases]).to include(
+        a_hash_including("ticker" => "META", "alias_ticker" => "FB"),
+        a_hash_including("ticker" => "COR", "alias_ticker" => "ABC"),
+        a_hash_including("ticker" => "BFH", "alias_ticker" => "ADS")
       )
-      expect(result[:alias_history].any? { |row| row["alias_ticker"] == "BF-B" }).to eq(false)
-      expect(result[:alias_history].any? { |row| row["alias_ticker"] == "BRK-B" }).to eq(false)
-      expect(result[:memberships]).to include(a_hash_including("canonical_ticker" => "AABA", "end_date" => "2017-06-19"))
+      expect(result[:aliases].any? { |row| row["alias_ticker"] == "BF-B" }).to eq(false)
+      expect(result[:aliases].any? { |row| row["alias_ticker"] == "BRK-B" }).to eq(false)
+      expect(result[:memberships]).to include(a_hash_including("ticker" => "AABA", "end_date" => "2017-06-19"))
     end
   end
 

@@ -114,16 +114,29 @@ RSpec.describe Tickrake::CLI do
       "import-index-data",
       "--memberships", "data/market_index_memberships.csv",
       "--tickers", "data/tickers.csv",
-      "--alias-history", "data/ticker_alias_history.csv"
+      "--alias-history", "data/ticker_aliases.csv"
     ])
 
     expect(exit_code).to eq(0)
     expect(importer).to have_received(:import!).with(
       memberships_path: "data/market_index_memberships.csv",
       tickers_path: "data/tickers.csv",
-      alias_history_path: "data/ticker_alias_history.csv"
+      alias_history_path: "data/ticker_aliases.csv"
     )
     expect(stdout.string).to include("Imported market index data")
+  end
+
+  it "runs database migrations only through the dedicated command" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+
+    allow(Tickrake::Tracker).to receive(:migrate!).with("/tmp/tickrake.sqlite3")
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["migrate"])
+
+    expect(exit_code).to eq(0)
+    expect(Tickrake::Tracker).to have_received(:migrate!).with("/tmp/tickrake.sqlite3")
+    expect(stdout.string).to include("Migrated Tickrake database")
   end
 
   it "runs a manual configured options job once with --job" do

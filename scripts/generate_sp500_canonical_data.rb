@@ -6,9 +6,9 @@ require_relative "../lib/tickrake"
 module Tickrake
   module Scripts
     class Sp500CanonicalDataGenerator
-      MEMBERSHIP_HEADERS = %w[index_code canonical_ticker start_date end_date].freeze
+      MEMBERSHIP_HEADERS = %w[index_code ticker start_date end_date].freeze
       TICKER_HEADERS = %w[
-        canonical_ticker
+        ticker
         security_name
         gics_sector
         gics_sub_industry
@@ -18,12 +18,10 @@ module Tickrake
         status
       ].freeze
       ALIAS_HEADERS = %w[
-        canonical_ticker
+        ticker
         alias_ticker
         start_date
         end_date
-        alias_status
-        notes
       ].freeze
 
       class SymbolNormalizer
@@ -50,19 +48,19 @@ module Tickrake
 
       def generate!
         status_map = build_status_map
-        canonical_memberships = build_memberships(status_map)
+        memberships = build_memberships(status_map)
         tickers = build_tickers(status_map)
-        alias_history = build_alias_history(status_map)
+        aliases = build_aliases(status_map)
 
         FileUtils.mkdir_p(@output_dir)
-        write_csv(File.join(@output_dir, "market_index_memberships.csv"), MEMBERSHIP_HEADERS, canonical_memberships)
+        write_csv(File.join(@output_dir, "market_index_memberships.csv"), MEMBERSHIP_HEADERS, memberships)
         write_csv(File.join(@output_dir, "tickers.csv"), TICKER_HEADERS, tickers)
-        write_csv(File.join(@output_dir, "ticker_alias_history.csv"), ALIAS_HEADERS, alias_history)
+        write_csv(File.join(@output_dir, "ticker_aliases.csv"), ALIAS_HEADERS, aliases)
 
         {
-          memberships: canonical_memberships,
+          memberships: memberships,
           tickers: tickers,
-          alias_history: alias_history
+          aliases: aliases
         }
       end
 
@@ -86,15 +84,15 @@ module Tickrake
         grouped = Hash.new { |hash, key| hash[key] = [] }
 
         csv_rows(@memberships_source).each do |row|
-          canonical_ticker = resolve_canonical_ticker!(normalize_symbol(row.fetch("ticker")), status_map)
-          grouped[canonical_ticker] << [parse_date!(row.fetch("start_date"), field: "start_date"), parse_optional_date(row["end_date"])]
+          ticker = resolve_ticker!(normalize_symbol(row.fetch("ticker")), status_map)
+          grouped[ticker] << [parse_date!(row.fetch("start_date"), field: "start_date"), parse_optional_date(row["end_date"])]
         end
 
-        grouped.keys.sort.flat_map do |canonical_ticker|
-          merge_intervals(grouped.fetch(canonical_ticker)).map do |start_date, end_date|
+        grouped.keys.sort.flat_map do |ticker|
+          merge_intervals(grouped.fetch(ticker)).map do |start_date, end_date|
             {
               "index_code" => @index_code,
-              "canonical_ticker" => canonical_ticker,
+              "ticker" => ticker,
               "start_date" => start_date.iso8601,
               "end_date" => end_date&.iso8601
             }
@@ -104,12 +102,12 @@ module Tickrake
 
       def build_tickers(status_map)
         csv_rows(@tickers_source).map do |row|
-          canonical_ticker = resolve_canonical_ticker!(normalize_symbol(row.fetch("Symbol")), status_map)
-          status_row = status_map[canonical_ticker]
-          raise Tickrake::Error, "Missing status metadata for canonical ticker `#{canonical_ticker}`." unless status_row
+          ticker = resolve_ticker!(normalize_symbol(row.fetch("Symbol")), status_map)
+          status_row = status_map[ticker]
+          raise Tickrake::Error, "Missing status metadata for ticker `#{ticker}`." unless status_row
 
           {
-            "canonical_ticker" => canonical_ticker,
+            "ticker" => ticker,
             "security_name" => row["Security"],
             "gics_sector" => row["GICS Sector"],
             "gics_sub_industry" => row["GICS Sub-Industry"],
@@ -118,33 +116,31 @@ module Tickrake
             "founded" => row["Founded"],
             "status" => status_row.fetch("status")
           }
-        end.sort_by { |row| row.fetch("canonical_ticker") }
+        end.sort_by { |row| row.fetch("ticker") }
       end
 
-      def build_alias_history(status_map)
+      def build_aliases(status_map)
         status_map.values
           .select { |row| true_rename?(row) }
           .map do |row|
-            canonical_ticker = resolve_canonical_ticker!(row.fetch("ticker"), status_map)
+            ticker = resolve_ticker!(row.fetch("ticker"), status_map)
             {
-              "canonical_ticker" => canonical_ticker,
+              "ticker" => ticker,
               "alias_ticker" => row.fetch("ticker"),
               "start_date" => row["first_start"],
-              "end_date" => row["last_end"],
-              "alias_status" => row.fetch("status"),
-              "notes" => "renamed to #{row.fetch("new_ticker")}"
+              "end_date" => row["last_end"]
             }
           end
-          .sort_by { |row| [row.fetch("canonical_ticker"), row.fetch("start_date"), row.fetch("alias_ticker")] }
+          .sort_by { |row| [row.fetch("ticker"), row.fetch("start_date"), row.fetch("alias_ticker")] }
       end
 
-      def resolve_canonical_ticker!(ticker, status_map, trail = [])
+      def resolve_ticker!(ticker, status_map, trail = [])
         row = status_map[ticker]
         return ticker unless row
         return ticker unless true_rename?(row)
         raise Tickrake::Error, "Rename cycle detected: #{(trail + [ticker]).join(' -> ')}" if trail.include?(ticker)
 
-        resolve_canonical_ticker!(row.fetch("new_ticker"), status_map, trail + [ticker])
+        resolve_ticker!(row.fetch("new_ticker"), status_map, trail + [ticker])
       end
 
       def merge_intervals(intervals)

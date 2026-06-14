@@ -9,3 +9,11 @@ RSpec.configure do |config|
     expectations.syntax = :expect
   end
 end
+
+module TrackerSpecAutoMigrate
+  def initialize(path, migrate: true)
+    super(path, migrate: migrate)
+  end
+end
+
+Tickrake::Tracker.prepend(TrackerSpecAutoMigrate)

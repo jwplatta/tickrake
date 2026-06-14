@@ -3,9 +3,9 @@
 module Tickrake
   module IndexData
     class Importer
-      MEMBERSHIP_HEADERS = %w[index_code canonical_ticker start_date end_date].freeze
+      MEMBERSHIP_HEADERS = %w[index_code ticker start_date end_date].freeze
       TICKER_HEADERS = %w[
-        canonical_ticker
+        ticker
         security_name
         gics_sector
         gics_sub_industry
@@ -15,12 +15,10 @@ module Tickrake
         status
       ].freeze
       ALIAS_HEADERS = %w[
-        canonical_ticker
+        ticker
         alias_ticker
         start_date
         end_date
-        alias_status
-        notes
       ].freeze
       INDEX_NAMES = {
         "SP500" => "S&P 500"
@@ -37,7 +35,7 @@ module Tickrake
 
         @tracker.with_transaction do
           @tracker.upsert_tickers(tickers)
-          @tracker.replace_ticker_alias_history(alias_history)
+          @tracker.replace_ticker_aliases(alias_history)
 
           memberships.group_by { |row| row.fetch("index_code") }.each do |index_code, grouped_rows|
             @tracker.replace_market_index_memberships(

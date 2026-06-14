@@ -183,10 +183,20 @@ RSpec.describe Tickrake::Tracker do
     end
   end
 
-  it "records completed migration versions when opening the database" do
+  it "requires explicit migration before opening a fresh database" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.sqlite3")
-      described_class.new(path)
+
+      expect do
+        described_class.new(path, migrate: false)
+      end.to raise_error(Tickrake::Error, /Run `tickrake migrate`\./)
+    end
+  end
+
+  it "records completed migration versions when migrated explicitly" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.sqlite3")
+      described_class.migrate!(path)
       db = SQLite3::Database.new(path)
       versions = db.execute("SELECT version FROM schema_migrations ORDER BY version").flatten
 
@@ -329,4 +339,5 @@ RSpec.describe Tickrake::Tracker do
       db&.close
     end
   end
+
 end
