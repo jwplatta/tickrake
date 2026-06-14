@@ -292,8 +292,7 @@ module Tickrake
           Tickrake::DB::Migrations::AddFetchRunsFrequency,
           Tickrake::DB::Migrations::AddOptionExpirationAndIndexes,
           Tickrake::DB::Migrations::AddOptionTickerTimeIndex,
-          Tickrake::DB::Migrations::CreateMarketIndexTables,
-          Tickrake::DB::Migrations::AddTickerIdsToIndexMemberships
+          Tickrake::DB::Migrations::CreateMarketIndexTables
         ]
       ).migrate!
     end
