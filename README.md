@@ -36,6 +36,7 @@ Initialize Tickrake's home directory and config:
 ```bash
 tickrake init
 tickrake validate-config
+tickrake migrate
 ```
 
 Then edit:
@@ -67,6 +68,7 @@ tickrake query --provider schwab
 ```bash
 tickrake init
 tickrake validate-config
+tickrake migrate
 tickrake start --job index_options
 tickrake start --job eod_candles
 tickrake restart --job index_options
@@ -266,8 +268,22 @@ Omitting `timezone:` (or passing `"UTC"`) returns timestamps in UTC and sets
 - Tickrake job state: `~/.tickrake/jobs/*.json`
 - Tickrake lockfiles: `~/.tickrake/*.lock`
 
-The SQLite database is migrated additively at startup. Tickrake creates missing tables
-or adds missing columns, but it does not recreate or overwrite the existing database.
+The SQLite database is migrated additively when you explicitly run `tickrake migrate`.
+Tickrake creates missing tables or adds missing columns only through that command. DB-backed
+commands fail fast if migrations are pending rather than mutating the database on startup.
+
+## Index Data
+
+For S&P 500 membership backfills, run migrations first, then import the canonical CSVs:
+
+```bash
+tickrake migrate
+tickrake import-index-data \
+  --memberships data/market_index_memberships.csv \
+  --tickers data/tickers.csv \
+  --alias-history data/ticker_aliases.csv
+tickrake query --type members --index SP500 --as-of 2018-01-01
+```
 
 ## Config
 

@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Added an opt-in `order: :sample_time_asc` mode to `Tickrake::DataLoader` for chronological candle and option snapshot loading.
 - Added `options.snapshot_filename_timezone` and a Schwab filename migration script for UTC option snapshot naming.
 - Added canonical S&P 500 index-data generation, SQLite import, and `query --type members` support keyed to current API-queryable tickers.
+- Added an explicit `tickrake migrate` command for applying SQLite schema changes.
 
 ### Fixed
 - Fixed IBKR provider hangs on early-date fetches and improved symbol period resolution.
@@ -22,6 +23,8 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Updated contributor and agent documentation.
 - Reworked option snapshot storage into dated provider folders and added a one-off migration script for legacy flat paths.
+- Normalized S&P 500 index storage around `ticker_id` foreign keys and `ticker_aliases` rows keyed by the current accepted ticker.
+- Changed Tickrake to require explicit database migrations instead of running them automatically when the tracker opens the SQLite database.
 
 ## [0.3.0] - 2026-04-26
 
