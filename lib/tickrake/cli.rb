@@ -38,6 +38,9 @@ module Tickrake
       case command
       when "validate-config"
         validate_config_command(argv, config_path)
+      when "import-index-data"
+        config = Tickrake::ConfigLoader.load(config_path)
+        import_index_data_command(argv, config)
       when "import"
         config = Tickrake::ConfigLoader.load(config_path)
         import_command(argv, config, common_options)
@@ -80,6 +83,18 @@ module Tickrake
       else
         import_direct(config, common_options, options)
       end
+    end
+
+    def import_index_data_command(argv, config)
+      options = parse_import_index_data_options!(argv)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      Tickrake::IndexData::Importer.new(tracker: tracker).import!(
+        memberships_path: options.fetch(:memberships),
+        tickers_path: options[:tickers],
+        alias_history_path: options[:alias_history]
+      )
+      @stdout.puts("Imported market index data from #{options.fetch(:memberships)}.")
+      0
     end
 
     def import_configured_job(config, common_options, options)
@@ -420,6 +435,20 @@ module Tickrake
       options
     end
 
+    def parse_import_index_data_options!(argv)
+      options = { memberships: nil, tickers: nil, alias_history: nil }
+      parser = OptionParser.new do |opts|
+        opts.on("--memberships PATH", "Canonical market index memberships CSV") { |value| options[:memberships] = value }
+        opts.on("--tickers PATH", "Canonical ticker metadata CSV") { |value| options[:tickers] = value }
+        opts.on("--alias-history PATH", "Canonical ticker alias history CSV") { |value| options[:alias_history] = value }
+      end
+      parser.order!(argv)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+      raise Tickrake::Error, "--memberships is required." unless options[:memberships]
+
+      options
+    end
+
     def validate_import_options!(options)
       raise Tickrake::Error, "--type is required for imports." unless options[:type]
       raise Tickrake::Error, "Only --type options imports are supported." unless options[:type] == "options"
@@ -490,6 +519,8 @@ module Tickrake
         type: options[:type],
         provider_name: options[:provider],
         ticker: options[:ticker],
+        index_code: options[:index],
+        as_of: options[:as_of],
         frequency: options[:frequency],
         start_date: options[:start_date],
         end_date: options[:end_date],
@@ -520,12 +551,16 @@ module Tickrake
         expiration_date: nil,
         limit: nil,
         ascending: true,
-        format: "text"
+        format: "text",
+        index: nil,
+        as_of: nil
       }
       parser = OptionParser.new do |opts|
-        opts.on("--type TYPE", "Dataset type: candles or options") { |value| options[:type] = value }
+        opts.on("--type TYPE", "Dataset type: candles, options, or members") { |value| options[:type] = value }
         opts.on("--provider NAME", "Use the named provider namespace from config") { |value| options[:provider] = value }
         opts.on("--ticker SYMBOL", "Filter by ticker symbol") { |value| options[:ticker] = value }
+        opts.on("--index CODE", "Filter members queries by market index code") { |value| options[:index] = value }
+        opts.on("--as-of YYYY-MM-DD", "Filter members queries by inclusive membership date") { |value| options[:as_of] = Date.iso8601(value) }
         opts.on("--frequency FREQ", "Filter candle results by frequency") { |value| options[:frequency] = value }
         opts.on("--start-date YYYY-MM-DD", "Filter by dataset coverage start date") { |value| options[:start_date] = Date.iso8601(value) }
         opts.on("--end-date YYYY-MM-DD", "Filter by dataset coverage end date") { |value| options[:end_date] = Date.iso8601(value) }
@@ -658,6 +693,7 @@ module Tickrake
           tickrake validate-config [--config path/to/tickrake.yml] [--verbose]
           tickrake import --job JOB_NAME [--force] [--config path/to/tickrake.yml] [--verbose]
           tickrake import --type options --provider massive --option-root ROOT --path path/to/YYYY-MM-DD.csv [--ticker SYMBOL] [--force] [--config path/to/tickrake.yml] [--verbose]
+          tickrake import-index-data --memberships data/market_index_memberships.csv [--tickers data/tickers.csv] [--alias-history data/ticker_alias_history.csv] [--config path/to/tickrake.yml]
           tickrake run --job JOB_NAME [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type options --ticker SYMBOL --expiration-date YYYY-MM-DD [--option-root ROOT] [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type candles --ticker SYMBOL --start-date YYYY-MM-DD --end-date YYYY-MM-DD --frequency FREQ [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
@@ -665,7 +701,7 @@ module Tickrake
           tickrake stop --job JOB_NAME|all [--config path/to/tickrake.yml]
           tickrake restart --job JOB_NAME|all [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml]
           tickrake status [--config path/to/tickrake.yml]
-          tickrake query [--type candles|options] [--provider NAME] [--ticker SYMBOL] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--exp-date YYYY-MM-DD] [--limit N] [--ascending true|false] [--format text|json] [--config path/to/tickrake.yml]
+          tickrake query [--type candles|options|members] [--provider NAME] [--ticker SYMBOL] [--index CODE] [--as-of YYYY-MM-DD] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--exp-date YYYY-MM-DD] [--limit N] [--ascending true|false] [--format text|json] [--config path/to/tickrake.yml]
           tickrake storage-stats [--config path/to/tickrake.yml]
           tickrake logs [TARGET] [--tail N]
       TEXT

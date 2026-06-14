@@ -101,6 +101,31 @@ RSpec.describe Tickrake::CLI do
     expect(stdout.string).to include("Completed job index_options.")
   end
 
+  it "imports canonical market index data through the dedicated command" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    tracker = instance_double(Tickrake::Tracker)
+    importer = instance_double(Tickrake::IndexData::Importer, import!: true)
+
+    allow(Tickrake::Tracker).to receive(:new).with("/tmp/tickrake.sqlite3").and_return(tracker)
+    allow(Tickrake::IndexData::Importer).to receive(:new).with(tracker: tracker).and_return(importer)
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "import-index-data",
+      "--memberships", "data/market_index_memberships.csv",
+      "--tickers", "data/tickers.csv",
+      "--alias-history", "data/ticker_alias_history.csv"
+    ])
+
+    expect(exit_code).to eq(0)
+    expect(importer).to have_received(:import!).with(
+      memberships_path: "data/market_index_memberships.csv",
+      tickers_path: "data/tickers.csv",
+      alias_history_path: "data/ticker_alias_history.csv"
+    )
+    expect(stdout.string).to include("Imported market index data")
+  end
+
   it "runs a manual configured options job once with --job" do
     stdout = StringIO.new
     stderr = StringIO.new
