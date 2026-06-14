@@ -179,19 +179,21 @@ module Tickrake
       return if rows.empty?
 
       tickers = rows.map { |row| row.fetch("ticker") }.uniq
-      placeholders = (["?"] * tickers.length).join(", ")
-      db.execute("DELETE FROM ticker_aliases WHERE ticker IN (#{placeholders})", tickers)
+      ensure_tickers_for_aliases(tickers)
+      ticker_ids = ticker_id_map(tickers)
+      placeholders = (["?"] * ticker_ids.length).join(", ")
+      db.execute("DELETE FROM ticker_aliases WHERE ticker_id IN (#{placeholders})", ticker_ids.values)
 
       timestamp = iso(Time.now)
       rows.each do |row|
         db.execute(
           <<~SQL,
             INSERT INTO ticker_aliases (
-              ticker, alias_ticker, start_date, end_date, created_at, updated_at
+              ticker_id, alias_ticker, start_date, end_date, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?)
           SQL
           [
-            row.fetch("ticker"),
+            ticker_ids.fetch(row.fetch("ticker")),
             row.fetch("alias_ticker"),
             row["start_date"],
             row["end_date"],
@@ -317,7 +319,11 @@ module Tickrake
     end
 
     def ensure_tickers_for_memberships(rows)
-      tickers = rows.map { |row| row.fetch("ticker") }.uniq
+      ensure_tickers_for_aliases(rows.map { |row| row.fetch("ticker") })
+    end
+
+    def ensure_tickers_for_aliases(tickers)
+      tickers = tickers.uniq
       return if tickers.empty?
 
       timestamp = iso(Time.now)

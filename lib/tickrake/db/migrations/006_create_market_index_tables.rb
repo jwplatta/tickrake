@@ -39,13 +39,14 @@ module Tickrake
 
               CREATE TABLE IF NOT EXISTS ticker_aliases (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ticker TEXT NOT NULL,
+                ticker_id INTEGER NOT NULL,
                 alias_ticker TEXT NOT NULL,
                 start_date TEXT,
                 end_date TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                UNIQUE(ticker, alias_ticker, start_date)
+                UNIQUE(alias_ticker),
+                FOREIGN KEY (ticker_id) REFERENCES tickers(id)
               );
 
               CREATE TABLE IF NOT EXISTS market_index_memberships (
@@ -74,7 +75,7 @@ module Tickrake
               ON ticker_aliases (alias_ticker, start_date, end_date);
 
               CREATE INDEX IF NOT EXISTS idx_ticker_aliases_ticker_dates
-              ON ticker_aliases (ticker, start_date, end_date);
+              ON ticker_aliases (ticker_id, start_date, end_date);
             SQL
           )
         end
