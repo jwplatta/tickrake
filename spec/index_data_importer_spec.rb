@@ -47,10 +47,10 @@ RSpec.describe "index data importer and members query" do
         AABA,Altaba,Financials,Multi-Sector Holdings,New York,1011006,1994,delisted_or_acquired
       CSV
       File.write(alias_history_path, <<~CSV)
-        canonical_ticker,alias_ticker,start_date,end_date,alias_status,notes
-        META,FB,2013-12-23,2022-06-09,renamed,renamed to META
-        COR,ABC,2001-08-30,2023-08-30,renamed,renamed to COR
-        BFH,ADS,2013-12-23,2020-06-22,renamed,renamed to BFH
+        canonical_ticker,alias_ticker,start_date,end_date
+        META,FB,2013-12-23,2022-06-09
+        COR,ABC,2001-08-30,2023-08-30
+        BFH,ADS,2013-12-23,2020-06-22
       CSV
 
       tracker = Tickrake::Tracker.new(sqlite_path)
@@ -63,6 +63,10 @@ RSpec.describe "index data importer and members query" do
         )
       end
 
+      expect(tracker.send(:db).get_first_value("SELECT COUNT(*) FROM tickers")).to eq(5)
+      expect(tracker.send(:db).table_info("market_index_memberships").map { |row| row["name"] }).to include("ticker_id")
+      expect(tracker.send(:db).table_info("market_index_memberships").map { |row| row["name"] }).not_to include("canonical_ticker")
+      expect(tracker.send(:db).table_info("ticker_alias_history").map { |row| row["name"] }).not_to include("alias_status", "notes")
       expect(tracker.members_for_index(index_code: "SP500", as_of: "2017-01-01")).to eq(%w[AABA BF-B BFH COR META])
       expect(tracker.members_for_index(index_code: "SP500", as_of: "2024-01-01")).to eq(%w[BF-B COR META])
 

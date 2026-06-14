@@ -22,8 +22,6 @@ module Tickrake
         alias_ticker
         start_date
         end_date
-        alias_status
-        notes
       ].freeze
 
       class SymbolNormalizer
@@ -130,9 +128,7 @@ module Tickrake
               "canonical_ticker" => canonical_ticker,
               "alias_ticker" => row.fetch("ticker"),
               "start_date" => row["first_start"],
-              "end_date" => row["last_end"],
-              "alias_status" => row.fetch("status"),
-              "notes" => "renamed to #{row.fetch("new_ticker")}"
+              "end_date" => row["last_end"]
             }
           end
           .sort_by { |row| [row.fetch("canonical_ticker"), row.fetch("start_date"), row.fetch("alias_ticker")] }

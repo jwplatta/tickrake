@@ -187,17 +187,14 @@ module Tickrake
         db.execute(
           <<~SQL,
             INSERT INTO ticker_alias_history (
-              canonical_ticker, alias_ticker, start_date, end_date, alias_status,
-              notes, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              canonical_ticker, alias_ticker, start_date, end_date, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
           SQL
           [
             row.fetch("canonical_ticker"),
             row.fetch("alias_ticker"),
             row["start_date"],
             row["end_date"],
-            row["alias_status"],
-            row["notes"],
             timestamp,
             timestamp
           ]
@@ -209,17 +206,19 @@ module Tickrake
       market_index_id = upsert_market_index(index_code: index_code, index_name: index_name)
       db.execute("DELETE FROM market_index_memberships WHERE market_index_id = ?", [market_index_id])
 
+      ensure_tickers_for_memberships(rows)
+      ticker_ids = ticker_id_map(rows.map { |row| row.fetch("canonical_ticker") })
       timestamp = iso(Time.now)
       rows.each do |row|
         db.execute(
           <<~SQL,
             INSERT INTO market_index_memberships (
-              market_index_id, canonical_ticker, start_date, end_date, created_at, updated_at
+              market_index_id, ticker_id, start_date, end_date, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?)
           SQL
           [
             market_index_id,
-            row.fetch("canonical_ticker"),
+            ticker_ids.fetch(row.fetch("canonical_ticker")),
             row.fetch("start_date"),
             row["end_date"],
             timestamp,
@@ -232,14 +231,16 @@ module Tickrake
     def members_for_index(index_code:, as_of:)
       db.execute(
         <<~SQL,
-          SELECT memberships.canonical_ticker
+          SELECT tickers.canonical_ticker
           FROM market_index_memberships memberships
           INNER JOIN market_indexes indexes
             ON indexes.id = memberships.market_index_id
+          INNER JOIN tickers
+            ON tickers.id = memberships.ticker_id
           WHERE indexes.code = ?
             AND memberships.start_date <= ?
             AND (memberships.end_date IS NULL OR memberships.end_date >= ?)
-          ORDER BY memberships.canonical_ticker ASC
+          ORDER BY tickers.canonical_ticker ASC
         SQL
         [index_code, as_of, as_of]
       ).map { |row| row.fetch("canonical_ticker") }
@@ -291,7 +292,8 @@ module Tickrake
           Tickrake::DB::Migrations::AddFetchRunsFrequency,
           Tickrake::DB::Migrations::AddOptionExpirationAndIndexes,
           Tickrake::DB::Migrations::AddOptionTickerTimeIndex,
-          Tickrake::DB::Migrations::CreateMarketIndexTables
+          Tickrake::DB::Migrations::CreateMarketIndexTables,
+          Tickrake::DB::Migrations::AddTickerIdsToIndexMemberships
         ]
       ).migrate!
     end
@@ -313,6 +315,36 @@ module Tickrake
         [index_code, index_name, timestamp, timestamp]
       )
       db.get_first_value("SELECT id FROM market_indexes WHERE code = ?", [index_code])
+    end
+
+    def ensure_tickers_for_memberships(rows)
+      canonical_tickers = rows.map { |row| row.fetch("canonical_ticker") }.uniq
+      return if canonical_tickers.empty?
+
+      timestamp = iso(Time.now)
+      canonical_tickers.each do |canonical_ticker|
+        db.execute(
+          <<~SQL,
+            INSERT INTO tickers (canonical_ticker, created_at, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(canonical_ticker) DO NOTHING
+          SQL
+          [canonical_ticker, timestamp, timestamp]
+        )
+      end
+    end
+
+    def ticker_id_map(canonical_tickers)
+      return {} if canonical_tickers.empty?
+
+      placeholders = (["?"] * canonical_tickers.uniq.length).join(", ")
+      rows = db.execute(
+        "SELECT id, canonical_ticker FROM tickers WHERE canonical_ticker IN (#{placeholders})",
+        canonical_tickers.uniq
+      )
+      rows.each_with_object({}) do |row, memo|
+        memo[row.fetch("canonical_ticker")] = row.fetch("id")
+      end
     end
   end
 end

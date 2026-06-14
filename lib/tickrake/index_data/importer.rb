@@ -19,8 +19,6 @@ module Tickrake
         alias_ticker
         start_date
         end_date
-        alias_status
-        notes
       ].freeze
       INDEX_NAMES = {
         "SP500" => "S&P 500"

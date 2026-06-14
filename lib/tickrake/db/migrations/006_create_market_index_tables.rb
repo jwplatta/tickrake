@@ -24,7 +24,8 @@ module Tickrake
               );
 
               CREATE TABLE IF NOT EXISTS tickers (
-                canonical_ticker TEXT PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                canonical_ticker TEXT NOT NULL UNIQUE,
                 security_name TEXT,
                 gics_sector TEXT,
                 gics_sub_industry TEXT,
@@ -42,8 +43,6 @@ module Tickrake
                 alias_ticker TEXT NOT NULL,
                 start_date TEXT,
                 end_date TEXT,
-                alias_status TEXT,
-                notes TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(canonical_ticker, alias_ticker, start_date)
@@ -52,23 +51,24 @@ module Tickrake
               CREATE TABLE IF NOT EXISTS market_index_memberships (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 market_index_id INTEGER NOT NULL,
-                canonical_ticker TEXT NOT NULL,
+                ticker_id INTEGER NOT NULL,
                 start_date TEXT NOT NULL,
                 end_date TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                UNIQUE(market_index_id, canonical_ticker, start_date),
-                FOREIGN KEY (market_index_id) REFERENCES market_indexes(id)
+                UNIQUE(market_index_id, ticker_id, start_date),
+                FOREIGN KEY (market_index_id) REFERENCES market_indexes(id),
+                FOREIGN KEY (ticker_id) REFERENCES tickers(id)
               );
 
               CREATE INDEX IF NOT EXISTS idx_market_indexes_code
               ON market_indexes (code);
 
               CREATE INDEX IF NOT EXISTS idx_market_index_memberships_index_dates_ticker
-              ON market_index_memberships (market_index_id, start_date, end_date, canonical_ticker);
+              ON market_index_memberships (market_index_id, start_date, end_date, ticker_id);
 
               CREATE INDEX IF NOT EXISTS idx_market_index_memberships_ticker_dates
-              ON market_index_memberships (canonical_ticker, start_date, end_date);
+              ON market_index_memberships (ticker_id, start_date, end_date);
 
               CREATE INDEX IF NOT EXISTS idx_ticker_alias_history_alias_dates
               ON ticker_alias_history (alias_ticker, start_date, end_date);
