@@ -138,6 +138,113 @@ module Tickrake
       end
     end
 
+    def upsert_tickers(rows)
+      return if rows.empty?
+
+      timestamp = iso(Time.now)
+      rows.each do |row|
+        db.execute(
+          <<~SQL,
+            INSERT INTO tickers (
+              canonical_ticker, security_name, gics_sector, gics_sub_industry,
+              headquarters_location, cik, founded, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(canonical_ticker) DO UPDATE SET
+              security_name = excluded.security_name,
+              gics_sector = excluded.gics_sector,
+              gics_sub_industry = excluded.gics_sub_industry,
+              headquarters_location = excluded.headquarters_location,
+              cik = excluded.cik,
+              founded = excluded.founded,
+              status = excluded.status,
+              updated_at = excluded.updated_at
+          SQL
+          [
+            row.fetch("canonical_ticker"),
+            row["security_name"],
+            row["gics_sector"],
+            row["gics_sub_industry"],
+            row["headquarters_location"],
+            row["cik"],
+            row["founded"],
+            row["status"],
+            timestamp,
+            timestamp
+          ]
+        )
+      end
+    end
+
+    def replace_ticker_alias_history(rows)
+      return if rows.empty?
+
+      canonical_tickers = rows.map { |row| row.fetch("canonical_ticker") }.uniq
+      placeholders = (["?"] * canonical_tickers.length).join(", ")
+      db.execute("DELETE FROM ticker_alias_history WHERE canonical_ticker IN (#{placeholders})", canonical_tickers)
+
+      timestamp = iso(Time.now)
+      rows.each do |row|
+        db.execute(
+          <<~SQL,
+            INSERT INTO ticker_alias_history (
+              canonical_ticker, alias_ticker, start_date, end_date, alias_status,
+              notes, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          SQL
+          [
+            row.fetch("canonical_ticker"),
+            row.fetch("alias_ticker"),
+            row["start_date"],
+            row["end_date"],
+            row["alias_status"],
+            row["notes"],
+            timestamp,
+            timestamp
+          ]
+        )
+      end
+    end
+
+    def replace_market_index_memberships(index_code:, index_name:, rows:)
+      market_index_id = upsert_market_index(index_code: index_code, index_name: index_name)
+      db.execute("DELETE FROM market_index_memberships WHERE market_index_id = ?", [market_index_id])
+
+      timestamp = iso(Time.now)
+      rows.each do |row|
+        db.execute(
+          <<~SQL,
+            INSERT INTO market_index_memberships (
+              market_index_id, canonical_ticker, start_date, end_date, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+          SQL
+          [
+            market_index_id,
+            row.fetch("canonical_ticker"),
+            row.fetch("start_date"),
+            row["end_date"],
+            timestamp,
+            timestamp
+          ]
+        )
+      end
+    end
+
+    def members_for_index(index_code:, as_of:)
+      db.execute(
+        <<~SQL,
+          SELECT memberships.canonical_ticker
+          FROM market_index_memberships memberships
+          INNER JOIN market_indexes indexes
+            ON indexes.id = memberships.market_index_id
+          WHERE indexes.code = ?
+            AND memberships.start_date <= ?
+            AND (memberships.end_date IS NULL OR memberships.end_date >= ?)
+          ORDER BY memberships.canonical_ticker ASC
+        SQL
+        [index_code, as_of, as_of]
+      ).map { |row| row.fetch("canonical_ticker") }
+    end
+
     def with_transaction
       db.transaction
       yield
@@ -183,13 +290,29 @@ module Tickrake
           Tickrake::DB::Migrations::CreateFileMetadataCache,
           Tickrake::DB::Migrations::AddFetchRunsFrequency,
           Tickrake::DB::Migrations::AddOptionExpirationAndIndexes,
-          Tickrake::DB::Migrations::AddOptionTickerTimeIndex
+          Tickrake::DB::Migrations::AddOptionTickerTimeIndex,
+          Tickrake::DB::Migrations::CreateMarketIndexTables
         ]
       ).migrate!
     end
 
     def iso(value)
       value&.utc&.iso8601
+    end
+
+    def upsert_market_index(index_code:, index_name:)
+      timestamp = iso(Time.now)
+      db.execute(
+        <<~SQL,
+          INSERT INTO market_indexes (code, name, created_at, updated_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(code) DO UPDATE SET
+            name = excluded.name,
+            updated_at = excluded.updated_at
+        SQL
+        [index_code, index_name, timestamp, timestamp]
+      )
+      db.get_first_value("SELECT id FROM market_indexes WHERE code = ?", [index_code])
     end
   end
 end

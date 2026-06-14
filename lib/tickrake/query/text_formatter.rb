@@ -15,6 +15,7 @@ module Tickrake
       }.freeze
 
       def format(results:, filters:)
+        return format_members(results: results, filters: filters) if filters[:type] == "members"
         return "No matching datasets found.\n" if results.empty?
 
         lines = []
@@ -67,6 +68,16 @@ module Tickrake
 
       def frequency_rank(frequency)
         FREQUENCY_ORDER.fetch(frequency, 100)
+      end
+
+      def format_members(results:, filters:)
+        [
+          "Index: #{filters[:index]}",
+          "As of: #{filters[:as_of]&.iso8601 || filters[:as_of]}",
+          "Members: #{results.length}",
+          nil,
+          *results
+        ].compact.join("\n") + "\n"
       end
     end
   end

@@ -190,7 +190,7 @@ RSpec.describe Tickrake::Tracker do
       db = SQLite3::Database.new(path)
       versions = db.execute("SELECT version FROM schema_migrations ORDER BY version").flatten
 
-      expect(versions).to eq([1, 2, 3, 4, 5])
+      expect(versions).to eq([1, 2, 3, 4, 5, 6])
     ensure
       db&.close
     end
