@@ -1,4 +1,4 @@
-canonical_ticker,alias_ticker,start_date,end_date
+ticker,alias_ticker,start_date,end_date
 BFH,ADS,2013-12-23,2020-06-22
 BKR,BHGE,1996-01-02,2019-10-18
 COR,ABC,2001-08-30,2023-08-30

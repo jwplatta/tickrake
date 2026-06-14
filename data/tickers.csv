@@ -1,4 +1,4 @@
-canonical_ticker,security_name,gics_sector,gics_sub_industry,headquarters_location,cik,founded,status
+ticker,security_name,gics_sector,gics_sub_industry,headquarters_location,cik,founded,status
 A,Agilent Technologies,Health Care,Life Sciences Tools & Services,"Santa Clara, California",1090872,1999,active
 AAPL,Apple Inc.,Information Technology,"Technology Hardware, Storage & Peripherals","Cupertino, California",320193,1977,active
 ABBV,AbbVie,Health Care,Biotechnology,"North Chicago, Illinois",1551152,2013 (1888),active

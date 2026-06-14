@@ -693,7 +693,7 @@ module Tickrake
           tickrake validate-config [--config path/to/tickrake.yml] [--verbose]
           tickrake import --job JOB_NAME [--force] [--config path/to/tickrake.yml] [--verbose]
           tickrake import --type options --provider massive --option-root ROOT --path path/to/YYYY-MM-DD.csv [--ticker SYMBOL] [--force] [--config path/to/tickrake.yml] [--verbose]
-          tickrake import-index-data --memberships data/market_index_memberships.csv [--tickers data/tickers.csv] [--alias-history data/ticker_alias_history.csv] [--config path/to/tickrake.yml]
+          tickrake import-index-data --memberships data/market_index_memberships.csv [--tickers data/tickers.csv] [--alias-history data/ticker_aliases.csv] [--config path/to/tickrake.yml]
           tickrake run --job JOB_NAME [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type options --ticker SYMBOL --expiration-date YYYY-MM-DD [--option-root ROOT] [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type candles --ticker SYMBOL --start-date YYYY-MM-DD --end-date YYYY-MM-DD --frequency FREQ [--provider NAME] [--config path/to/tickrake.yml] [--verbose]

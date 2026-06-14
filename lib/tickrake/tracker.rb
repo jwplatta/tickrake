@@ -146,10 +146,10 @@ module Tickrake
         db.execute(
           <<~SQL,
             INSERT INTO tickers (
-              canonical_ticker, security_name, gics_sector, gics_sub_industry,
+              ticker, security_name, gics_sector, gics_sub_industry,
               headquarters_location, cik, founded, status, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(canonical_ticker) DO UPDATE SET
+            ON CONFLICT(ticker) DO UPDATE SET
               security_name = excluded.security_name,
               gics_sector = excluded.gics_sector,
               gics_sub_industry = excluded.gics_sub_industry,
@@ -160,7 +160,7 @@ module Tickrake
               updated_at = excluded.updated_at
           SQL
           [
-            row.fetch("canonical_ticker"),
+            row.fetch("ticker"),
             row["security_name"],
             row["gics_sector"],
             row["gics_sub_industry"],
@@ -175,23 +175,23 @@ module Tickrake
       end
     end
 
-    def replace_ticker_alias_history(rows)
+    def replace_ticker_aliases(rows)
       return if rows.empty?
 
-      canonical_tickers = rows.map { |row| row.fetch("canonical_ticker") }.uniq
-      placeholders = (["?"] * canonical_tickers.length).join(", ")
-      db.execute("DELETE FROM ticker_alias_history WHERE canonical_ticker IN (#{placeholders})", canonical_tickers)
+      tickers = rows.map { |row| row.fetch("ticker") }.uniq
+      placeholders = (["?"] * tickers.length).join(", ")
+      db.execute("DELETE FROM ticker_aliases WHERE ticker IN (#{placeholders})", tickers)
 
       timestamp = iso(Time.now)
       rows.each do |row|
         db.execute(
           <<~SQL,
-            INSERT INTO ticker_alias_history (
-              canonical_ticker, alias_ticker, start_date, end_date, created_at, updated_at
+            INSERT INTO ticker_aliases (
+              ticker, alias_ticker, start_date, end_date, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?)
           SQL
           [
-            row.fetch("canonical_ticker"),
+            row.fetch("ticker"),
             row.fetch("alias_ticker"),
             row["start_date"],
             row["end_date"],
@@ -207,7 +207,7 @@ module Tickrake
       db.execute("DELETE FROM market_index_memberships WHERE market_index_id = ?", [market_index_id])
 
       ensure_tickers_for_memberships(rows)
-      ticker_ids = ticker_id_map(rows.map { |row| row.fetch("canonical_ticker") })
+      ticker_ids = ticker_id_map(rows.map { |row| row.fetch("ticker") })
       timestamp = iso(Time.now)
       rows.each do |row|
         db.execute(
@@ -218,7 +218,7 @@ module Tickrake
           SQL
           [
             market_index_id,
-            ticker_ids.fetch(row.fetch("canonical_ticker")),
+            ticker_ids.fetch(row.fetch("ticker")),
             row.fetch("start_date"),
             row["end_date"],
             timestamp,
@@ -231,7 +231,7 @@ module Tickrake
     def members_for_index(index_code:, as_of:)
       db.execute(
         <<~SQL,
-          SELECT tickers.canonical_ticker
+          SELECT tickers.ticker
           FROM market_index_memberships memberships
           INNER JOIN market_indexes indexes
             ON indexes.id = memberships.market_index_id
@@ -240,10 +240,10 @@ module Tickrake
           WHERE indexes.code = ?
             AND memberships.start_date <= ?
             AND (memberships.end_date IS NULL OR memberships.end_date >= ?)
-          ORDER BY tickers.canonical_ticker ASC
+          ORDER BY tickers.ticker ASC
         SQL
         [index_code, as_of, as_of]
-      ).map { |row| row.fetch("canonical_ticker") }
+      ).map { |row| row.fetch("ticker") }
     end
 
     def with_transaction
@@ -318,32 +318,32 @@ module Tickrake
     end
 
     def ensure_tickers_for_memberships(rows)
-      canonical_tickers = rows.map { |row| row.fetch("canonical_ticker") }.uniq
-      return if canonical_tickers.empty?
+      tickers = rows.map { |row| row.fetch("ticker") }.uniq
+      return if tickers.empty?
 
       timestamp = iso(Time.now)
-      canonical_tickers.each do |canonical_ticker|
+      tickers.each do |ticker|
         db.execute(
           <<~SQL,
-            INSERT INTO tickers (canonical_ticker, created_at, updated_at)
+            INSERT INTO tickers (ticker, created_at, updated_at)
             VALUES (?, ?, ?)
-            ON CONFLICT(canonical_ticker) DO NOTHING
+            ON CONFLICT(ticker) DO NOTHING
           SQL
-          [canonical_ticker, timestamp, timestamp]
+          [ticker, timestamp, timestamp]
         )
       end
     end
 
-    def ticker_id_map(canonical_tickers)
-      return {} if canonical_tickers.empty?
+    def ticker_id_map(tickers)
+      return {} if tickers.empty?
 
-      placeholders = (["?"] * canonical_tickers.uniq.length).join(", ")
+      placeholders = (["?"] * tickers.uniq.length).join(", ")
       rows = db.execute(
-        "SELECT id, canonical_ticker FROM tickers WHERE canonical_ticker IN (#{placeholders})",
-        canonical_tickers.uniq
+        "SELECT id, ticker FROM tickers WHERE ticker IN (#{placeholders})",
+        tickers.uniq
       )
       rows.each_with_object({}) do |row, memo|
-        memo[row.fetch("canonical_ticker")] = row.fetch("id")
+        memo[row.fetch("ticker")] = row.fetch("id")
       end
     end
   end

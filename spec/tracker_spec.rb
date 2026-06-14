@@ -465,12 +465,12 @@ RSpec.describe Tickrake::Tracker do
 
       ticker_columns = db.table_info("tickers").map { |row| row["name"] }
       membership_columns = db.table_info("market_index_memberships").map { |row| row["name"] }
-      alias_columns = db.table_info("ticker_alias_history").map { |row| row["name"] }
+      alias_columns = db.table_info("ticker_aliases").map { |row| row["name"] }
 
-      expect(ticker_columns).to include("id", "canonical_ticker")
+      expect(ticker_columns).to include("id", "ticker")
       expect(membership_columns).to include("ticker_id")
       expect(membership_columns).not_to include("canonical_ticker")
-      expect(alias_columns).not_to include("alias_status", "notes")
+      expect(alias_columns).to include("ticker")
       expect(db.get_first_value("SELECT COUNT(*) FROM tickers")).to eq(2)
       expect(tracker.members_for_index(index_code: "SP500", as_of: "2018-01-01")).to eq(["META"])
       expect(tracker.members_for_index(index_code: "SP500", as_of: "2017-01-01")).to eq(%w[AABA META])

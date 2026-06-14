@@ -25,7 +25,7 @@ module Tickrake
 
               CREATE TABLE IF NOT EXISTS tickers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                canonical_ticker TEXT NOT NULL UNIQUE,
+                ticker TEXT NOT NULL UNIQUE,
                 security_name TEXT,
                 gics_sector TEXT,
                 gics_sub_industry TEXT,
@@ -37,15 +37,15 @@ module Tickrake
                 updated_at TEXT NOT NULL
               );
 
-              CREATE TABLE IF NOT EXISTS ticker_alias_history (
+              CREATE TABLE IF NOT EXISTS ticker_aliases (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                canonical_ticker TEXT NOT NULL,
+                ticker TEXT NOT NULL,
                 alias_ticker TEXT NOT NULL,
                 start_date TEXT,
                 end_date TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                UNIQUE(canonical_ticker, alias_ticker, start_date)
+                UNIQUE(ticker, alias_ticker, start_date)
               );
 
               CREATE TABLE IF NOT EXISTS market_index_memberships (
@@ -70,11 +70,11 @@ module Tickrake
               CREATE INDEX IF NOT EXISTS idx_market_index_memberships_ticker_dates
               ON market_index_memberships (ticker_id, start_date, end_date);
 
-              CREATE INDEX IF NOT EXISTS idx_ticker_alias_history_alias_dates
-              ON ticker_alias_history (alias_ticker, start_date, end_date);
+              CREATE INDEX IF NOT EXISTS idx_ticker_aliases_alias_dates
+              ON ticker_aliases (alias_ticker, start_date, end_date);
 
-              CREATE INDEX IF NOT EXISTS idx_ticker_alias_history_canonical_dates
-              ON ticker_alias_history (canonical_ticker, start_date, end_date);
+              CREATE INDEX IF NOT EXISTS idx_ticker_aliases_ticker_dates
+              ON ticker_aliases (ticker, start_date, end_date);
             SQL
           )
         end

@@ -1,4 +1,4 @@
-index_code,canonical_ticker,start_date,end_date
+index_code,ticker,start_date,end_date
 SP500,A,2000-06-05,
 SP500,AABA,1999-12-08,2017-06-19
 SP500,AAL,1996-01-02,1997-01-15

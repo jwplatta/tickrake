@@ -114,14 +114,14 @@ RSpec.describe Tickrake::CLI do
       "import-index-data",
       "--memberships", "data/market_index_memberships.csv",
       "--tickers", "data/tickers.csv",
-      "--alias-history", "data/ticker_alias_history.csv"
+      "--alias-history", "data/ticker_aliases.csv"
     ])
 
     expect(exit_code).to eq(0)
     expect(importer).to have_received(:import!).with(
       memberships_path: "data/market_index_memberships.csv",
       tickers_path: "data/tickers.csv",
-      alias_history_path: "data/ticker_alias_history.csv"
+      alias_history_path: "data/ticker_aliases.csv"
     )
     expect(stdout.string).to include("Imported market index data")
   end

@@ -20,7 +20,7 @@ module Tickrake
           create_tickers_v2
           copy_existing_tickers
           backfill_membership_only_tickers
-          recreate_ticker_alias_history
+          recreate_ticker_aliases
 
           @database.execute("ALTER TABLE market_index_memberships RENAME TO market_index_memberships_old")
           @database.execute("DROP TABLE tickers")
@@ -40,12 +40,13 @@ module Tickrake
         def upgraded_schema?
           ticker_columns = @database.table_info("tickers").map { |row| row["name"] }
           membership_columns = @database.table_info("market_index_memberships").map { |row| row["name"] }
-          alias_columns = @database.table_info("ticker_alias_history").map { |row| row["name"] }
+          alias_columns = @database.table_info("ticker_aliases").map { |row| row["name"] }
           ticker_columns.include?("id") &&
             membership_columns.include?("ticker_id") &&
             !membership_columns.include?("canonical_ticker") &&
-            !alias_columns.include?("alias_status") &&
-            !alias_columns.include?("notes")
+            ticker_columns.include?("ticker") &&
+            !ticker_columns.include?("canonical_ticker") &&
+            alias_columns.include?("ticker")
         end
 
         def create_tickers_v2
@@ -53,7 +54,7 @@ module Tickrake
             <<~SQL
               CREATE TABLE tickers_v2 (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                canonical_ticker TEXT NOT NULL UNIQUE,
+                ticker TEXT NOT NULL UNIQUE,
                 security_name TEXT,
                 gics_sector TEXT,
                 gics_sub_industry TEXT,
@@ -72,7 +73,7 @@ module Tickrake
           @database.execute_batch(
             <<~SQL
               INSERT INTO tickers_v2 (
-                canonical_ticker, security_name, gics_sector, gics_sub_industry,
+                ticker, security_name, gics_sector, gics_sub_industry,
                 headquarters_location, cik, founded, status, created_at, updated_at
               )
               SELECT
@@ -88,11 +89,11 @@ module Tickrake
           timestamp = Time.now.utc.iso8601
           @database.execute(
             <<~SQL,
-              INSERT INTO tickers_v2 (canonical_ticker, created_at, updated_at)
+              INSERT INTO tickers_v2 (ticker, created_at, updated_at)
               SELECT DISTINCT memberships.canonical_ticker, ?, ?
               FROM market_index_memberships memberships
               LEFT JOIN tickers_v2 tickers
-                ON tickers.canonical_ticker = memberships.canonical_ticker
+                ON tickers.ticker = memberships.canonical_ticker
               WHERE tickers.id IS NULL
               ORDER BY memberships.canonical_ticker
             SQL
@@ -119,26 +120,26 @@ module Tickrake
           )
         end
 
-        def recreate_ticker_alias_history
+        def recreate_ticker_aliases
           @database.execute("ALTER TABLE ticker_alias_history RENAME TO ticker_alias_history_old")
           @database.execute_batch(
             <<~SQL
-              CREATE TABLE ticker_alias_history (
+              CREATE TABLE ticker_aliases (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                canonical_ticker TEXT NOT NULL,
+                ticker TEXT NOT NULL,
                 alias_ticker TEXT NOT NULL,
                 start_date TEXT,
                 end_date TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                UNIQUE(canonical_ticker, alias_ticker, start_date)
+                UNIQUE(ticker, alias_ticker, start_date)
               );
             SQL
           )
           @database.execute_batch(
             <<~SQL
-              INSERT INTO ticker_alias_history (
-                canonical_ticker, alias_ticker, start_date, end_date, created_at, updated_at
+              INSERT INTO ticker_aliases (
+                ticker, alias_ticker, start_date, end_date, created_at, updated_at
               )
               SELECT
                 canonical_ticker, alias_ticker, start_date, end_date, created_at, updated_at
@@ -163,7 +164,7 @@ module Tickrake
                 memberships.updated_at
               FROM market_index_memberships_old memberships
               INNER JOIN tickers
-                ON tickers.canonical_ticker = memberships.canonical_ticker;
+                ON tickers.ticker = memberships.canonical_ticker;
             SQL
           )
         end
@@ -184,14 +185,14 @@ module Tickrake
           )
           @database.execute(
             <<~SQL
-              CREATE INDEX IF NOT EXISTS idx_ticker_alias_history_alias_dates
-              ON ticker_alias_history (alias_ticker, start_date, end_date)
+              CREATE INDEX IF NOT EXISTS idx_ticker_aliases_alias_dates
+              ON ticker_aliases (alias_ticker, start_date, end_date)
             SQL
           )
           @database.execute(
             <<~SQL
-              CREATE INDEX IF NOT EXISTS idx_ticker_alias_history_canonical_dates
-              ON ticker_alias_history (canonical_ticker, start_date, end_date)
+              CREATE INDEX IF NOT EXISTS idx_ticker_aliases_ticker_dates
+              ON ticker_aliases (ticker, start_date, end_date)
             SQL
           )
         end
