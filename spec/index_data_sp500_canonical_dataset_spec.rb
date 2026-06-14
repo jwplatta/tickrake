@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
-RSpec.describe Tickrake::IndexData::Sp500CanonicalDataset do
+require_relative "../scripts/generate_sp500_canonical_data"
+
+RSpec.describe Tickrake::Scripts::Sp500CanonicalDataGenerator do
   let(:memberships_source) { File.expand_path("../data/sp500_ticker_start_end.csv", __dir__) }
   let(:tickers_source) { File.expand_path("../data/sp500.csv", __dir__) }
   let(:status_source) { File.expand_path("../data/sp500_ticker_status_2015_2026.csv", __dir__) }

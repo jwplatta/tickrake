@@ -1,8 +1,11 @@
+#!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require_relative "../lib/tickrake"
+
 module Tickrake
-  module IndexData
-    class Sp500CanonicalDataset
+  module Scripts
+    class Sp500CanonicalDataGenerator
       MEMBERSHIP_HEADERS = %w[index_code canonical_ticker start_date end_date].freeze
       TICKER_HEADERS = %w[
         canonical_ticker
@@ -22,6 +25,12 @@ module Tickrake
         alias_status
         notes
       ].freeze
+
+      class SymbolNormalizer
+        def normalize(symbol)
+          symbol.to_s.strip.upcase.tr(".", "-")
+        end
+      end
 
       def initialize(
         memberships_source:,
@@ -60,10 +69,7 @@ module Tickrake
       private
 
       def build_status_map
-        rows = csv_rows(@status_source)
-        map = {}
-
-        rows.each do |row|
+        csv_rows(@status_source).each_with_object({}) do |row, map|
           ticker = normalize_symbol(row.fetch("ticker"))
           successor = normalize_symbol(row["new_ticker"])
           map[ticker] = {
@@ -74,8 +80,6 @@ module Tickrake
             "new_ticker" => successor
           }
         end
-
-        map
       end
 
       def build_memberships(status_map)
@@ -154,7 +158,7 @@ module Tickrake
             end
 
             previous_start, previous_end = merged.last
-            if mergeable_intervals?(previous_start, previous_end, start_date, end_date)
+            if mergeable_intervals?(previous_end, start_date)
               merged[-1] = [previous_start, merge_interval_end(previous_end, end_date)]
             else
               merged << [start_date, end_date]
@@ -172,7 +176,7 @@ module Tickrake
         merged
       end
 
-      def mergeable_intervals?(_previous_start, previous_end, start_date, _end_date)
+      def mergeable_intervals?(previous_end, start_date)
         return true if previous_end.nil?
 
         start_date <= previous_end + 1
@@ -221,4 +225,15 @@ module Tickrake
       end
     end
   end
+end
+
+if $PROGRAM_NAME == __FILE__
+  root = File.expand_path("..", __dir__)
+
+  Tickrake::Scripts::Sp500CanonicalDataGenerator.new(
+    memberships_source: File.join(root, "data", "sp500_ticker_start_end.csv"),
+    tickers_source: File.join(root, "data", "sp500.csv"),
+    status_source: File.join(root, "data", "sp500_ticker_status_2015_2026.csv"),
+    output_dir: File.join(root, "data")
+  ).generate!
 end
