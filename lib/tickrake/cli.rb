@@ -38,6 +38,9 @@ module Tickrake
       case command
       when "validate-config"
         validate_config_command(argv, config_path)
+      when "migrate"
+        config = Tickrake::ConfigLoader.load(config_path)
+        migrate_command(argv, config)
       when "import-index-data"
         config = Tickrake::ConfigLoader.load(config_path)
         import_index_data_command(argv, config)
@@ -73,6 +76,14 @@ module Tickrake
 
       Tickrake::ConfigLoader.load(config_path)
       @stdout.puts("Config valid: #{config_path}")
+      0
+    end
+
+    def migrate_command(argv, config)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+
+      Tickrake::Tracker.migrate!(config.sqlite_path)
+      @stdout.puts("Migrated Tickrake database at #{config.sqlite_path}.")
       0
     end
 
@@ -681,7 +692,7 @@ module Tickrake
       File.write(config_path, File.read(template_path))
       @stdout.puts("Initialized Tickrake home at #{home_dir}")
       @stdout.puts("Config written to #{config_path}")
-      @stdout.puts("SQLite DB will be created at #{sqlite_path} on first run")
+      @stdout.puts("SQLite DB will be created at #{sqlite_path} when you run `tickrake migrate`")
       @stdout.puts("CLI log file will be written to #{log_path}")
       0
     end
@@ -691,6 +702,7 @@ module Tickrake
         Usage:
           tickrake init [--config path/to/tickrake.yml] [--force]
           tickrake validate-config [--config path/to/tickrake.yml] [--verbose]
+          tickrake migrate [--config path/to/tickrake.yml]
           tickrake import --job JOB_NAME [--force] [--config path/to/tickrake.yml] [--verbose]
           tickrake import --type options --provider massive --option-root ROOT --path path/to/YYYY-MM-DD.csv [--ticker SYMBOL] [--force] [--config path/to/tickrake.yml] [--verbose]
           tickrake import-index-data --memberships data/market_index_memberships.csv [--tickers data/tickers.csv] [--alias-history data/ticker_aliases.csv] [--config path/to/tickrake.yml]

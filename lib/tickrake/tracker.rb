@@ -19,10 +19,34 @@ module Tickrake
       updated_at
     ].freeze
 
-    def initialize(path)
+    def self.migrate!(path)
+      tracker = new(path, migrate: true)
+      tracker.close
+      nil
+    end
+
+    def self.migrations
+      [
+        Tickrake::DB::Migrations::CreateFetchRuns,
+        Tickrake::DB::Migrations::CreateFileMetadataCache,
+        Tickrake::DB::Migrations::AddFetchRunsFrequency,
+        Tickrake::DB::Migrations::AddOptionExpirationAndIndexes,
+        Tickrake::DB::Migrations::AddOptionTickerTimeIndex,
+        Tickrake::DB::Migrations::CreateMarketIndexTables
+      ].freeze
+    end
+
+    def initialize(path, migrate: false)
       @path = Tickrake::PathSupport.expand_path(path)
       FileUtils.mkdir_p(File.dirname(@path))
-      migrate!
+      migrate ? migrate! : ensure_schema_current!
+    end
+
+    def close
+      return unless defined?(@db) && @db
+
+      @db.close
+      @db = nil
     end
 
     def record_start(attrs)
@@ -286,21 +310,27 @@ module Tickrake
     end
 
     def migrate!
-      Tickrake::DB::Migrator.new(
-        db,
-        migrations: [
-          Tickrake::DB::Migrations::CreateFetchRuns,
-          Tickrake::DB::Migrations::CreateFileMetadataCache,
-          Tickrake::DB::Migrations::AddFetchRunsFrequency,
-          Tickrake::DB::Migrations::AddOptionExpirationAndIndexes,
-          Tickrake::DB::Migrations::AddOptionTickerTimeIndex,
-          Tickrake::DB::Migrations::CreateMarketIndexTables
-        ]
-      ).migrate!
+      Tickrake::DB::Migrator.new(db, migrations: self.class.migrations).migrate!
     end
 
     def iso(value)
       value&.utc&.iso8601
+    end
+
+    def ensure_schema_current!
+      raise Tickrake::Error, pending_migrations_message unless File.exist?(@path)
+
+      applied_versions = db.execute("SELECT version FROM schema_migrations ORDER BY version").map do |row|
+        row.fetch("version").to_i
+      end
+      pending_versions = self.class.migrations.map(&:version) - applied_versions
+      raise Tickrake::Error, pending_migrations_message unless pending_versions.empty?
+    rescue SQLite3::SQLException
+      raise Tickrake::Error, pending_migrations_message
+    end
+
+    def pending_migrations_message
+      "Database migrations are pending for #{@path}. Run `tickrake migrate`."
     end
 
     def upsert_market_index(index_code:, index_name:)
