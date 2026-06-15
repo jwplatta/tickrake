@@ -41,6 +41,9 @@ module Tickrake
       when "migrate"
         config = Tickrake::ConfigLoader.load(config_path)
         migrate_command(argv, config)
+      when "sync-metadata"
+        config = Tickrake::ConfigLoader.load(config_path)
+        sync_metadata_command(argv, config)
       when "import-index-data"
         config = Tickrake::ConfigLoader.load(config_path)
         import_index_data_command(argv, config)
@@ -105,6 +108,23 @@ module Tickrake
         alias_history_path: options[:alias_history]
       )
       @stdout.puts("Imported market index data from #{options.fetch(:memberships)}.")
+      0
+    end
+
+    def sync_metadata_command(argv, config)
+      options = parse_sync_metadata_options!(argv, config)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      result = Tickrake::Storage::CandleMetadataSync.new(
+        config: config,
+        tracker: tracker,
+        provider_name: options[:provider]
+      ).run
+      providers = result.providers_scanned.join(", ")
+      @stdout.puts(
+        "Synced candle metadata for #{result.providers_scanned.length} provider(s) "\
+        "(#{providers}): discovered #{result.files_discovered} file(s), inserted "\
+        "#{result.rows_inserted} row(s), skipped #{result.files_skipped} file(s)."
+      )
       0
     end
 
@@ -460,6 +480,20 @@ module Tickrake
       options
     end
 
+    def parse_sync_metadata_options!(argv, config)
+      options = { provider: nil }
+      parser = OptionParser.new do |opts|
+        opts.on("--provider NAME", "Restrict candle metadata sync to one configured provider") do |value|
+          options[:provider] = value
+        end
+      end
+      parser.order!(argv)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+      config.provider_definition(options[:provider]) if options[:provider]
+
+      options
+    end
+
     def validate_import_options!(options)
       raise Tickrake::Error, "--type is required for imports." unless options[:type]
       raise Tickrake::Error, "Only --type options imports are supported." unless options[:type] == "options"
@@ -703,6 +737,7 @@ module Tickrake
           tickrake init [--config path/to/tickrake.yml] [--force]
           tickrake validate-config [--config path/to/tickrake.yml] [--verbose]
           tickrake migrate [--config path/to/tickrake.yml]
+          tickrake sync-metadata [--provider NAME] [--config path/to/tickrake.yml]
           tickrake import --job JOB_NAME [--force] [--config path/to/tickrake.yml] [--verbose]
           tickrake import --type options --provider massive --option-root ROOT --path path/to/YYYY-MM-DD.csv [--ticker SYMBOL] [--force] [--config path/to/tickrake.yml] [--verbose]
           tickrake import-index-data --memberships data/market_index_memberships.csv [--tickers data/tickers.csv] [--alias-history data/ticker_aliases.csv] [--config path/to/tickrake.yml]

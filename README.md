@@ -69,6 +69,7 @@ tickrake query --provider schwab
 tickrake init
 tickrake validate-config
 tickrake migrate
+tickrake sync-metadata
 tickrake start --job index_options
 tickrake start --job eod_candles
 tickrake restart --job index_options
@@ -493,6 +494,23 @@ Example:
 ```bash
 tickrake storage-stats
 tickrake storage-stats --config /mnt/tickrake/tickrake.yml
+```
+
+## Metadata Sync
+
+Use `tickrake sync-metadata` to explicitly insert missing candle metadata rows into
+the SQLite `file_metadata_cache` for files already present under `history/`.
+
+- scans candle files only
+- ignores `options/` entirely
+- never modifies candle CSV contents
+- only inserts rows when the cache path is missing
+
+Examples:
+
+```bash
+tickrake sync-metadata
+tickrake sync-metadata --provider ibkr-paper
 ```
 
 ## Provider Status
