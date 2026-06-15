@@ -139,6 +139,72 @@ RSpec.describe Tickrake::CLI do
     expect(stdout.string).to include("Migrated Tickrake database")
   end
 
+  it "syncs missing candle metadata for all providers" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    tracker = instance_double(Tickrake::Tracker)
+    result = Tickrake::Storage::CandleMetadataSync::Result.new(
+      providers_scanned: %w[ibkr-paper schwab],
+      files_discovered: 12,
+      rows_inserted: 3,
+      files_skipped: 9
+    )
+    sync = instance_double(Tickrake::Storage::CandleMetadataSync, run: result)
+
+    allow(Tickrake::Tracker).to receive(:new).with("/tmp/tickrake.sqlite3").and_return(tracker)
+    allow(Tickrake::Storage::CandleMetadataSync).to receive(:new).with(
+      config: config,
+      tracker: tracker,
+      provider_name: nil
+    ).and_return(sync)
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["sync-metadata"])
+
+    expect(exit_code).to eq(0)
+    expect(stdout.string).to include("Synced candle metadata for 2 provider(s) (ibkr-paper, schwab)")
+    expect(stdout.string).to include("discovered 12 file(s), inserted 3 row(s), skipped 9 file(s)")
+  end
+
+  it "syncs missing candle metadata for one provider" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    tracker = instance_double(Tickrake::Tracker)
+    result = Tickrake::Storage::CandleMetadataSync::Result.new(
+      providers_scanned: ["schwab"],
+      files_discovered: 4,
+      rows_inserted: 1,
+      files_skipped: 3
+    )
+    sync = instance_double(Tickrake::Storage::CandleMetadataSync, run: result)
+
+    allow(config).to receive(:provider_definition).with("schwab").and_return(
+      Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}, symbol_map: {})
+    )
+    allow(Tickrake::Tracker).to receive(:new).with("/tmp/tickrake.sqlite3").and_return(tracker)
+    allow(Tickrake::Storage::CandleMetadataSync).to receive(:new).with(
+      config: config,
+      tracker: tracker,
+      provider_name: "schwab"
+    ).and_return(sync)
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["sync-metadata", "--provider", "schwab"])
+
+    expect(exit_code).to eq(0)
+    expect(stdout.string).to include("Synced candle metadata for 1 provider(s) (schwab)")
+  end
+
+  it "rejects sync-metadata for an unknown provider" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+
+    allow(config).to receive(:provider_definition).with("missing").and_raise(Tickrake::Error, "Unknown provider `missing`.")
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["sync-metadata", "--provider", "missing"])
+
+    expect(exit_code).to eq(1)
+    expect(stderr.string).to include("Unknown provider `missing`.")
+  end
+
   it "runs a manual configured options job once with --job" do
     stdout = StringIO.new
     stderr = StringIO.new

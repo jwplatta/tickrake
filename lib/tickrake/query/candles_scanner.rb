@@ -16,11 +16,13 @@ module Tickrake
         keyword_init: true
       )
 
-      def initialize(config:, tracker:, symbol_normalizer: SymbolNormalizer.new, frequency_normalizer: FrequencyNormalizer.new)
+      def initialize(config:, tracker:, symbol_normalizer: SymbolNormalizer.new, frequency_normalizer: FrequencyNormalizer.new,
+                     metadata_builder: nil)
         @config = config
         @tracker = tracker
         @symbol_normalizer = symbol_normalizer
         @frequency_normalizer = frequency_normalizer
+        @metadata_builder = metadata_builder || CandleMetadata.new(config: config, symbol_normalizer: symbol_normalizer)
       end
 
       def scan(provider_name: nil, ticker: nil, frequency: nil, start_date: nil, end_date: nil)
@@ -112,38 +114,10 @@ module Tickrake
         cached = @tracker.file_metadata(path)
         return cached if cache_hit?(cached, stat)
 
-        basename = File.basename(path, ".csv")
-        match = /\A(?<ticker>.+)_(?<frequency>[^_]+)\z/.match(basename)
-        return nil unless match
-        canonical_ticker = canonical_ticker_for(match[:ticker], provider_name: provider_name)
+        metadata = @metadata_builder.build(path: path, provider_name: provider_name)
+        return nil unless metadata
 
-        row_count = 0
-        first_observed_at = nil
-        last_observed_at = nil
-
-        File.foreach(path).with_index do |line, index|
-          next if index.zero?
-          next if line.strip.empty?
-
-          row_count += 1
-          observed_at = line.split(",", 2).first
-          first_observed_at ||= observed_at
-          last_observed_at = observed_at
-        end
-
-        @tracker.upsert_file_metadata(
-          path: path,
-          dataset_type: "candles",
-          provider_name: provider_name,
-          ticker: canonical_ticker,
-          frequency: match[:frequency],
-          row_count: row_count,
-          first_observed_at: first_observed_at,
-          last_observed_at: last_observed_at,
-          file_mtime: stat.mtime.to_i,
-          file_size: stat.size,
-          updated_at: Time.now
-        )
+        @tracker.upsert_file_metadata(metadata)
         @tracker.file_metadata(path)
       end
 
@@ -151,12 +125,6 @@ module Tickrake
         cached &&
           cached["file_mtime"].to_i == stat.mtime.to_i &&
           cached["file_size"].to_i == stat.size
-      end
-
-      def canonical_ticker_for(path_token, provider_name:)
-        provider_definition = @config.provider_definition(provider_name)
-        mapped_symbol = provider_definition.symbol_map.fetch(path_token, nil)
-        @symbol_normalizer.canonical(mapped_symbol || path_token)
       end
 
       def coverage_for(start_date:, end_date:, first_observed_at:, last_observed_at:)

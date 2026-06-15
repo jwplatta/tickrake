@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - Added `options.snapshot_filename_timezone` and a Schwab filename migration script for UTC option snapshot naming.
 - Added canonical S&P 500 index-data generation, SQLite import, and `query --type members` support keyed to current API-queryable tickers.
 - Added an explicit `tickrake migrate` command for applying SQLite schema changes.
+- Added `tickrake sync-metadata` to insert missing candle metadata cache rows from stored history files.
 
 ### Fixed
 - Fixed IBKR provider hangs on early-date fetches and improved symbol period resolution.
