@@ -23,7 +23,6 @@ module Tickrake
 
         selected_dates(now).each do |sample_date|
           result = compact_date(sample_date: sample_date)
-          @progress_reporter&.advance(title: "Compact #{sample_date.iso8601}")
           next unless result
 
           processed_dates << sample_date
@@ -42,7 +41,14 @@ module Tickrake
       private
 
       def compact_date(sample_date:)
-        built = compaction_dataset.build_rows(sample_date: sample_date)
+        raw_files = compaction_dataset.raw_snapshot_files(sample_date: sample_date)
+        @progress_reporter&.add_total(raw_files.length - 1)
+        built = compaction_dataset.build_rows(
+          sample_date: sample_date,
+          raw_files: raw_files,
+          progress_reporter: @progress_reporter,
+          progress_title_prefix: "Compact #{sample_date.iso8601}"
+        )
         files = built.fetch(:raw_files)
         if files.empty?
           @runtime.logger.info("No raw option snapshots found for provider=#{provider_name} root=#{option_root} sample_date=#{sample_date}.")
