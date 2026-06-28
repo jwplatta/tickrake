@@ -19,9 +19,10 @@ module Tickrake
       run_time = now
       queue = build_queue(run_time.to_date)
       @runtime.logger.info("Resolved #{queue.length} option fetch tasks.")
-      process_queue(queue, run_time)
+      result = process_queue(queue, run_time)
       @progress_reporter&.finish
       @runtime.logger.info("Completed options scrape at #{Time.now.utc.iso8601}")
+      result
     end
 
     private
@@ -117,6 +118,8 @@ module Tickrake
       index = 0
       mutex = Mutex.new
       worker_count = [@runtime.config.max_workers, queue.length].min
+      success_count = 0
+      failure_count = 0
 
       Array.new(worker_count) do
         Thread.new do
@@ -128,10 +131,21 @@ module Tickrake
             end
             break unless job
 
-            fetch_one(job, run_time)
+            # Scheduled-run resilience treats any per-fetch failure as a degraded
+            # iteration, even though the job continues processing the remaining queue.
+            outcome = fetch_one(job, run_time)
+            mutex.synchronize do
+              if outcome == :success
+                success_count += 1
+              else
+                failure_count += 1
+              end
+            end
           end
         end
       end.each(&:join)
+
+      ScheduledRunResult.new(success_count: success_count, failure_count: failure_count)
     end
 
     def selected_universe
@@ -177,10 +191,12 @@ module Tickrake
         @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
         upsert_file_metadata(job: job, path: path, row_count: result.fetch(:row_count), sampled_at: run_time)
         @progress_reporter&.advance(title: option_progress_title(job))
+        :success
       rescue StandardError => e
         @runtime.logger.error("Failed option fetch for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}: #{e.message}")
         @runtime.tracker.record_finish(id: id, status: "failed", finished_at: Time.now, error_message: e.message)
         @progress_reporter&.advance(title: "#{option_progress_title(job)} failed")
+        :failed
       end
     end
 

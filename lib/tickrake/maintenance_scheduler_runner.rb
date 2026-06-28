@@ -2,6 +2,8 @@
 
 module Tickrake
   class MaintenanceSchedulerRunner
+    include ScheduledRunnerSupport
+
     def initialize(runtime, scheduled_job:, sleeper: Kernel)
       @runtime = runtime
       @scheduled_job = scheduled_job
@@ -10,6 +12,7 @@ module Tickrake
       @last_run_at = nil
       @last_run_on = nil
       @shutdown_requested = false
+      initialize_scheduled_runner_support
     end
 
     def run
@@ -32,17 +35,9 @@ module Tickrake
     end
 
     def run_iteration(now)
-      return false unless due?(now)
-
-      begin
+      execute_iteration_with_resilience(now) do
         @job.run(now: now)
-        @last_run_at = now
-        @last_run_on = now.to_date
-      rescue StandardError => e
-        log_iteration_failure(now, e)
-        @sleeper.sleep(@runtime.config.retry_delay_seconds) unless @shutdown_requested
       end
-      true
     end
 
     def due?(time)
@@ -58,6 +53,15 @@ module Tickrake
     end
 
     private
+
+    def scheduler_log_prefix
+      "Maintenance scheduler"
+    end
+
+    def mark_iteration_success(now)
+      @last_run_at = now
+      @last_run_on = now.to_date
+    end
 
     def due_for_interval_schedule?(time)
       return false unless in_window?(time)

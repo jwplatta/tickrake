@@ -13,6 +13,11 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.job("manual_candles")).to be_manual
     expect(config.default_provider_name).to eq("schwab")
     expect(config.provider_definition("schwab").adapter).to eq("schwab")
+    expect(config.provider_definition("schwab")).to be_serialize_scheduled_jobs
+    expect(config.provider_definition("schwab").restart_after_consecutive_failures).to eq(3)
+    expect(config.provider_definition("schwab").restart_cooldown_seconds).to eq(30)
+    expect(config.provider_definition("ibkr-paper")).not_to be_serialize_scheduled_jobs
+    expect(config.provider_definition("ibkr-paper").restart_after_consecutive_failures).to be_nil
     expect(config.provider_definition("massive").adapter).to eq("massive")
     expect(config.ticker_for_option_root("SPXW")).to eq("SPX")
     expect(config.option_snapshot_filename_timezone).to eq("utc")
@@ -54,6 +59,40 @@ RSpec.describe Tickrake::ConfigLoader do
       expect(config.jobs).to eq([])
       expect(config.import_job("spxw_backfill").ticker).to be_nil
       expect(config.import_job("spxw_backfill").paths).to eq(["/tmp/2025-10-01.csv", "/tmp/2025-10-02.csv"])
+    end
+  end
+
+  it "loads explicit provider scheduler resilience settings" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+            settings:
+              serialize_scheduled_jobs: false
+              restart_after_consecutive_failures: 5
+              restart_cooldown_seconds: 45
+        schedule:
+          index_options:
+            type: options
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            dte_buckets: [0DTE]
+            universe:
+              - symbol: SPY
+      YAML
+
+      config = described_class.load(path)
+      provider = config.provider_definition("schwab")
+
+      expect(provider).not_to be_serialize_scheduled_jobs
+      expect(provider.restart_after_consecutive_failures).to eq(5)
+      expect(provider.restart_cooldown_seconds).to eq(45)
     end
   end
 

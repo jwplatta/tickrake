@@ -3,7 +3,30 @@
 module Tickrake
   SchedulerWindow = Struct.new(:days, :start_time, :end_time, keyword_init: true)
   OptionSymbol = Struct.new(:symbol, :option_root, :provider, keyword_init: true)
-  ProviderDefinition = Struct.new(:name, :adapter, :settings, :symbol_map, keyword_init: true)
+  ProviderDefinition = Struct.new(:name, :adapter, :settings, :symbol_map, keyword_init: true) do
+    def serialize_scheduled_jobs?
+      configured = settings.fetch("serialize_scheduled_jobs", nil)
+      return configured if configured == true || configured == false
+
+      adapter == "schwab"
+    end
+
+    def restart_after_consecutive_failures
+      configured = settings.fetch("restart_after_consecutive_failures", nil)
+      return 3 if configured.nil? && adapter == "schwab"
+      return nil if configured.nil?
+
+      Integer(configured)
+    end
+
+    def restart_cooldown_seconds
+      configured = settings.fetch("restart_cooldown_seconds", nil)
+      return Integer(configured) unless configured.nil?
+      return 30 if adapter == "schwab" && !restart_after_consecutive_failures.nil?
+
+      nil
+    end
+  end
   CandleSymbol = Struct.new(
     :symbol,
     :provider,
@@ -163,13 +186,25 @@ module Tickrake
     def provider_name_for_entry(entry, scheduled_job: nil, fallback: nil)
       resolved_fallback = fallback || scheduled_job&.provider || default_provider_name
 
-      (entry.provider || resolved_fallback).to_s
+      (entry&.provider || resolved_fallback).to_s
     end
 
     def provider_name_for_entry_with_override(override_name, entry, scheduled_job: nil)
       return override_name.to_s if override_name
 
       provider_name_for_entry(entry, scheduled_job: scheduled_job)
+    end
+
+    def provider_names_for_job(job, override_name: nil)
+      case job.type
+      when "options", "candles"
+        entries = Array(job.universe)
+        return [provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)].compact.uniq if entries.empty?
+
+        entries.map { |entry| provider_name_for_entry_with_override(override_name, entry, scheduled_job: job) }.uniq
+      else
+        [provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)].compact.uniq
+      end
     end
 
     def ticker_for_option_root(option_root)

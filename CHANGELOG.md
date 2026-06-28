@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Added `maintenance` jobs and option-sample compaction into per-day CSV/parquet artifacts tracked in `file_metadata_cache`.
 - Added manual maintenance runs over explicit date ranges, with date-level progress reporting for compaction jobs.
 - Added `tickrake validate-option-compaction` to verify a compacted daily options CSV against its source snapshot files before cleanup.
+- Added provider-level scheduled-job resilience settings so Schwab schedulers can serialize runs and auto-restart after repeated failures.
 
 ### Fixed
 - Fixed IBKR provider hangs on early-date fetches and improved symbol period resolution.

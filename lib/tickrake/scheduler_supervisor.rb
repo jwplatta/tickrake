@@ -28,10 +28,20 @@ module Tickrake
           break
         end
 
-        @runtime.logger.error(
-          "Scheduler #{@scheduled_job.name} exited unexpectedly with status=#{exit_status.exitstatus}; restarting in #{RESTART_DELAY_SECONDS}s."
-        )
-        @sleeper.sleep(RESTART_DELAY_SECONDS)
+        restart_delay = restart_delay_seconds
+        if exit_status.exitstatus == Tickrake::SchedulerRestartRequired::EXIT_STATUS
+          # Exit status 75 is an intentional scheduler recycle for repeated
+          # provider failures, not an unclassified crash.
+          @runtime.logger.error(
+            "Scheduler #{@scheduled_job.name} exited for repeated provider failures with status=#{exit_status.exitstatus}; " \
+            "restarting in #{restart_delay}s."
+          )
+        else
+          @runtime.logger.error(
+            "Scheduler #{@scheduled_job.name} exited unexpectedly with status=#{exit_status.exitstatus}; restarting in #{restart_delay}s."
+          )
+        end
+        @sleeper.sleep(restart_delay)
       end
     ensure
       @runtime.logger.info("Stopped scheduler supervisor for #{@scheduled_job.name}.")
@@ -65,6 +75,16 @@ module Tickrake
 
     def executable_path
       File.expand_path("../../exe/tickrake", __dir__)
+    end
+
+    def restart_delay_seconds
+      providers = @runtime.config.provider_names_for_job(
+        @scheduled_job,
+        override_name: @runtime.provider_override_name
+      ).map do |provider_name|
+        @runtime.config.provider_definition(provider_name)
+      end
+      providers.filter_map(&:restart_cooldown_seconds).max || RESTART_DELAY_SECONDS
     end
 
     def install_signal_handlers

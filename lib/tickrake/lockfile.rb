@@ -8,8 +8,19 @@ module Tickrake
     end
 
     def synchronize
+      acquired = false
+      result = try_synchronize do
+        acquired = true
+        yield
+      end
+      return result if acquired
+
+      raise LockError, "Another process already holds #{@path}"
+    end
+
+    def try_synchronize
       File.open(@path, File::RDWR | File::CREAT, 0o644) do |file|
-        raise LockError, "Another process already holds #{@path}" unless file.flock(File::LOCK_EX | File::LOCK_NB)
+        return false unless file.flock(File::LOCK_EX | File::LOCK_NB)
 
         yield
       ensure

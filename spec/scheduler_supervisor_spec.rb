@@ -28,7 +28,25 @@ RSpec.describe Tickrake::SchedulerSupervisor do
     described_class.new(runtime, scheduled_job: job, sleeper: sleeper).run
 
     expect(Process).to have_received(:spawn).twice
-    expect(sleeper).to have_received(:sleep).with(described_class::RESTART_DELAY_SECONDS)
+    expect(sleeper).to have_received(:sleep).with(30)
     expect(logger).to have_received(:error).with(/exited unexpectedly/)
+  end
+
+  it "logs threshold-triggered scheduler exits distinctly" do
+    status_fail = instance_double(
+      Process::Status,
+      success?: false,
+      exitstatus: Tickrake::SchedulerRestartRequired::EXIT_STATUS
+    )
+    status_ok = instance_double(Process::Status, success?: true, exitstatus: 0)
+
+    allow(Process).to receive(:spawn).and_return(111, 222)
+    allow(Process).to receive(:wait2).with(111).and_return([111, status_fail])
+    allow(Process).to receive(:wait2).with(222).and_return([222, status_ok])
+
+    described_class.new(runtime, scheduled_job: job, sleeper: sleeper).run
+
+    expect(logger).to have_received(:error).with(/repeated provider failures/)
+    expect(sleeper).to have_received(:sleep).with(30)
   end
 end

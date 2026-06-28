@@ -14,14 +14,21 @@ module Tickrake
 
     def run(now: Time.now)
       @runtime.logger.info("Starting candle scrape at #{now.utc.iso8601}")
+      success_count = 0
+      failure_count = 0
       selected_universe.each do |entry|
         provider = provider_for(entry)
         provider_definition = provider_definition_for(entry)
         entry.frequencies.each do |frequency|
-          fetch_one(entry, frequency, provider, provider_definition, now)
+          if fetch_one(entry, frequency, provider, provider_definition, now) == :success
+            success_count += 1
+          else
+            failure_count += 1
+          end
         end
       end
       @runtime.logger.info("Completed candle scrape at #{Time.now.utc.iso8601}")
+      ScheduledRunResult.new(success_count: success_count, failure_count: failure_count)
     end
 
     private
@@ -72,6 +79,7 @@ module Tickrake
         )
         @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
         progress_reporter&.finish
+        :success
       rescue StandardError => e
         retries += 1
         if retries <= @runtime.config.retry_count
@@ -82,6 +90,7 @@ module Tickrake
         @runtime.logger.error("Failed candle fetch for #{entry.symbol} #{frequency}: #{e.message}")
         @runtime.tracker.record_finish(id: id, status: "failed", finished_at: Time.now, error_message: e.message)
         progress_reporter&.finish
+        :failed
       end
     end
 
