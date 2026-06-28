@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
+require "parquet"
+
 module Tickrake
   module Storage
     class ParquetWriter
       def write(path, headers:, rows:)
-        require "parquet"
-
         directory = File.dirname(path)
         FileUtils.mkdir_p(directory)
         tmp_path = "#{path}.tmp"
