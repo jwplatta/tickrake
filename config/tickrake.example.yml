@@ -114,3 +114,10 @@ schedule:
       - symbol: QQQ
         start_date: "2020-01-01"
         frequencies: [day, minute]
+  manual_compact_spxw:
+    type: maintenance
+    manual: true
+    provider: schwab
+    task: compact_option_samples
+    settings:
+      option_root: SPXW

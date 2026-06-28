@@ -4,7 +4,7 @@ RSpec.describe Tickrake::ConfigLoader do
   it "loads the example config with typed scheduled jobs" do
     config = described_class.load(File.expand_path("../config/tickrake.example.yml", __dir__))
 
-    expect(config.jobs.map(&:name)).to eq(%w[index_options eod_candles spx_min_candles manual_candles])
+    expect(config.jobs.map(&:name)).to eq(%w[index_options eod_candles spx_min_candles manual_candles manual_compact_spxw])
     expect(config.job("index_options").type).to eq("options")
     expect(config.job("index_options").interval_seconds).to eq(300)
     expect(config.job("index_options").dte_buckets).to include(0, 10, 30)
@@ -22,6 +22,10 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.import_job("spxw_massive_options").paths).to include(/2025-10-01\.csv/)
     expect(config.options_universe.map(&:symbol)).to include("$SPX", "SPY")
     expect(config.job("eod_candles").universe.first.frequencies).to include("day", "30min", "10min", "5min", "1min")
+    expect(config.job("manual_compact_spxw")).to be_manual
+    expect(config.job("manual_compact_spxw").type).to eq("maintenance")
+    expect(config.job("manual_compact_spxw").task).to eq("compact_option_samples")
+    expect(config.job("manual_compact_spxw").settings).to eq("option_root" => "SPXW")
   end
 
   it "loads import-only jobs without requiring a scheduled job" do
@@ -184,6 +188,32 @@ RSpec.describe Tickrake::ConfigLoader do
       expect(config.job("manual_candles").run_at).to be_nil
       expect(config.job("manual_candles").days).to eq([])
       expect(config.job("manual_candles").universe.first.frequencies).to eq(%w[day 1min])
+    end
+  end
+
+  it "loads manual maintenance jobs with freeform settings" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "manual-maintenance.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        schedule:
+          compact_spxw:
+            type: maintenance
+            manual: true
+            provider: schwab
+            task: compact_option_samples
+            settings:
+              option_root: SPXW
+      YAML
+
+      config = described_class.load(path)
+
+      expect(config.job("compact_spxw")).to be_manual
+      expect(config.job("compact_spxw").task).to eq("compact_option_samples")
+      expect(config.job("compact_spxw").settings).to eq("option_root" => "SPXW")
     end
   end
 

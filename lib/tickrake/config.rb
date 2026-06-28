@@ -24,6 +24,8 @@ module Tickrake
     :lookback_days,
     :dte_buckets,
     :universe,
+    :task,
+    :settings,
     :manual,
     keyword_init: true
   ) do
@@ -33,6 +35,10 @@ module Tickrake
 
     def candles?
       type == "candles"
+    end
+
+    def maintenance?
+      type == "maintenance"
     end
 
     def interval_schedule?

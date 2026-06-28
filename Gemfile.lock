@@ -1,9 +1,10 @@
 PATH
   remote: .
   specs:
-    tickrake (0.2.0)
+    tickrake (0.3.0)
       ib-api (~> 972.5)
       mcp (>= 0.1, < 1.0)
+      parquet
       ruby-progressbar (~> 1.13)
       schwab_rb (>= 0.9.2, < 1.0)
       sqlite3 (>= 1.6)
@@ -112,6 +113,8 @@ GEM
     openssl (3.3.2)
     ox (2.14.23)
       bigdecimal (>= 3.0)
+    parquet (0.8.0-arm64-darwin)
+      bigdecimal
     prism (1.9.0)
     protocol-hpack (1.5.1)
     protocol-http (0.59.0)

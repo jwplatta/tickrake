@@ -30,6 +30,28 @@ module Tickrake
         )
       end
 
+      def option_compacted_sample_path(provider:, root:, sample_date:, format:)
+        extension = format.to_s.downcase
+        raise Tickrake::Error, "Unsupported compacted option format `#{format}`." unless %w[csv parquet].include?(extension)
+
+        File.join(
+          provider_options_dir(provider),
+          sample_date.strftime("%Y"),
+          sample_date.strftime("%m"),
+          sample_date.strftime("%d"),
+          "#{sanitize_symbol(root)}_samples_#{sample_date.iso8601}.#{extension}"
+        )
+      end
+
+      def option_samples_dir(provider:, sample_date:)
+        File.join(
+          provider_options_dir(provider),
+          sample_date.strftime("%Y"),
+          sample_date.strftime("%m"),
+          sample_date.strftime("%d")
+        )
+      end
+
       private
 
       def option_snapshot_filename_time(timestamp)
