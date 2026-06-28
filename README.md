@@ -381,12 +381,25 @@ schedule:
       - symbol: QQQ
         start_date: "2020-01-01"
         frequencies: [day, 1min]
+  manual_compact_spxw:
+    type: maintenance
+    manual: true
+    provider: schwab
+    task: compact_option_samples
+    settings:
+      option_root: SPXW
 ```
 
 Manual jobs stay under `schedule` so they can reuse the same configured universes and
 provider precedence as scheduled jobs. Run them with `tickrake run --job JOB_NAME`.
 They are not started by `tickrake start --job all` or `tickrake restart --job all`, and
 they cannot be launched as background schedulers.
+
+Maintenance jobs support manual date ranges:
+
+```bash
+tickrake run --job manual_compact_spxw --start-date 2025-12-18 --end-date 2025-12-19
+```
 
 Provider precedence is:
 - CLI `--provider`
@@ -418,6 +431,8 @@ That produces provider-separated output paths like:
 - `~/.tickrake/data/history/schwab/SPY_day.csv`
 - `~/.tickrake/data/history/ibkr-paper/SPY_day.csv`
 - `~/.tickrake/data/options/schwab/2026/04/11/SPXW_exp2026-04-11_2026-04-11_10-30-00.csv`
+- `~/.tickrake/data/options/schwab/2026/04/11/SPXW_samples_2026-04-11.csv`
+- `~/.tickrake/data/options/schwab/2026/04/11/SPXW_samples_2026-04-11.parquet`
 
 If you need a custom layout, you can still set:
 

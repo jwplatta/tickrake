@@ -11,6 +11,11 @@ module Tickrake
       ticker
       frequency
       expiration_date
+      storage_format
+      storage_location
+      artifact_status
+      remote_uri
+      source_file_count
       row_count
       first_observed_at
       last_observed_at
@@ -32,7 +37,8 @@ module Tickrake
         Tickrake::DB::Migrations::AddFetchRunsFrequency,
         Tickrake::DB::Migrations::AddOptionExpirationAndIndexes,
         Tickrake::DB::Migrations::AddOptionTickerTimeIndex,
-        Tickrake::DB::Migrations::CreateMarketIndexTables
+        Tickrake::DB::Migrations::CreateMarketIndexTables,
+        Tickrake::DB::Migrations::AddArtifactMetadataToFileCache
       ].freeze
     end
 
@@ -142,13 +148,18 @@ module Tickrake
             <<~SQL,
               INSERT INTO file_metadata_cache (
                 #{FILE_METADATA_COLUMNS.join(", ")}
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT(path) DO UPDATE SET
                 dataset_type = excluded.dataset_type,
                 provider_name = excluded.provider_name,
                 ticker = excluded.ticker,
                 frequency = excluded.frequency,
                 expiration_date = excluded.expiration_date,
+                storage_format = excluded.storage_format,
+                storage_location = excluded.storage_location,
+                artifact_status = excluded.artifact_status,
+                remote_uri = excluded.remote_uri,
+                source_file_count = excluded.source_file_count,
                 row_count = excluded.row_count,
                 first_observed_at = excluded.first_observed_at,
                 last_observed_at = excluded.last_observed_at,
@@ -300,6 +311,11 @@ module Tickrake
         "ticker" => attrs.fetch(:ticker),
         "frequency" => attrs[:frequency],
         "expiration_date" => attrs[:expiration_date],
+        "storage_format" => attrs[:storage_format],
+        "storage_location" => attrs[:storage_location],
+        "artifact_status" => attrs[:artifact_status],
+        "remote_uri" => attrs[:remote_uri],
+        "source_file_count" => attrs[:source_file_count],
         "row_count" => Integer(attrs.fetch(:row_count)),
         "first_observed_at" => attrs[:first_observed_at],
         "last_observed_at" => attrs[:last_observed_at],

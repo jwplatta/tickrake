@@ -6,8 +6,9 @@ module Tickrake
   class ConfigLoader
     VALID_ADAPTERS = %w[schwab ibkr massive].freeze
     VALID_DAYS = %w[mon tue wed thu fri sat sun].freeze
-    VALID_JOB_TYPES = %w[options candles].freeze
+    VALID_JOB_TYPES = %w[options candles maintenance].freeze
     VALID_IMPORT_TYPES = %w[options].freeze
+    VALID_MAINTENANCE_TASKS = %w[compact_option_samples].freeze
 
     def self.load(path)
       new(path).load
@@ -83,6 +84,10 @@ module Tickrake
           raise ConfigError, "candle lookback_days must be non-negative for `#{job.name}`." if job.lookback_days.to_i.negative?
           validate_candle_schedule!(job)
           job.universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
+        elsif job.maintenance?
+          raise ConfigError, "Unknown maintenance task `#{job.task}` for `#{job.name}`." unless VALID_MAINTENANCE_TASKS.include?(job.task)
+          validate_maintenance_schedule!(job)
+          validate_maintenance_settings!(job)
         end
       end
 
@@ -156,6 +161,8 @@ module Tickrake
         build_options_job(name, raw_job)
       when "candles"
         build_candles_job(name, raw_job)
+      when "maintenance"
+        build_maintenance_job(name, raw_job)
       end
     end
 
@@ -174,6 +181,8 @@ module Tickrake
         lookback_days: nil,
         dte_buckets: Array(raw_job.fetch("dte_buckets")).map { |bucket| parse_bucket(bucket) },
         universe: Array(raw_job.fetch("universe")).map { |row| load_option_symbol(row) },
+        task: nil,
+        settings: {},
         manual: manual
       )
     end
@@ -195,6 +204,31 @@ module Tickrake
         lookback_days: Integer(raw_job.fetch("lookback_days")),
         dte_buckets: [],
         universe: Array(raw_job.fetch("universe")).map { |row| load_candle_symbol(row) },
+        task: nil,
+        settings: {},
+        manual: manual
+      )
+    end
+
+    def build_maintenance_job(name, raw_job)
+      manual = manual_job?(raw_job)
+      validate_no_schedule_fields!(name, raw_job, %w[interval_seconds windows run_at days]) if manual
+      uses_interval_schedule = raw_job.key?("interval_seconds") || raw_job.key?("windows")
+      uses_daily_schedule = raw_job.key?("run_at") || raw_job.key?("days")
+
+      ScheduledJobConfig.new(
+        name: name.to_s,
+        type: "maintenance",
+        provider: raw_job["provider"],
+        interval_seconds: uses_interval_schedule ? Integer(raw_job.fetch("interval_seconds")) : nil,
+        windows: uses_interval_schedule ? load_scheduler_windows(raw_job.fetch("windows")) : [],
+        run_at: uses_daily_schedule ? normalize_clock(raw_job.fetch("run_at")) : nil,
+        days: uses_daily_schedule ? normalize_days(raw_job.fetch("days")) : [],
+        lookback_days: nil,
+        dte_buckets: [],
+        universe: [],
+        task: raw_job.fetch("task").to_s,
+        settings: stringify_keys(raw_job.fetch("settings", {})),
         manual: manual
       )
     end
@@ -219,6 +253,34 @@ module Tickrake
 
     def manual_job?(raw_job)
       raw_job.fetch("manual", false) == true
+    end
+
+    def validate_maintenance_schedule!(job)
+      return if job.manual?
+
+      if job.interval_schedule? && job.daily_schedule?
+        raise ConfigError, "maintenance job `#{job.name}` must use either interval_seconds/windows or run_at/days, not both."
+      end
+      if !job.interval_schedule? && !job.daily_schedule?
+        raise ConfigError, "maintenance job `#{job.name}` must define either interval_seconds/windows or run_at/days."
+      end
+      if job.interval_schedule?
+        raise ConfigError, "maintenance job `#{job.name}` interval must be positive." if job.interval_seconds.to_i <= 0
+        raise ConfigError, "At least one maintenance job window is required for `#{job.name}`." if job.windows.empty?
+      end
+      if job.daily_schedule?
+        raise ConfigError, "At least one maintenance job day is required for `#{job.name}`." if job.days.empty?
+      end
+    end
+
+    def validate_maintenance_settings!(job)
+      settings = job.settings || {}
+      raise ConfigError, "maintenance job `#{job.name}` settings must be a mapping." unless settings.is_a?(Hash)
+
+      case job.task
+      when "compact_option_samples"
+        raise ConfigError, "maintenance job `#{job.name}` requires settings.option_root." if settings["option_root"].to_s.strip.empty?
+      end
     end
 
     def validate_no_schedule_fields!(name, raw_job, fields)

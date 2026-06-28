@@ -28,6 +28,30 @@ RSpec.describe "schedulers" do
     expect(runner.due?(after)).to eq(true)
   end
 
+  it "runs a maintenance job once after configured time" do
+    maintenance_job = Tickrake::ScheduledJobConfig.new(
+      name: "compact_spxw",
+      type: "maintenance",
+      provider: "schwab",
+      interval_seconds: nil,
+      windows: [],
+      run_at: [18, 0],
+      days: %w[mon tue wed thu fri],
+      lookback_days: nil,
+      dte_buckets: [],
+      universe: [],
+      task: "compact_option_samples",
+      settings: { "option_root" => "SPXW" }
+    )
+    runner = Tickrake::MaintenanceSchedulerRunner.new(runtime, scheduled_job: maintenance_job)
+
+    before = Time.new(2026, 4, 6, 17, 59, 0, "-05:00")
+    after = Time.new(2026, 4, 6, 18, 0, 0, "-05:00")
+
+    expect(runner.due?(before)).to eq(false)
+    expect(runner.due?(after)).to eq(true)
+  end
+
   it "runs an interval candle job only inside configured windows and on its interval" do
     job = Tickrake::ScheduledJobConfig.new(
       name: "intraday_candles",

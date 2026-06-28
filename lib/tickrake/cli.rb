@@ -53,6 +53,9 @@ module Tickrake
       when "storage-stats"
         config = Tickrake::ConfigLoader.load(config_path)
         storage_stats_command(argv, config)
+      when "validate-option-compaction"
+        config = Tickrake::ConfigLoader.load(config_path)
+        validate_option_compaction_command(argv, config)
       when "query"
         config = Tickrake::ConfigLoader.load(config_path)
         query_command(argv, config)
@@ -251,7 +254,13 @@ module Tickrake
       elsif options[:supervisor]
         run_supervisor(runtime, job, from_config_start: options[:from_config_start])
       else
-        run_job_once(runtime, job, from_config_start: options[:from_config_start])
+        run_job_once(
+          runtime,
+          job,
+          from_config_start: options[:from_config_start],
+          start_date: options[:start_date],
+          end_date: options[:end_date]
+        )
       end
       0
     end
@@ -295,7 +304,7 @@ module Tickrake
       0
     end
 
-    def run_job_once(runtime, job, from_config_start:)
+    def run_job_once(runtime, job, from_config_start:, start_date:, end_date:)
       case job.type
       when "options"
         progress_reporter = Tickrake::ProgressReporter.build(
@@ -313,6 +322,23 @@ module Tickrake
           scheduled_job: job
         ).run
         @stdout.puts("Completed job #{job.name}.")
+      when "maintenance"
+        progress_reporter = Tickrake::ProgressReporter.build(
+          total: maintenance_progress_total(start_date: start_date, end_date: end_date),
+          title: "Compact",
+          output: @stdout
+        )
+        result = Tickrake::MaintenanceJob.new(
+          runtime,
+          scheduled_job: job,
+          start_date: start_date,
+          end_date: end_date,
+          progress_reporter: progress_reporter
+        ).run
+        @stdout.puts(
+          "Completed job #{job.name}: processed #{result.processed_dates.length} date(s), "\
+          "wrote #{result.artifacts_written.length} artifact(s)."
+        )
       else
         raise Tickrake::Error, "Unknown job type `#{job.type}`."
       end
@@ -324,6 +350,8 @@ module Tickrake
         Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: job).run
       when "candles"
         Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: job, from_config_start: from_config_start).run
+      when "maintenance"
+        Tickrake::MaintenanceSchedulerRunner.new(runtime, scheduled_job: job).run
       else
         raise Tickrake::Error, "Unknown job type `#{job.type}`."
       end
@@ -508,9 +536,7 @@ module Tickrake
     end
 
     def validate_job_run_options!(job, options)
-      direct_args = [options[:ticker], options[:expiration_date], options[:option_root], options[:start_date], options[:end_date], options[:frequency]]
       raise Tickrake::Error, "--type cannot be combined with --job." if options[:type]
-      raise Tickrake::Error, "Direct run arguments cannot be combined with --job." if direct_args.any?
       raise Tickrake::Error, "--scheduler requires --job." if options[:scheduler] && options[:job].nil?
       raise Tickrake::Error, "--supervisor requires --job." if options[:supervisor] && options[:job].nil?
       raise Tickrake::Error, "--scheduler cannot be combined with --supervisor." if options[:scheduler] && options[:supervisor]
@@ -520,6 +546,22 @@ module Tickrake
       if options[:from_config_start] && job.type != "candles"
         raise Tickrake::Error, "--from-config-start is only valid for candles jobs."
       end
+
+      if job.maintenance?
+        direct_args = [options[:ticker], options[:expiration_date], options[:option_root], options[:frequency]]
+        raise Tickrake::Error, "Direct run arguments cannot be combined with --job." if direct_args.any?
+        raise Tickrake::Error, "--from-config-start is only valid for candles jobs." if options[:from_config_start]
+        if options[:start_date].nil? ^ options[:end_date].nil?
+          raise Tickrake::Error, "Maintenance runs require both --start-date and --end-date."
+        end
+        if options[:start_date] && options[:end_date] && options[:end_date] < options[:start_date]
+          raise Tickrake::Error, "--end-date must be on or after --start-date."
+        end
+        return
+      end
+
+      direct_args = [options[:ticker], options[:expiration_date], options[:option_root], options[:start_date], options[:end_date], options[:frequency]]
+      raise Tickrake::Error, "Direct run arguments cannot be combined with --job." if direct_args.any?
     end
 
     def validate_direct_run_options!(options)
@@ -557,6 +599,12 @@ module Tickrake
       )]
     end
 
+    def maintenance_progress_total(start_date:, end_date:)
+      return 1 if start_date.nil? && end_date.nil?
+
+      ((end_date - start_date).to_i + 1)
+    end
+
     def query_command(argv, config)
       options = parse_query_options!(argv)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
@@ -583,6 +631,30 @@ module Tickrake
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       @stdout.puts(Tickrake::Storage::StatsReport.new(config, tracker: tracker).render)
       0
+    end
+
+    def validate_option_compaction_command(argv, config)
+      options = parse_validate_option_compaction_options!(argv)
+      dataset = Tickrake::Storage::OptionCompactionDataset.new(
+        config: config,
+        provider_name: options[:provider_name].to_s.empty? ? config.default_provider_name : options[:provider_name],
+        option_root: options[:option_root]
+      )
+      raw_files = dataset.raw_snapshot_files(sample_date: options[:sample_date])
+      progress_reporter = Tickrake::ProgressReporter.build(
+        total: raw_files.length + 1,
+        title: "Validate",
+        output: @stdout
+      )
+      result = Tickrake::OptionCompactionValidator.new(
+        config: config,
+        option_root: options[:option_root],
+        sample_date: options[:sample_date],
+        provider_name: options[:provider_name],
+        progress_reporter: progress_reporter
+      ).validate
+      Tickrake::OptionCompactionValidationOutput.new(stdout: @stdout, stderr: @stderr).emit(result)
+      result.safe_to_delete ? 0 : 1
     end
 
     def parse_query_options!(argv)
@@ -620,6 +692,25 @@ module Tickrake
       end
       parser.order!(argv)
       raise OptionParser::InvalidOption, argv.first if argv.any?
+
+      options
+    end
+
+    def parse_validate_option_compaction_options!(argv)
+      options = { option_root: nil, sample_date: nil, provider_name: nil }
+      parser = OptionParser.new do |opts|
+        opts.on("--symbol ROOT", "Option root symbol to validate (for example SPXW)") { |value| options[:option_root] = value }
+        opts.on("--sample-date YYYY-MM-DD", "Sample date for the compacted daily CSV") do |value|
+          options[:sample_date] = Date.iso8601(value)
+        end
+        opts.on("--provider NAME", "Provider folder name (defaults to config default_provider)") do |value|
+          options[:provider_name] = value
+        end
+      end
+      parser.order!(argv)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+      raise Tickrake::Error, "--symbol is required." if options[:option_root].to_s.empty?
+      raise Tickrake::Error, "--sample-date is required." if options[:sample_date].nil?
 
       options
     end
@@ -741,7 +832,7 @@ module Tickrake
           tickrake import --job JOB_NAME [--force] [--config path/to/tickrake.yml] [--verbose]
           tickrake import --type options --provider massive --option-root ROOT --path path/to/YYYY-MM-DD.csv [--ticker SYMBOL] [--force] [--config path/to/tickrake.yml] [--verbose]
           tickrake import-index-data --memberships data/market_index_memberships.csv [--tickers data/tickers.csv] [--alias-history data/ticker_aliases.csv] [--config path/to/tickrake.yml]
-          tickrake run --job JOB_NAME [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml] [--verbose]
+          tickrake run --job JOB_NAME [--provider NAME] [--from-config-start] [--start-date YYYY-MM-DD --end-date YYYY-MM-DD] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type options --ticker SYMBOL --expiration-date YYYY-MM-DD [--option-root ROOT] [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type candles --ticker SYMBOL --start-date YYYY-MM-DD --end-date YYYY-MM-DD --frequency FREQ [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
           tickrake start --job JOB_NAME|all [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml]
@@ -750,6 +841,7 @@ module Tickrake
           tickrake status [--config path/to/tickrake.yml]
           tickrake query [--type candles|options|members] [--provider NAME] [--ticker SYMBOL] [--index CODE] [--as-of YYYY-MM-DD] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--exp-date YYYY-MM-DD] [--limit N] [--ascending true|false] [--format text|json] [--config path/to/tickrake.yml]
           tickrake storage-stats [--config path/to/tickrake.yml]
+          tickrake validate-option-compaction --symbol ROOT --sample-date YYYY-MM-DD [--provider NAME] [--config path/to/tickrake.yml]
           tickrake logs [TARGET] [--tail N]
       TEXT
     end
