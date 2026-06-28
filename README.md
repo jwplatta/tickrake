@@ -303,7 +303,10 @@ default_provider: schwab
 providers:
   schwab:
     adapter: schwab
-    settings: {}
+    settings:
+      serialize_scheduled_jobs: true
+      restart_after_consecutive_failures: 3
+      restart_cooldown_seconds: 30
   ibkr-paper:
     adapter: ibkr
     settings:
@@ -312,6 +315,17 @@ providers:
       client_id: 1001
 ```
 
+Provider `settings` also carry scheduler resilience controls. For Schwab, the defaults
+are:
+
+- `serialize_scheduled_jobs: true`
+- `restart_after_consecutive_failures: 3`
+- `restart_cooldown_seconds: 30`
+
+With those defaults, overlapping Schwab-backed scheduled jobs defer behind a provider
+lock under `~/.tickrake/`, and the scheduler exits non-zero after three consecutive
+failed or degraded Schwab iterations so `tickrake start --restart` can recycle it.
+
 Jobs can set a provider default, and universe entries can still override that per symbol:
 
 ```yaml
@@ -319,7 +333,10 @@ default_provider: schwab
 providers:
   schwab:
     adapter: schwab
-    settings: {}
+    settings:
+      serialize_scheduled_jobs: true
+      restart_after_consecutive_failures: 3
+      restart_cooldown_seconds: 30
   ibkr-paper:
     adapter: ibkr
     settings:

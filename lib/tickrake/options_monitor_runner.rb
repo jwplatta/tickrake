@@ -2,6 +2,8 @@
 
 module Tickrake
   class OptionsMonitorRunner
+    include ScheduledRunnerSupport
+
     def initialize(runtime, scheduled_job:, sleeper: Kernel)
       @runtime = runtime
       @scheduled_job = scheduled_job
@@ -9,6 +11,7 @@ module Tickrake
       @job = OptionsJob.new(runtime, scheduled_job: scheduled_job)
       @last_run_at = nil
       @shutdown_requested = false
+      initialize_scheduled_runner_support
     end
 
     def run
@@ -40,19 +43,20 @@ module Tickrake
     end
 
     def run_iteration(now)
-      return false unless due?(now)
-
-      begin
+      execute_iteration_with_resilience(now) do
         @job.run(now: now)
-        @last_run_at = now
-      rescue StandardError => e
-        log_iteration_failure(now, e)
-        @sleeper.sleep(@runtime.config.retry_delay_seconds) unless @shutdown_requested
       end
-      true
     end
 
     private
+
+    def scheduler_log_prefix
+      "Options scheduler"
+    end
+
+    def mark_iteration_success(now)
+      @last_run_at = now
+    end
 
     def log_iteration_failure(now, error)
       summary = Array(error.backtrace).first(3).join(" | ")

@@ -234,8 +234,12 @@ RSpec.describe "job execution" do
       logger: logger
     )
 
-    expect { Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0)) }.not_to raise_error
+    result = nil
+    expect { result = Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0)) }.not_to raise_error
     expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("failed"))
+    expect(result.success_count).to eq(0)
+    expect(result.failure_count).to eq(config.options_universe.length)
+    expect(result).not_to be_successful
   end
 
   it "rejects options collection for non-schwab providers" do
@@ -445,13 +449,16 @@ RSpec.describe "job execution" do
         rows.fetch(kwargs.fetch(:frequency))
       end
 
-      Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
+      result = Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
       expect(File.exist?(File.join(dir, "schwab", "SPY_day.csv"))).to eq(true)
       expect(File.exist?(File.join(dir, "schwab", "SPY_1min.csv"))).to eq(true)
       expect(File.exist?(File.join(dir, "schwab", "SPY_5min.csv"))).to eq(true)
       expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("success"))
       expect(tracker.fetch_runs.map { |row| row["frequency"] }).to include("day", "1min", "5min")
+      expect(result.success_count).to eq(3)
+      expect(result.failure_count).to eq(0)
+      expect(result).to be_successful
       expect(provider).to have_received(:fetch_bars).with(
         hash_including(
           symbol: "SPY",
@@ -461,6 +468,28 @@ RSpec.describe "job execution" do
         )
       )
     end
+  end
+
+  it "returns a degraded candle run result when provider fetches fail without raising" do
+    candle_entry = Tickrake::CandleSymbol.new(
+      symbol: "SPY",
+      frequencies: %w[day 1min],
+      start_date: Date.iso8601("2020-01-01"),
+      need_extended_hours_data: false,
+      need_previous_close: false
+    )
+    custom = config_with(config, candles_universe: [candle_entry], retry_count: 1, retry_delay_seconds: 0)
+    provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
+    provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
+    runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger, provider_name: "schwab")
+    allow(provider).to receive(:fetch_bars).and_raise(Timeout::Error, "timed out")
+
+    result = Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
+
+    expect(result.success_count).to eq(0)
+    expect(result.failure_count).to eq(2)
+    expect(result).not_to be_successful
+    expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("failed"))
   end
 
   it "writes mapped futures candles under the canonical symbol while fetching with the provider symbol" do

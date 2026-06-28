@@ -7,6 +7,16 @@ RSpec.describe "schedulers" do
   let(:tracker) { instance_double(Tickrake::Tracker) }
   let(:client_factory) { instance_double(Tickrake::ClientFactory) }
   let(:runtime) { Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: Logger.new(nil)) }
+  let(:logger) do
+    instance_double(Logger, info: nil, warn: nil, error: nil).tap do |double|
+      allow(double).to receive(:level=)
+    end
+  end
+  let(:sleeper) do
+    double("sleeper").tap do |double|
+      allow(double).to receive(:sleep)
+    end
+  end
 
   it "runs an options job only inside its configured windows" do
     runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"))
@@ -82,10 +92,6 @@ RSpec.describe "schedulers" do
   end
 
   it "keeps the options scheduler alive after an iteration failure and applies backoff" do
-    sleeper = double("sleeper")
-    allow(sleeper).to receive(:sleep)
-    logger = instance_double(Logger, info: nil, error: nil)
-    allow(logger).to receive(:level=)
     failing_job = instance_double(Tickrake::OptionsJob)
     runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
     runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
@@ -100,11 +106,115 @@ RSpec.describe "schedulers" do
     expect(logger).to have_received(:error).with(/iteration failed/)
   end
 
+  it "counts degraded schwab options iterations as failures and exits after the threshold" do
+    degraded_job = instance_double(Tickrake::OptionsJob)
+    runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
+    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
+
+    runner.instance_variable_set(:@job, degraded_job)
+    allow(degraded_job).to receive(:run).and_return(
+      Tickrake::ScheduledRunResult.new(success_count: 1, failure_count: 1)
+    )
+
+    runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
+    runner.run_iteration(Time.new(2026, 4, 6, 9, 1, 0, "-05:00"))
+
+    expect do
+      runner.run_iteration(Time.new(2026, 4, 6, 9, 2, 0, "-05:00"))
+    end.to raise_error(Tickrake::SchedulerRestartRequired)
+
+    expect(logger).to have_received(:warn).with(/consecutive_failures=1\/3/)
+    expect(logger).to have_received(:warn).with(/consecutive_failures=2\/3/)
+    expect(logger).to have_received(:error).with(/reached schwab failure threshold 3\/3/)
+  end
+
+  it "counts raised schwab iteration exceptions toward the restart threshold" do
+    failing_job = instance_double(Tickrake::OptionsJob)
+    runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
+    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
+
+    runner.instance_variable_set(:@job, failing_job)
+    allow(failing_job).to receive(:run).and_raise(Timeout::Error, "timed out")
+
+    runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
+    runner.run_iteration(Time.new(2026, 4, 6, 9, 1, 0, "-05:00"))
+
+    expect do
+      runner.run_iteration(Time.new(2026, 4, 6, 9, 2, 0, "-05:00"))
+    end.to raise_error(Tickrake::SchedulerRestartRequired)
+
+    expect(logger).to have_received(:warn).at_least(:once).with(/due to raised exception/)
+  end
+
+  it "resets the consecutive failure count after a successful schwab options iteration" do
+    job = instance_double(Tickrake::OptionsJob)
+    runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
+    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
+
+    runner.instance_variable_set(:@job, job)
+    allow(job).to receive(:run).and_return(
+      Tickrake::ScheduledRunResult.new(success_count: 1, failure_count: 1),
+      Tickrake::ScheduledRunResult.new(success_count: 2, failure_count: 0),
+      Tickrake::ScheduledRunResult.new(success_count: 1, failure_count: 1)
+    )
+
+    runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
+    runner.run_iteration(Time.new(2026, 4, 6, 9, 1, 0, "-05:00"))
+    runner.run_iteration(Time.new(2026, 4, 6, 9, 6, 0, "-05:00"))
+
+    expect(logger).to have_received(:info).with(/reset consecutive failure count/)
+    expect(logger).to have_received(:warn).with(/consecutive_failures=1\/3/).twice
+  end
+
+  it "defers overlapping schwab scheduled iterations behind a provider-scoped lock" do
+    Dir.mktmpdir do |dir|
+      allow(Tickrake::PathSupport).to receive(:home_dir).and_return(dir)
+      overlapping_job = instance_double(Tickrake::OptionsJob)
+      runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
+      runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
+
+      runner.instance_variable_set(:@job, overlapping_job)
+      allow(overlapping_job).to receive(:run)
+
+      Tickrake::Lockfile.new("tickrake-provider-schwab-scheduled").synchronize do
+        result = runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
+
+        expect(result).to eq(true)
+      end
+
+      expect(overlapping_job).not_to have_received(:run)
+      expect(logger).to have_received(:info).with(/waiting for provider schwab scheduled iteration lock/)
+    end
+  end
+
+  it "does not serialize scheduled iterations for providers without the setting enabled" do
+    failing_job = instance_double(Tickrake::CandlesJob)
+    runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
+    scheduled_job = Tickrake::ScheduledJobConfig.new(
+      name: "intraday_candles",
+      type: "candles",
+      provider: "ibkr-paper",
+      interval_seconds: 120,
+      windows: [Tickrake::SchedulerWindow.new(days: %w[mon tue wed thu fri], start_time: [8, 30], end_time: [15, 0])],
+      run_at: nil,
+      days: [],
+      lookback_days: 7,
+      dte_buckets: [],
+      universe: config.job("eod_candles").universe
+    )
+    runner = Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: scheduled_job, sleeper: sleeper)
+
+    runner.instance_variable_set(:@job, failing_job)
+    allow(failing_job).to receive(:run).and_raise(StandardError, "boom")
+
+    result = runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
+
+    expect(result).to eq(true)
+    expect(sleeper).to have_received(:sleep).with(config.retry_delay_seconds)
+    expect(logger).to have_received(:error).with(/iteration failed/)
+  end
+
   it "keeps the candles scheduler alive after an iteration failure and applies backoff" do
-    sleeper = double("sleeper")
-    allow(sleeper).to receive(:sleep)
-    logger = instance_double(Logger, info: nil, error: nil)
-    allow(logger).to receive(:level=)
     failing_job = instance_double(Tickrake::CandlesJob)
     runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
     runner = Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: config.job("eod_candles"), sleeper: sleeper)
@@ -120,10 +230,6 @@ RSpec.describe "schedulers" do
   end
 
   it "keeps the interval candle scheduler alive after an iteration failure and applies backoff" do
-    sleeper = double("sleeper")
-    allow(sleeper).to receive(:sleep)
-    logger = instance_double(Logger, info: nil, error: nil)
-    allow(logger).to receive(:level=)
     failing_job = instance_double(Tickrake::CandlesJob)
     runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
     scheduled_job = Tickrake::ScheduledJobConfig.new(

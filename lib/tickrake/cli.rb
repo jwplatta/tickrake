@@ -24,7 +24,7 @@ module Tickrake
       end
     rescue Tickrake::Error => e
       @stderr.puts(e.message)
-      1
+      e.respond_to?(:exit_status) ? e.exit_status : 1
     rescue OptionParser::ParseError => e
       @stderr.puts(e.message)
       1
