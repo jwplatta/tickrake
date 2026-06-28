@@ -102,21 +102,26 @@ RSpec.describe Tickrake::MaintenanceTasks::CompactOptionSamples do
     end
   end
 
-  it "advances a progress reporter once per requested date" do
+  it "advances a progress reporter once per raw snapshot file" do
     Dir.mktmpdir do |dir|
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      %w[2025-12-18 2025-12-19].each do |sample_date|
-        sample_dir = File.join(options_dir, "schwab", *sample_date.split("-"))
-        FileUtils.mkdir_p(sample_dir)
-        File.write(
-          File.join(sample_dir, "SPXW_exp#{sample_date}_#{sample_date}_19-50-58.csv"),
-          <<~CSV
-            contract_type,symbol,description,strike,expiration_date,mark,bid,bid_size,ask,ask_size,last,last_size,open_interest,total_volume,delta,gamma,theta,vega,rho,volatility,theoretical_volatility,theoretical_option_value,intrinsic_value,extrinsic_value,underlying_price
-            CALL,SPXW1,desc1,2800.0,#{sample_date},1.1,1.0,2,1.2,3,1.15,1,10,20,0.5,0.1,-0.2,0.3,0.05,0.22,0.21,1.05,0.5,0.55,6000.0
-          CSV
-        )
-      end
+      sample_dir = File.join(options_dir, "schwab", "2025", "12", "18")
+      FileUtils.mkdir_p(sample_dir)
+      File.write(
+        File.join(sample_dir, "SPXW_exp2025-12-18_2025-12-18_19-50-58.csv"),
+        <<~CSV
+          contract_type,symbol,description,strike,expiration_date,mark,bid,bid_size,ask,ask_size,last,last_size,open_interest,total_volume,delta,gamma,theta,vega,rho,volatility,theoretical_volatility,theoretical_option_value,intrinsic_value,extrinsic_value,underlying_price
+          CALL,SPXW1,desc1,2800.0,2025-12-18,1.1,1.0,2,1.2,3,1.15,1,10,20,0.5,0.1,-0.2,0.3,0.05,0.22,0.21,1.05,0.5,0.55,6000.0
+        CSV
+      )
+      File.write(
+        File.join(sample_dir, "SPXW_exp2025-12-19_2025-12-18_20-10-49.csv"),
+        <<~CSV
+          contract_type,symbol,description,strike,expiration_date,mark,bid,bid_size,ask,ask_size,last,last_size,open_interest,total_volume,delta,gamma,theta,vega,rho,volatility,theoretical_volatility,theoretical_option_value,intrinsic_value,extrinsic_value,underlying_price
+          PUT,SPXW2,desc2,2850.0,2025-12-19,2.1,2.0,4,2.2,5,2.15,1,11,21,-0.5,0.2,-0.3,0.4,-0.05,0.32,0.31,2.05,0.6,1.45,6001.0
+        CSV
+      )
 
       config = Tickrake::Config.new(
         timezone: "America/Chicago",
@@ -155,17 +160,24 @@ RSpec.describe Tickrake::MaintenanceTasks::CompactOptionSamples do
         manual: true
       )
       progress_reporter = instance_double(Tickrake::ProgressReporter, advance: nil, finish: nil)
+      allow(progress_reporter).to receive(:add_total)
 
       described_class.new(
         runtime: runtime,
         scheduled_job: scheduled_job,
         start_date: Date.new(2025, 12, 18),
-        end_date: Date.new(2025, 12, 19),
+        end_date: Date.new(2025, 12, 18),
         progress_reporter: progress_reporter
       ).run(now: Time.utc(2025, 12, 19, 0, 0, 0))
 
-      expect(progress_reporter).to have_received(:advance).with(title: "Compact 2025-12-18").ordered
-      expect(progress_reporter).to have_received(:advance).with(title: "Compact 2025-12-19").ordered
+      expect(progress_reporter).to have_received(:add_total).with(1)
+      expect(progress_reporter).to have_received(:advance).with(
+        title: "Compact 2025-12-18 SPXW_exp2025-12-18_2025-12-18_19-50-58.csv"
+      )
+      expect(progress_reporter).to have_received(:advance).with(
+        title: "Compact 2025-12-18 SPXW_exp2025-12-19_2025-12-18_20-10-49.csv"
+      )
+      expect(progress_reporter).to have_received(:advance).twice
       expect(progress_reporter).to have_received(:finish).once
     end
   end
