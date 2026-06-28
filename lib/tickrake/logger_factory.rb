@@ -2,11 +2,13 @@
 
 module Tickrake
   class LoggerFactory
-    LOG_ROTATION_COUNT = 10
+    LOG_ROTATION_COUNT = 5
     LOG_ROTATION_SIZE = 10 * 1024 * 1024
+    LOG_RETENTION_DAYS = 14
 
     def self.build(verbose:, stdout:, log_path: Tickrake::PathSupport.cli_log_path)
       FileUtils.mkdir_p(File.dirname(log_path))
+      Tickrake::LogRetention.new(log_path: log_path, retention_days: LOG_RETENTION_DAYS).prune!
 
       devices = [Logger.new(log_path, LOG_ROTATION_COUNT, LOG_ROTATION_SIZE)]
       devices << stdout if verbose

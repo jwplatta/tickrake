@@ -7,12 +7,14 @@ RSpec.describe Tickrake::Storage::StatsReport do
       history_dir = File.join(data_dir, "history")
       options_dir = File.join(data_dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      cli_log_path = File.join(dir, "cli.log")
-      options_log_path = File.join(dir, "options.log")
-      candles_log_path = File.join(dir, "candles.log")
+      logs_dir = File.join(dir, "logs")
+      cli_log_path = File.join(logs_dir, "cli.log")
+      options_log_path = File.join(logs_dir, "options.log")
+      candles_log_path = File.join(logs_dir, "candles.log")
 
       FileUtils.mkdir_p(File.join(history_dir, "ibkr-paper"))
       FileUtils.mkdir_p(File.join(options_dir, "schwab"))
+      FileUtils.mkdir_p(logs_dir)
 
       largest_history = File.join(history_dir, "ibkr-paper", "SPY_1min.csv")
       smaller_history = File.join(history_dir, "ibkr-paper", "QQQ_day.csv")
@@ -98,7 +100,7 @@ RSpec.describe Tickrake::Storage::StatsReport do
         jobs: []
       )
 
-      report = described_class.new(config, log_paths: { cli: File.join(dir, "cli.log") }).render
+      report = described_class.new(config, log_paths: { cli: File.join(dir, "logs", "cli.log") }).render
 
       expect(report).to include("Data files: 0 files using 0 B")
       expect(report).to include("History (#{history_dir})")

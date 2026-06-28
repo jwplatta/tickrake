@@ -85,7 +85,7 @@ RSpec.describe Tickrake::CLI do
       allow(Tickrake::PathSupport).to receive(:home_dir).and_return(fake_home)
       allow(Tickrake::PathSupport).to receive(:config_path).and_return(File.join(fake_home, "tickrake.yml"))
       allow(Tickrake::PathSupport).to receive(:sqlite_path).and_return(File.join(fake_home, "tickrake.sqlite3"))
-      allow(Tickrake::PathSupport).to receive(:cli_log_path).and_return(File.join(fake_home, "cli.log"))
+      allow(Tickrake::PathSupport).to receive(:cli_log_path).and_return(File.join(fake_home, "logs", "cli.log"))
 
       exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["init"])
 

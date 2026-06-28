@@ -264,8 +264,7 @@ Omitting `timezone:` (or passing `"UTC"`) returns timestamps in UTC and sets
 - Option snapshot filenames can use `options.snapshot_filename_timezone` independently of scheduler `timezone`.
 - Tickrake config: `~/.tickrake/tickrake.yml`
 - Tickrake metadata DB: `~/.tickrake/tickrake.sqlite3`
-- Tickrake CLI log: `~/.tickrake/cli.log`
-- Tickrake job logs: `~/.tickrake/<job_name>.log`
+- Tickrake logs: `~/.tickrake/logs/*.log`
 - Tickrake job state: `~/.tickrake/jobs/*.json`
 - Tickrake lockfiles: `~/.tickrake/*.lock`
 
@@ -557,13 +556,14 @@ Candle jobs support two schedule styles:
 - daily collection with `run_at` plus `days`
 - recurring collection inside market windows with `interval_seconds` plus `windows`
 
-One-off and direct CLI operational commands write structured logs to `~/.tickrake/cli.log`.
+One-off and direct CLI operational commands write structured logs to `~/.tickrake/logs/cli.log`.
 Configured jobs write to separate rotating log files named after the job key:
 
-- `~/.tickrake/index_options.log`
-- `~/.tickrake/eod_candles.log`
+- `~/.tickrake/logs/index_options.log`
+- `~/.tickrake/logs/eod_candles.log`
 
-Tickrake rotates each log with a fixed-file policy of 10 files at 10 MB each.
+Tickrake rotates each log with a fixed-file policy of 5 files at 10 MB each and prunes
+files older than 14 days within each log family.
 Add `--verbose` to one-off commands to also mirror log output to the console while
 the command runs.
 
