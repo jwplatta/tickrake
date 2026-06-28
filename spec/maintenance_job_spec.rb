@@ -101,4 +101,72 @@ RSpec.describe Tickrake::MaintenanceTasks::CompactOptionSamples do
       expect(parquet_metadata["source_file_count"]).to eq(2)
     end
   end
+
+  it "advances a progress reporter once per requested date" do
+    Dir.mktmpdir do |dir|
+      options_dir = File.join(dir, "options")
+      sqlite_path = File.join(dir, "tickrake.sqlite3")
+      %w[2025-12-18 2025-12-19].each do |sample_date|
+        sample_dir = File.join(options_dir, "schwab", *sample_date.split("-"))
+        FileUtils.mkdir_p(sample_dir)
+        File.write(
+          File.join(sample_dir, "SPXW_exp#{sample_date}_#{sample_date}_19-50-58.csv"),
+          <<~CSV
+            contract_type,symbol,description,strike,expiration_date,mark,bid,bid_size,ask,ask_size,last,last_size,open_interest,total_volume,delta,gamma,theta,vega,rho,volatility,theoretical_volatility,theoretical_option_value,intrinsic_value,extrinsic_value,underlying_price
+            CALL,SPXW1,desc1,2800.0,#{sample_date},1.1,1.0,2,1.2,3,1.15,1,10,20,0.5,0.1,-0.2,0.3,0.05,0.22,0.21,1.05,0.5,0.55,6000.0
+          CSV
+        )
+      end
+
+      config = Tickrake::Config.new(
+        timezone: "America/Chicago",
+        sqlite_path: sqlite_path,
+        providers: { "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}, symbol_map: {}) },
+        default_provider_name: "schwab",
+        option_root_tickers: { "SPXW" => "SPX" },
+        option_snapshot_filename_timezone: "utc",
+        data_dir: dir,
+        history_dir: File.join(dir, "history"),
+        options_dir: options_dir,
+        max_workers: 1,
+        retry_count: 0,
+        retry_delay_seconds: 0,
+        option_fetch_timeout_seconds: 30,
+        candle_fetch_timeout_seconds: 30,
+        jobs: [],
+        import_jobs: []
+      )
+      Tickrake::Tracker.migrate!(sqlite_path)
+      tracker = Tickrake::Tracker.new(sqlite_path)
+      runtime = Tickrake::Runtime.new(config: config, tracker: tracker, logger: logger)
+      scheduled_job = Tickrake::ScheduledJobConfig.new(
+        name: "compact_spxw",
+        type: "maintenance",
+        provider: "schwab",
+        interval_seconds: nil,
+        windows: [],
+        run_at: nil,
+        days: [],
+        lookback_days: nil,
+        dte_buckets: [],
+        universe: [],
+        task: "compact_option_samples",
+        settings: { "option_root" => "SPXW" },
+        manual: true
+      )
+      progress_reporter = instance_double(Tickrake::ProgressReporter, advance: nil, finish: nil)
+
+      described_class.new(
+        runtime: runtime,
+        scheduled_job: scheduled_job,
+        start_date: Date.new(2025, 12, 18),
+        end_date: Date.new(2025, 12, 19),
+        progress_reporter: progress_reporter
+      ).run(now: Time.utc(2025, 12, 19, 0, 0, 0))
+
+      expect(progress_reporter).to have_received(:advance).with(title: "Compact 2025-12-18").ordered
+      expect(progress_reporter).to have_received(:advance).with(title: "Compact 2025-12-19").ordered
+      expect(progress_reporter).to have_received(:finish).once
+    end
+  end
 end

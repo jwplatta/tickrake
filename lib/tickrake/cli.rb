@@ -53,6 +53,9 @@ module Tickrake
       when "storage-stats"
         config = Tickrake::ConfigLoader.load(config_path)
         storage_stats_command(argv, config)
+      when "validate-option-compaction"
+        config = Tickrake::ConfigLoader.load(config_path)
+        validate_option_compaction_command(argv, config)
       when "query"
         config = Tickrake::ConfigLoader.load(config_path)
         query_command(argv, config)
@@ -320,11 +323,17 @@ module Tickrake
         ).run
         @stdout.puts("Completed job #{job.name}.")
       when "maintenance"
+        progress_reporter = Tickrake::ProgressReporter.build(
+          total: maintenance_progress_total(start_date: start_date, end_date: end_date),
+          title: "Compact",
+          output: @stdout
+        )
         result = Tickrake::MaintenanceJob.new(
           runtime,
           scheduled_job: job,
           start_date: start_date,
-          end_date: end_date
+          end_date: end_date,
+          progress_reporter: progress_reporter
         ).run
         @stdout.puts(
           "Completed job #{job.name}: processed #{result.processed_dates.length} date(s), "\
@@ -590,6 +599,12 @@ module Tickrake
       )]
     end
 
+    def maintenance_progress_total(start_date:, end_date:)
+      return 1 if start_date.nil? && end_date.nil?
+
+      ((end_date - start_date).to_i + 1)
+    end
+
     def query_command(argv, config)
       options = parse_query_options!(argv)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
@@ -616,6 +631,30 @@ module Tickrake
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       @stdout.puts(Tickrake::Storage::StatsReport.new(config, tracker: tracker).render)
       0
+    end
+
+    def validate_option_compaction_command(argv, config)
+      options = parse_validate_option_compaction_options!(argv)
+      dataset = Tickrake::Storage::OptionCompactionDataset.new(
+        config: config,
+        provider_name: options[:provider_name].to_s.empty? ? config.default_provider_name : options[:provider_name],
+        option_root: options[:option_root]
+      )
+      raw_files = dataset.raw_snapshot_files(sample_date: options[:sample_date])
+      progress_reporter = Tickrake::ProgressReporter.build(
+        total: raw_files.length + 1,
+        title: "Validate",
+        output: @stdout
+      )
+      result = Tickrake::OptionCompactionValidator.new(
+        config: config,
+        option_root: options[:option_root],
+        sample_date: options[:sample_date],
+        provider_name: options[:provider_name],
+        progress_reporter: progress_reporter
+      ).validate
+      Tickrake::OptionCompactionValidationOutput.new(stdout: @stdout, stderr: @stderr).emit(result)
+      result.safe_to_delete ? 0 : 1
     end
 
     def parse_query_options!(argv)
@@ -653,6 +692,25 @@ module Tickrake
       end
       parser.order!(argv)
       raise OptionParser::InvalidOption, argv.first if argv.any?
+
+      options
+    end
+
+    def parse_validate_option_compaction_options!(argv)
+      options = { option_root: nil, sample_date: nil, provider_name: nil }
+      parser = OptionParser.new do |opts|
+        opts.on("--symbol ROOT", "Option root symbol to validate (for example SPXW)") { |value| options[:option_root] = value }
+        opts.on("--sample-date YYYY-MM-DD", "Sample date for the compacted daily CSV") do |value|
+          options[:sample_date] = Date.iso8601(value)
+        end
+        opts.on("--provider NAME", "Provider folder name (defaults to config default_provider)") do |value|
+          options[:provider_name] = value
+        end
+      end
+      parser.order!(argv)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+      raise Tickrake::Error, "--symbol is required." if options[:option_root].to_s.empty?
+      raise Tickrake::Error, "--sample-date is required." if options[:sample_date].nil?
 
       options
     end
@@ -783,6 +841,7 @@ module Tickrake
           tickrake status [--config path/to/tickrake.yml]
           tickrake query [--type candles|options|members] [--provider NAME] [--ticker SYMBOL] [--index CODE] [--as-of YYYY-MM-DD] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--exp-date YYYY-MM-DD] [--limit N] [--ascending true|false] [--format text|json] [--config path/to/tickrake.yml]
           tickrake storage-stats [--config path/to/tickrake.yml]
+          tickrake validate-option-compaction --symbol ROOT --sample-date YYYY-MM-DD [--provider NAME] [--config path/to/tickrake.yml]
           tickrake logs [TARGET] [--tail N]
       TEXT
     end

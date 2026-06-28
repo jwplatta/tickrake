@@ -6,7 +6,8 @@ RSpec.describe Tickrake::CLI do
       Tickrake::Config,
       jobs: [index_options_job, eod_candles_job, maintenance_job],
       job: nil,
-      sqlite_path: "/tmp/tickrake.sqlite3"
+      sqlite_path: "/tmp/tickrake.sqlite3",
+      default_provider_name: "schwab"
     )
   end
   let(:index_options_job) do
@@ -288,6 +289,7 @@ RSpec.describe Tickrake::CLI do
     stdout = StringIO.new
     stderr = StringIO.new
     runtime = instance_double(Tickrake::Runtime)
+    progress_reporter = instance_double(Tickrake::ProgressReporter)
     result = Tickrake::MaintenanceTasks::CompactOptionSamples::Result.new(
       task: "compact_option_samples",
       processed_dates: [Date.new(2025, 12, 18), Date.new(2025, 12, 19)],
@@ -303,11 +305,17 @@ RSpec.describe Tickrake::CLI do
       log_path: Tickrake::PathSupport.named_log_path("compact_spxw"),
       config_path: Tickrake::PathSupport.config_path
     ).and_return(runtime)
+    allow(Tickrake::ProgressReporter).to receive(:build).with(
+      total: 2,
+      title: "Compact",
+      output: stdout
+    ).and_return(progress_reporter)
     allow(Tickrake::MaintenanceJob).to receive(:new).with(
       runtime,
       scheduled_job: maintenance_job,
       start_date: Date.new(2025, 12, 18),
-      end_date: Date.new(2025, 12, 19)
+      end_date: Date.new(2025, 12, 19),
+      progress_reporter: progress_reporter
     ).and_return(job)
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
@@ -319,6 +327,88 @@ RSpec.describe Tickrake::CLI do
 
     expect(exit_code).to eq(0)
     expect(stdout.string).to include("Completed job compact_spxw: processed 2 date(s), wrote 4 artifact(s).")
+  end
+
+  it "validates an option compaction through the cli with progress" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    dataset = instance_double(Tickrake::Storage::OptionCompactionDataset)
+    progress_reporter = instance_double(Tickrake::ProgressReporter)
+    validator = instance_double(Tickrake::OptionCompactionValidator)
+    output = instance_double(Tickrake::OptionCompactionValidationOutput, emit: true)
+    result = Tickrake::OptionCompactionValidator::Result.new(
+      safe_to_delete: true,
+      provider_name: "schwab",
+      option_root: "SPXW",
+      sample_date: Date.new(2026, 6, 26),
+      compacted_path: "/tmp/SPXW_samples_2026-06-26.csv",
+      source_paths: ["/tmp/a.csv", "/tmp/b.csv"],
+      expected_row_count: 2,
+      actual_row_count: 2,
+      errors: []
+    )
+
+    allow(Tickrake::Storage::OptionCompactionDataset).to receive(:new).with(
+      config: config,
+      provider_name: "schwab",
+      option_root: "SPXW"
+    ).and_return(dataset)
+    allow(dataset).to receive(:raw_snapshot_files).with(sample_date: Date.new(2026, 6, 26)).and_return(%w[/tmp/a.csv /tmp/b.csv])
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 3, title: "Validate", output: stdout).and_return(progress_reporter)
+    allow(Tickrake::OptionCompactionValidator).to receive(:new).with(
+      config: config,
+      option_root: "SPXW",
+      sample_date: Date.new(2026, 6, 26),
+      provider_name: nil,
+      progress_reporter: progress_reporter
+    ).and_return(validator)
+    allow(validator).to receive(:validate).and_return(result)
+    allow(Tickrake::OptionCompactionValidationOutput).to receive(:new).with(stdout: stdout, stderr: stderr).and_return(output)
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "validate-option-compaction",
+      "--symbol", "SPXW",
+      "--sample-date", "2026-06-26"
+    ])
+
+    expect(exit_code).to eq(0)
+    expect(output).to have_received(:emit).with(result)
+  end
+
+  it "returns a failing exit code for invalid option compaction validation" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    dataset = instance_double(Tickrake::Storage::OptionCompactionDataset, raw_snapshot_files: [])
+    progress_reporter = instance_double(Tickrake::ProgressReporter)
+    validator = instance_double(Tickrake::OptionCompactionValidator)
+    output = instance_double(Tickrake::OptionCompactionValidationOutput, emit: true)
+    result = Tickrake::OptionCompactionValidator::Result.new(
+      safe_to_delete: false,
+      provider_name: "schwab",
+      option_root: "SPXW",
+      sample_date: Date.new(2026, 6, 26),
+      compacted_path: "/tmp/SPXW_samples_2026-06-26.csv",
+      source_paths: [],
+      expected_row_count: 0,
+      actual_row_count: 0,
+      errors: ["Compacted CSV file not found: /tmp/SPXW_samples_2026-06-26.csv"]
+    )
+
+    allow(Tickrake::Storage::OptionCompactionDataset).to receive(:new).and_return(dataset)
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 1, title: "Validate", output: stdout).and_return(progress_reporter)
+    allow(Tickrake::OptionCompactionValidator).to receive(:new).and_return(validator)
+    allow(validator).to receive(:validate).and_return(result)
+    allow(Tickrake::OptionCompactionValidationOutput).to receive(:new).and_return(output)
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "validate-option-compaction",
+      "--symbol", "SPXW",
+      "--sample-date", "2026-06-26",
+      "--provider", "schwab"
+    ])
+
+    expect(exit_code).to eq(1)
+    expect(output).to have_received(:emit).with(result)
   end
 
   it "rejects incomplete maintenance date ranges" do
