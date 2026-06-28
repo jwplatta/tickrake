@@ -2,6 +2,17 @@
 
 module Tickrake
   module ScheduledRunnerSupport
+    # Shared scheduler-only resilience flow for runner classes.
+    #
+    # Includers are expected to provide:
+    # - @runtime
+    # - @scheduled_job
+    # - @sleeper
+    # - @shutdown_requested
+    # - due?(now)
+    # - mark_iteration_success(now)
+    # - log_iteration_failure(now, error)
+    # - scheduler_log_prefix
     private
 
     def initialize_scheduled_runner_support
