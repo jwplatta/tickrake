@@ -15,6 +15,8 @@ All notable changes to this project will be documented in this file.
 - Added an explicit `tickrake migrate` command for applying SQLite schema changes.
 - Added `tickrake sync-metadata` to insert missing candle metadata cache rows from stored history files.
 - Added `maintenance` jobs and option-sample compaction into per-day CSV/parquet artifacts tracked in `file_metadata_cache`.
+- Added manual maintenance runs over explicit date ranges, with date-level progress reporting for compaction jobs.
+- Added `tickrake validate-option-compaction` to verify a compacted daily options CSV against its source snapshot files before cleanup.
 
 ### Fixed
 - Fixed IBKR provider hangs on early-date fetches and improved symbol period resolution.
