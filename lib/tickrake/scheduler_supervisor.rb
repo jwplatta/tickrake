@@ -30,6 +30,8 @@ module Tickrake
 
         restart_delay = restart_delay_seconds
         if exit_status.exitstatus == Tickrake::SchedulerRestartRequired::EXIT_STATUS
+          # Exit status 75 is an intentional scheduler recycle for repeated
+          # provider failures, not an unclassified crash.
           @runtime.logger.error(
             "Scheduler #{@scheduled_job.name} exited for repeated provider failures with status=#{exit_status.exitstatus}; " \
             "restarting in #{restart_delay}s."

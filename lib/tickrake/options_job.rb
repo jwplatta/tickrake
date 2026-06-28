@@ -131,6 +131,8 @@ module Tickrake
             end
             break unless job
 
+            # Scheduled-run resilience treats any per-fetch failure as a degraded
+            # iteration, even though the job continues processing the remaining queue.
             outcome = fetch_one(job, run_time)
             mutex.synchronize do
               if outcome == :success

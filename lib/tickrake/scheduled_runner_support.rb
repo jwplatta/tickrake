@@ -115,6 +115,8 @@ module Tickrake
       return yield if index >= provider_names.length
 
       provider_name = provider_names[index]
+      # This is a scheduler-process coordination point, so use the shared lockfile
+      # rather than an in-process mutex.
       Tickrake::Lockfile.new("tickrake-provider-#{provider_name}-scheduled").try_synchronize do
         return with_provider_iteration_locks(now, provider_names, index + 1, &block)
       end
