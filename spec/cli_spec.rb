@@ -359,7 +359,7 @@ RSpec.describe Tickrake::CLI do
       config: config,
       option_root: "SPXW",
       sample_date: Date.new(2026, 6, 26),
-      provider_name: nil,
+      provider_name: "schwab",
       progress_reporter: progress_reporter
     ).and_return(validator)
     allow(validator).to receive(:validate).and_return(result)
@@ -367,6 +367,7 @@ RSpec.describe Tickrake::CLI do
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
       "validate-option-compaction",
+      "--provider", "schwab",
       "--symbol", "SPXW",
       "--sample-date", "2026-06-26"
     ])
@@ -409,6 +410,90 @@ RSpec.describe Tickrake::CLI do
 
     expect(exit_code).to eq(1)
     expect(output).to have_received(:emit).with(result)
+  end
+
+  it "rejects validate-option-compaction without a provider" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "validate-option-compaction",
+      "--symbol", "SPXW",
+      "--sample-date", "2026-06-26"
+    ])
+
+    expect(exit_code).to eq(1)
+    expect(stderr.string).to include("--provider is required.")
+  end
+
+  it "runs delete-compacted-option-samples in dry-run mode" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    dataset = instance_double(Tickrake::Storage::OptionCompactionDataset)
+    progress_reporter = instance_double(Tickrake::ProgressReporter)
+    tracker = instance_double(Tickrake::Tracker)
+    deleter = instance_double(Tickrake::DeleteCompactedOptionSamples)
+    output = instance_double(Tickrake::DeleteCompactedOptionSamplesOutput, emit: true)
+    result = Tickrake::OptionCompactionValidator::Result.new(
+      safe_to_delete: true,
+      provider_name: "schwab",
+      option_root: "SPXW",
+      sample_date: Date.new(2026, 6, 26),
+      compacted_path: "/tmp/SPXW_samples_2026-06-26.csv",
+      source_paths: ["/tmp/a.csv", "/tmp/b.csv"],
+      expected_row_count: 2,
+      actual_row_count: 2,
+      dry_run: true,
+      deleted_paths: [],
+      metadata_rows_removed: 0,
+      deletion_errors: [],
+      errors: []
+    )
+
+    allow(Tickrake::Storage::OptionCompactionDataset).to receive(:new).with(
+      config: config,
+      provider_name: "schwab",
+      option_root: "SPXW"
+    ).and_return(dataset)
+    allow(dataset).to receive(:raw_snapshot_files).with(sample_date: Date.new(2026, 6, 26)).and_return(%w[/tmp/a.csv /tmp/b.csv])
+    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 3, title: "Delete", output: stdout).and_return(progress_reporter)
+    allow(Tickrake::Tracker).to receive(:new).with("/tmp/tickrake.sqlite3").and_return(tracker)
+    allow(Tickrake::DeleteCompactedOptionSamples).to receive(:new).with(
+      config: config,
+      tracker: tracker,
+      option_root: "SPXW",
+      sample_date: Date.new(2026, 6, 26),
+      provider_name: "schwab",
+      dry_run: true,
+      progress_reporter: progress_reporter
+    ).and_return(deleter)
+    allow(deleter).to receive(:run).and_return(result)
+    allow(Tickrake::DeleteCompactedOptionSamplesOutput).to receive(:new).with(stdout: stdout, stderr: stderr).and_return(output)
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "delete-compacted-option-samples",
+      "--provider", "schwab",
+      "--symbol", "SPXW",
+      "--sample-date", "2026-06-26",
+      "--dry-run"
+    ])
+
+    expect(exit_code).to eq(0)
+    expect(output).to have_received(:emit).with(result)
+  end
+
+  it "rejects delete-compacted-option-samples without a provider" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "delete-compacted-option-samples",
+      "--symbol", "SPXW",
+      "--sample-date", "2026-06-26"
+    ])
+
+    expect(exit_code).to eq(1)
+    expect(stderr.string).to include("--provider is required.")
   end
 
   it "rejects incomplete maintenance date ranges" do

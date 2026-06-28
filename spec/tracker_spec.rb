@@ -148,6 +148,38 @@ RSpec.describe Tickrake::Tracker do
     end
   end
 
+  it "deletes file metadata rows by path" do
+    Dir.mktmpdir do |dir|
+      tracker = described_class.new(File.join(dir, "tickrake.sqlite3"))
+      first_path = File.join(dir, "options", "schwab", "a.csv")
+      second_path = File.join(dir, "options", "schwab", "b.csv")
+      third_path = File.join(dir, "options", "schwab", "c.csv")
+
+      [first_path, second_path, third_path].each do |path|
+        tracker.upsert_file_metadata(
+          path: path,
+          dataset_type: "options",
+          provider_name: "schwab",
+          ticker: "SPXW",
+          frequency: nil,
+          expiration_date: "2026-06-26",
+          row_count: 1,
+          first_observed_at: "2026-06-26T14:30:00Z",
+          last_observed_at: "2026-06-26T14:30:00Z",
+          file_mtime: 1,
+          file_size: 10
+        )
+      end
+
+      deleted = tracker.delete_file_metadata_paths([first_path, second_path, first_path])
+
+      expect(deleted).to eq(2)
+      expect(tracker.file_metadata(first_path)).to eq(nil)
+      expect(tracker.file_metadata(second_path)).to eq(nil)
+      expect(tracker.file_metadata(third_path)).not_to eq(nil)
+    end
+  end
+
   it "allows batched metadata writes while another connection holds a read transaction" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.sqlite3")

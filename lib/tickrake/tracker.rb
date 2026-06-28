@@ -173,6 +173,17 @@ module Tickrake
       end
     end
 
+    def delete_file_metadata_paths(paths)
+      normalized_paths = Array(paths).map { |path| Tickrake::PathSupport.expand_path(path) }.uniq
+      return 0 if normalized_paths.empty?
+
+      placeholders = (["?"] * normalized_paths.length).join(", ")
+      with_transaction do
+        db.execute("DELETE FROM file_metadata_cache WHERE path IN (#{placeholders})", normalized_paths)
+      end
+      db.changes
+    end
+
     def upsert_tickers(rows)
       return if rows.empty?
 

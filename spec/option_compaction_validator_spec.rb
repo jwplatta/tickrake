@@ -56,7 +56,8 @@ RSpec.describe Tickrake::OptionCompactionValidator do
       result = described_class.new(
         config: config,
         option_root: "SPXW",
-        sample_date: Date.new(2026, 6, 26)
+        sample_date: Date.new(2026, 6, 26),
+        provider_name: "schwab"
       ).validate
 
       expect(result.safe_to_delete).to eq(true)
@@ -64,6 +65,8 @@ RSpec.describe Tickrake::OptionCompactionValidator do
       expect(result.compacted_path).to eq(compacted_path)
       expect(result.expected_row_count).to eq(2)
       expect(result.actual_row_count).to eq(2)
+      expect(result.deleted_paths).to eq([])
+      expect(result.metadata_rows_removed).to eq(nil)
       expect(result.errors).to eq([])
     end
   end
@@ -75,7 +78,8 @@ RSpec.describe Tickrake::OptionCompactionValidator do
       result = described_class.new(
         config: config,
         option_root: "SPXW",
-        sample_date: Date.new(2026, 6, 26)
+        sample_date: Date.new(2026, 6, 26),
+        provider_name: "schwab"
       ).validate
 
       expect(result.safe_to_delete).to eq(false)
@@ -109,7 +113,8 @@ RSpec.describe Tickrake::OptionCompactionValidator do
       result = described_class.new(
         config: config,
         option_root: "SPXW",
-        sample_date: Date.new(2026, 6, 26)
+        sample_date: Date.new(2026, 6, 26),
+        provider_name: "schwab"
       ).validate
 
       expect(result.safe_to_delete).to eq(false)
