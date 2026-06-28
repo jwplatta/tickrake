@@ -17,21 +17,25 @@ module Tickrake
     end
 
     def cli_log_path
-      File.join(home_dir, "cli.log")
+      File.join(logs_dir, "cli.log")
     end
 
     def options_log_path
-      File.join(home_dir, "options.log")
+      File.join(logs_dir, "options.log")
     end
 
     def candles_log_path
-      File.join(home_dir, "candles.log")
+      File.join(logs_dir, "candles.log")
     end
 
     def named_log_path(name)
       return cli_log_path if name.to_s == "cli"
 
-      File.join(home_dir, "#{sanitize_symbol(name)}.log")
+      File.join(logs_dir, "#{sanitize_symbol(name)}.log")
+    end
+
+    def logs_dir
+      File.join(home_dir, "logs")
     end
 
     def jobs_dir
