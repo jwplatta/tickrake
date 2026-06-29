@@ -59,6 +59,9 @@ module Tickrake
       when "delete-compacted-option-samples"
         config = Tickrake::ConfigLoader.load(config_path)
         delete_compacted_option_samples_command(argv, config)
+      when "archive-compacted-option-samples"
+        config = Tickrake::ConfigLoader.load(config_path)
+        archive_compacted_option_samples_command(argv, config)
       when "query"
         config = Tickrake::ConfigLoader.load(config_path)
         query_command(argv, config)
@@ -687,6 +690,24 @@ module Tickrake
       result.safe_to_delete && result.deletion_errors.empty? ? 0 : 1
     end
 
+    def archive_compacted_option_samples_command(argv, config)
+      options = parse_archive_compacted_option_samples_options!(argv)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      result = Tickrake::ArchiveCompactedOptionSamples.new(
+        config: config,
+        tracker: tracker,
+        option_root: options[:option_root],
+        sample_date: options[:sample_date],
+        provider_name: options[:provider_name],
+        dry_run: options[:dry_run]
+      ).run
+
+      result.remote_uris.each_value do |uri|
+        @stdout.puts("#{result.dry_run ? 'Would archive' : 'Archived'} #{uri}")
+      end
+      0
+    end
+
     def parse_query_options!(argv)
       options = {
         type: nil,
@@ -731,6 +752,10 @@ module Tickrake
     end
 
     def parse_delete_compacted_option_samples_options!(argv)
+      parse_compaction_target_options!(argv, allow_dry_run: true)
+    end
+
+    def parse_archive_compacted_option_samples_options!(argv)
       parse_compaction_target_options!(argv, allow_dry_run: true)
     end
 
@@ -884,6 +909,7 @@ module Tickrake
           tickrake query [--type candles|options|members] [--provider NAME] [--ticker SYMBOL] [--index CODE] [--as-of YYYY-MM-DD] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--exp-date YYYY-MM-DD] [--limit N] [--ascending true|false] [--format text|json] [--config path/to/tickrake.yml]
           tickrake storage-stats [--config path/to/tickrake.yml]
           tickrake validate-option-compaction --provider NAME --symbol ROOT --sample-date YYYY-MM-DD [--config path/to/tickrake.yml]
+          tickrake archive-compacted-option-samples --provider NAME --symbol ROOT --sample-date YYYY-MM-DD [--dry-run] [--config path/to/tickrake.yml]
           tickrake delete-compacted-option-samples --provider NAME --symbol ROOT --sample-date YYYY-MM-DD [--dry-run] [--config path/to/tickrake.yml]
           tickrake logs [TARGET] [--tail N]
       TEXT

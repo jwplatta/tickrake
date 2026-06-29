@@ -482,6 +482,61 @@ RSpec.describe Tickrake::CLI do
     expect(output).to have_received(:emit).with(result)
   end
 
+  it "runs archive-compacted-option-samples in dry-run mode" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    tracker = instance_double(Tickrake::Tracker)
+    archiver = instance_double(Tickrake::ArchiveCompactedOptionSamples)
+    result = Tickrake::ArchiveCompactedOptionSamples::Result.new(
+      provider_name: "schwab",
+      option_root: "SPXW",
+      sample_date: Date.new(2026, 6, 26),
+      dry_run: true,
+      archived_paths: ["/tmp/a.csv", "/tmp/a.parquet"],
+      remote_uris: {
+        "/tmp/a.csv" => "s3://tickrake/options/schwab/2026/06/26/SPXW_samples_2026-06-26.csv",
+        "/tmp/a.parquet" => "s3://tickrake/options/schwab/2026/06/26/SPXW_samples_2026-06-26.parquet"
+      }
+    )
+
+    allow(Tickrake::Tracker).to receive(:new).with("/tmp/tickrake.sqlite3").and_return(tracker)
+    allow(Tickrake::ArchiveCompactedOptionSamples).to receive(:new).with(
+      config: config,
+      tracker: tracker,
+      option_root: "SPXW",
+      sample_date: Date.new(2026, 6, 26),
+      provider_name: "schwab",
+      dry_run: true
+    ).and_return(archiver)
+    allow(archiver).to receive(:run).and_return(result)
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "archive-compacted-option-samples",
+      "--provider", "schwab",
+      "--symbol", "SPXW",
+      "--sample-date", "2026-06-26",
+      "--dry-run"
+    ])
+
+    expect(exit_code).to eq(0)
+    expect(stdout.string).to include("Would archive s3://tickrake/options/schwab/2026/06/26/SPXW_samples_2026-06-26.csv")
+    expect(stdout.string).to include("Would archive s3://tickrake/options/schwab/2026/06/26/SPXW_samples_2026-06-26.parquet")
+  end
+
+  it "rejects archive-compacted-option-samples without a provider" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "archive-compacted-option-samples",
+      "--symbol", "SPXW",
+      "--sample-date", "2026-06-26"
+    ])
+
+    expect(exit_code).to eq(1)
+    expect(stderr.string).to include("--provider is required.")
+  end
+
   it "rejects delete-compacted-option-samples without a provider" do
     stdout = StringIO.new
     stderr = StringIO.new
