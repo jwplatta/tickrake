@@ -26,6 +26,7 @@ All notable changes to this project will be documented in this file.
 - Fixed option queries to stay on SQLite metadata lookups for large caches instead of falling back to filesystem discovery.
 - Fixed MCP tool schemas to avoid invalid empty `required` arrays under newer `mcp` gem validation.
 - Fixed option-compaction validation flows to require an explicit provider instead of falling back to `default_provider`.
+- Fixed compacted option parquet artifacts to persist numeric and timestamp columns with typed parquet schemas instead of writing every field as a string.
 
 ### Changed
 - Updated contributor and agent documentation.

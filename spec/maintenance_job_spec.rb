@@ -84,7 +84,27 @@ RSpec.describe Tickrake::MaintenanceTasks::CompactOptionSamples do
       parquet_rows = Parquet.each_row(parquet_path).to_a
       expect(parquet_rows.length).to eq(2)
       expect(parquet_rows.map { |row| row["sampled_at"] }).to eq(
-        ["2025-12-18T19:50:58Z", "2025-12-18T20:10:49Z"]
+        [Time.iso8601("2025-12-18T19:50:58Z"), Time.iso8601("2025-12-18T20:10:49Z")]
+      )
+      expect(parquet_rows.map { |row| row["strike"] }).to eq([2800.0, 2850.0])
+      expect(parquet_rows.map { |row| row["bid_size"] }).to eq([2, 4])
+      expect(parquet_rows.map { |row| row["total_volume"] }).to eq([20.0, 21.0])
+      expect(parquet_rows.map { |row| row["expiration_date"] }).to eq(["2025-12-18", "2025-12-19"])
+
+      parquet_schema_fields = Parquet.metadata(parquet_path).fetch("schema").fetch("fields")
+      expect(parquet_schema_fields.find { |field| field["name"] == "sampled_at" }).to include(
+        "physical_type" => "INT64",
+        "converted_type" => "TIMESTAMP_MICROS"
+      )
+      expect(parquet_schema_fields.find { |field| field["name"] == "strike" }).to include(
+        "physical_type" => "DOUBLE"
+      )
+      expect(parquet_schema_fields.find { |field| field["name"] == "bid_size" }).to include(
+        "physical_type" => "INT64"
+      )
+      expect(parquet_schema_fields.find { |field| field["name"] == "expiration_date" }).to include(
+        "physical_type" => "BYTE_ARRAY",
+        "converted_type" => "UTF8"
       )
 
       csv_metadata = tracker.file_metadata(csv_path)
