@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Added `maintenance` jobs and option-sample compaction into per-day CSV/parquet artifacts tracked in `file_metadata_cache`.
 - Added manual maintenance runs over explicit date ranges, with date-level progress reporting for compaction jobs.
 - Added `tickrake validate-option-compaction` to verify a compacted daily options CSV against its source snapshot files before cleanup.
+- Added `tickrake delete-compacted-option-samples` for validated raw-snapshot cleanup, with `--dry-run` and source metadata-row removal.
 - Added provider-level scheduled-job resilience settings so Schwab schedulers can serialize runs and auto-restart after repeated failures.
 
 ### Fixed
@@ -24,6 +25,8 @@ All notable changes to this project will be documented in this file.
 - Stabilized metadata writes during massive imports.
 - Fixed option queries to stay on SQLite metadata lookups for large caches instead of falling back to filesystem discovery.
 - Fixed MCP tool schemas to avoid invalid empty `required` arrays under newer `mcp` gem validation.
+- Fixed option-compaction validation flows to require an explicit provider instead of falling back to `default_provider`.
+- Fixed compacted option parquet artifacts to persist numeric and timestamp columns with typed parquet schemas instead of writing every field as a string.
 
 ### Changed
 - Updated contributor and agent documentation.

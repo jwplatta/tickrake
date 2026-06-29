@@ -417,6 +417,29 @@ Maintenance jobs support manual date ranges:
 tickrake run --job manual_compact_spxw --start-date 2025-12-18 --end-date 2025-12-19
 ```
 
+After a compaction run writes the daily `*_samples_YYYY-MM-DD.csv` artifact, you can
+validate that artifact against the raw snapshot CSVs for the same provider, root, and
+sample date:
+
+```bash
+tickrake validate-option-compaction --provider schwab --symbol SPXW --sample-date 2025-12-18
+```
+
+That command is validation-only. It requires an explicit `--provider` and never deletes
+files or metadata.
+
+Use the separate cleanup command when you want to remove validated raw source snapshots:
+
+```bash
+tickrake delete-compacted-option-samples --provider schwab --symbol SPXW --sample-date 2025-12-18 --dry-run
+tickrake delete-compacted-option-samples --provider schwab --symbol SPXW --sample-date 2025-12-18
+```
+
+`--dry-run` performs the same exact validation and prints the deletion plan without
+changing disk state. A non-dry run deletes the validated source snapshot CSVs and removes
+their `file_metadata_cache` rows immediately, while leaving the compacted CSV/parquet
+artifacts and their metadata intact.
+
 Provider precedence is:
 - CLI `--provider`
 - per-symbol `provider:`

@@ -11,15 +11,27 @@ module Tickrake
       :source_paths,
       :expected_row_count,
       :actual_row_count,
+      :dry_run,
+      :deleted_paths,
+      :metadata_rows_removed,
+      :deletion_errors,
       :errors,
       keyword_init: true
-    )
+    ) do
+      def deletion_errors
+        self[:deletion_errors] || []
+      end
 
-    def initialize(config:, option_root:, sample_date:, provider_name: nil, progress_reporter: nil)
+      def deleted_paths
+        self[:deleted_paths] || []
+      end
+    end
+
+    def initialize(config:, option_root:, sample_date:, provider_name:, progress_reporter: nil)
       @config = config
       @option_root = option_root.to_s
       @sample_date = sample_date
-      @provider_name = provider_name.to_s.empty? ? config.default_provider_name : provider_name.to_s
+      @provider_name = provider_name.to_s
       @progress_reporter = progress_reporter
       @storage_paths = Tickrake::Storage::Paths.new(config)
     end
@@ -67,6 +79,10 @@ module Tickrake
         source_paths: built.fetch(:raw_files),
         expected_row_count: built.fetch(:rows).length,
         actual_row_count: compacted_rows.length,
+        dry_run: nil,
+        deleted_paths: [],
+        metadata_rows_removed: nil,
+        deletion_errors: [],
         errors: errors
       )
     ensure
@@ -85,6 +101,10 @@ module Tickrake
         source_paths: [],
         expected_row_count: 0,
         actual_row_count: 0,
+        dry_run: nil,
+        deleted_paths: [],
+        metadata_rows_removed: nil,
+        deletion_errors: [],
         errors: ["Compacted CSV file not found: #{compacted_csv_path}"]
       )
     end
