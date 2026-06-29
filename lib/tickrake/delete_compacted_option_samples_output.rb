@@ -24,7 +24,6 @@ module Tickrake
 
       if result.dry_run
         @stdout.puts("Dry run: would delete #{result.source_paths.length} source snapshot CSV files and remove matching metadata rows.")
-        result.source_paths.each { |path| @stdout.puts("  DELETE: #{path}") }
         return
       end
 
