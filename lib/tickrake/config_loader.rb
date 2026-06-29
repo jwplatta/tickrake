@@ -9,19 +9,7 @@ module Tickrake
     VALID_JOB_TYPES = %w[options candles maintenance].freeze
     VALID_IMPORT_TYPES = %w[options].freeze
     VALID_MAINTENANCE_TASKS = %w[compact_option_samples].freeze
-    VALID_S3_STORAGE_CLASSES = %w[
-      STANDARD
-      REDUCED_REDUNDANCY
-      STANDARD_IA
-      ONEZONE_IA
-      INTELLIGENT_TIERING
-      GLACIER
-      DEEP_ARCHIVE
-      OUTPOSTS
-      GLACIER_IR
-      SNOW
-      EXPRESS_ONEZONE
-    ].freeze
+    VALID_S3_STORAGE_CLASSES = %w[STANDARD GLACIER GLACIER_IR].freeze
 
     def self.load(path)
       new(path).load

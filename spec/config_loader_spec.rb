@@ -82,7 +82,7 @@ RSpec.describe Tickrake::ConfigLoader do
             bucket: tickrake
             region: us-east-1
             prefix: archive/daily
-            storage_class: standard_ia
+            storage_class: glacier
         schedule:
           index_options:
             type: options
@@ -101,7 +101,7 @@ RSpec.describe Tickrake::ConfigLoader do
       expect(config.s3_archive.bucket).to eq("tickrake")
       expect(config.s3_archive.region).to eq("us-east-1")
       expect(config.s3_archive.prefix).to eq("archive/daily")
-      expect(config.s3_archive.storage_class).to eq("STANDARD_IA")
+      expect(config.s3_archive.storage_class).to eq("GLACIER")
     end
   end
 
