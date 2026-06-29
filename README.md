@@ -93,6 +93,8 @@ tickrake query --provider schwab
 tickrake query --type candles --provider ibkr-paper --ticker SPY
 tickrake query --type options --provider schwab --ticker '$SPX' --format json
 tickrake storage-stats
+tickrake archive-compacted-option-samples --provider schwab --symbol SPXW --sample-date 2025-12-18 --dry-run
+tickrake archive-compacted-option-samples --provider schwab --symbol SPXW --sample-date 2025-12-18
 ```
 
 ## MCP Server
@@ -262,6 +264,7 @@ Omitting `timezone:` (or passing `"UTC"`) returns timestamps in UTC and sets
 - Candle payloads: `~/.tickrake/data/history/<provider>`
 - Option payloads: `~/.tickrake/data/options/<provider>/<YYYY>/<MM>/<DD>`
 - Option snapshot filenames can use `options.snapshot_filename_timezone` independently of scheduler `timezone`.
+- Optional compacted-artifact archive mirror: `s3://<bucket>/<prefix?>/options/<provider>/<YYYY>/<MM>/<DD>/...`
 - Tickrake config: `~/.tickrake/tickrake.yml`
 - Tickrake metadata DB: `~/.tickrake/tickrake.sqlite3`
 - Tickrake logs: `~/.tickrake/logs/*.log`
@@ -431,14 +434,23 @@ files or metadata.
 Use the separate cleanup command when you want to remove validated raw source snapshots:
 
 ```bash
+tickrake archive-compacted-option-samples --provider schwab --symbol SPXW --sample-date 2025-12-18 --dry-run
+tickrake archive-compacted-option-samples --provider schwab --symbol SPXW --sample-date 2025-12-18
 tickrake delete-compacted-option-samples --provider schwab --symbol SPXW --sample-date 2025-12-18 --dry-run
 tickrake delete-compacted-option-samples --provider schwab --symbol SPXW --sample-date 2025-12-18
 ```
 
-`--dry-run` performs the same exact validation and prints the deletion plan without
-changing disk state. A non-dry run deletes the validated source snapshot CSVs and removes
-their `file_metadata_cache` rows immediately, while leaving the compacted CSV/parquet
-artifacts and their metadata intact.
+`archive-compacted-option-samples` uploads the compacted daily CSV and parquet artifacts
+to the configured S3 bucket, verifies them with `head_object`, and updates the local
+metadata rows with `remote_uri` plus `artifact_status=ready_local_and_remote` while
+keeping `storage_location=local`.
+
+`delete-compacted-option-samples --dry-run` performs the same exact validation and prints
+the deletion plan without changing disk state. A non-dry run deletes the validated source
+snapshot CSVs and removes their `file_metadata_cache` rows immediately, while leaving the
+compacted CSV/parquet artifacts and their metadata intact. When `storage.s3_archive` is
+configured, raw deletion also requires both compacted artifacts to have `remote_uri`
+metadata and matching remote S3 object sizes.
 
 Provider precedence is:
 - CLI `--provider`
@@ -463,6 +475,11 @@ options roots from it:
 ```yaml
 storage:
   data_dir: ~/.tickrake/data
+  s3_archive:
+    bucket: tickrake
+    region: us-east-1
+    prefix:
+    storage_class: GLACIER_IR
 ```
 
 That produces provider-separated output paths like:

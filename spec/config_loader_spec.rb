@@ -31,6 +31,135 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.job("manual_compact_spxw").type).to eq("maintenance")
     expect(config.job("manual_compact_spxw").task).to eq("compact_option_samples")
     expect(config.job("manual_compact_spxw").settings).to eq("option_root" => "SPXW")
+    expect(config.s3_archive.bucket).to eq("tickrake")
+    expect(config.s3_archive.region).to eq("us-east-1")
+    expect(config.s3_archive.storage_class).to eq("GLACIER_IR")
+  end
+
+  it "loads storage.s3_archive with defaults" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        storage:
+          s3_archive:
+            bucket: tickrake
+        schedule:
+          index_options:
+            type: options
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            dte_buckets: [0DTE]
+            universe:
+              - symbol: SPY
+      YAML
+
+      config = described_class.load(path)
+
+      expect(config.s3_archive.bucket).to eq("tickrake")
+      expect(config.s3_archive.region).to be_nil
+      expect(config.s3_archive.prefix).to eq("")
+      expect(config.s3_archive.storage_class).to eq("GLACIER_IR")
+    end
+  end
+
+  it "loads storage.s3_archive with explicit values" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        storage:
+          s3_archive:
+            bucket: tickrake
+            region: us-east-1
+            prefix: archive/daily
+            storage_class: standard_ia
+        schedule:
+          index_options:
+            type: options
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            dte_buckets: [0DTE]
+            universe:
+              - symbol: SPY
+      YAML
+
+      config = described_class.load(path)
+
+      expect(config.s3_archive.bucket).to eq("tickrake")
+      expect(config.s3_archive.region).to eq("us-east-1")
+      expect(config.s3_archive.prefix).to eq("archive/daily")
+      expect(config.s3_archive.storage_class).to eq("STANDARD_IA")
+    end
+  end
+
+  it "rejects storage.s3_archive without a bucket" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        storage:
+          s3_archive:
+            bucket:
+        schedule:
+          index_options:
+            type: options
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            dte_buckets: [0DTE]
+            universe:
+              - symbol: SPY
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /storage\.s3_archive\.bucket is required/)
+    end
+  end
+
+  it "rejects invalid storage.s3_archive.storage_class values" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.yml")
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+        storage:
+          s3_archive:
+            bucket: tickrake
+            storage_class: frozen
+        schedule:
+          index_options:
+            type: options
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            dte_buckets: [0DTE]
+            universe:
+              - symbol: SPY
+      YAML
+
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Invalid storage\.s3_archive\.storage_class/)
+    end
   end
 
   it "loads import-only jobs without requiring a scheduled job" do

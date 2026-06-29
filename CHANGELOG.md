@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - Added manual maintenance runs over explicit date ranges, with date-level progress reporting for compaction jobs.
 - Added `tickrake validate-option-compaction` to verify a compacted daily options CSV against its source snapshot files before cleanup.
 - Added `tickrake delete-compacted-option-samples` for validated raw-snapshot cleanup, with `--dry-run` and source metadata-row removal.
+- Added optional `storage.s3_archive` config plus `tickrake archive-compacted-option-samples` to mirror compacted option artifacts into S3 before raw snapshot cleanup.
 - Added provider-level scheduled-job resilience settings so Schwab schedulers can serialize runs and auto-restart after repeated failures.
 
 ### Fixed

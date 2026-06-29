@@ -37,6 +37,11 @@ storage:
   data_dir: ~/.tickrake/data
   history_dir: ~/.tickrake/data/history
   options_dir: ~/.tickrake/data/options
+  s3_archive:
+    bucket: tickrake
+    region: us-east-1
+    prefix:
+    storage_class: GLACIER_IR
 runtime:
   max_workers: 4
   retry_count: 2

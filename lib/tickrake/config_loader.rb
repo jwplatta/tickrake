@@ -9,6 +9,19 @@ module Tickrake
     VALID_JOB_TYPES = %w[options candles maintenance].freeze
     VALID_IMPORT_TYPES = %w[options].freeze
     VALID_MAINTENANCE_TASKS = %w[compact_option_samples].freeze
+    VALID_S3_STORAGE_CLASSES = %w[
+      STANDARD
+      REDUCED_REDUNDANCY
+      STANDARD_IA
+      ONEZONE_IA
+      INTELLIGENT_TIERING
+      GLACIER
+      DEEP_ARCHIVE
+      OUTPOSTS
+      GLACIER_IR
+      SNOW
+      EXPRESS_ONEZONE
+    ].freeze
 
     def self.load(path)
       new(path).load
@@ -30,6 +43,7 @@ module Tickrake
       data_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "data_dir", "~/.tickrake/data"))
       history_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "history_dir", File.join(data_dir, "history")))
       options_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "options_dir", File.join(data_dir, "options")))
+      s3_archive = load_s3_archive_config(data.fetch("storage", {}))
       runtime = data.fetch("runtime", {})
       jobs = load_jobs(data.fetch("schedule", {}))
       import_jobs = load_import_jobs(data.fetch("imports", {}))
@@ -41,6 +55,7 @@ module Tickrake
         default_provider_name: default_provider_name,
         option_root_tickers: option_root_tickers,
         option_snapshot_filename_timezone: option_snapshot_filename_timezone,
+        s3_archive: s3_archive,
         data_dir: data_dir,
         history_dir: history_dir,
         options_dir: options_dir,
@@ -112,6 +127,32 @@ module Tickrake
       raw_value
     rescue TZInfo::InvalidTimezoneIdentifier
       raise ConfigError, "Invalid options.snapshot_filename_timezone: #{raw_value}"
+    end
+
+    def load_s3_archive_config(raw_storage)
+      raise ConfigError, "storage must be a mapping." unless raw_storage.is_a?(Hash)
+
+      raw_s3_archive = raw_storage["s3_archive"]
+      return nil if raw_s3_archive.nil?
+
+      raise ConfigError, "storage.s3_archive must be a mapping." unless raw_s3_archive.is_a?(Hash)
+
+      bucket = raw_s3_archive.fetch("bucket", "").to_s.strip
+      raise ConfigError, "storage.s3_archive.bucket is required." if bucket.empty?
+
+      region = raw_s3_archive.fetch("region", nil)&.to_s&.strip
+      prefix = raw_s3_archive.fetch("prefix", "").to_s
+      storage_class = raw_s3_archive.fetch("storage_class", "GLACIER_IR").to_s.strip.upcase
+      unless VALID_S3_STORAGE_CLASSES.include?(storage_class)
+        raise ConfigError, "Invalid storage.s3_archive.storage_class: #{storage_class}"
+      end
+
+      S3ArchiveConfig.new(
+        bucket: bucket,
+        region: region.nil? || region.empty? ? nil : region,
+        prefix: prefix,
+        storage_class: storage_class
+      )
     end
 
     def load_jobs(schedule)

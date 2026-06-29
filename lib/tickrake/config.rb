@@ -1,6 +1,16 @@
 # frozen_string_literal: true
 
 module Tickrake
+  S3ArchiveConfig = Struct.new(:bucket, :region, :prefix, :storage_class, keyword_init: true) do
+    def prefixed_key(relative_path)
+      normalized_relative_path = relative_path.to_s.sub(%r{\A/+}, "")
+      normalized_prefix = prefix.to_s.gsub(%r{\A/+|/+\z}, "")
+      return normalized_relative_path if normalized_prefix.empty?
+
+      [normalized_prefix, normalized_relative_path].join("/")
+    end
+  end
+
   SchedulerWindow = Struct.new(:days, :start_time, :end_time, keyword_init: true)
   OptionSymbol = Struct.new(:symbol, :option_root, :provider, keyword_init: true)
   ProviderDefinition = Struct.new(:name, :adapter, :settings, :symbol_map, keyword_init: true) do
@@ -85,7 +95,7 @@ module Tickrake
   class Config
     attr_reader :timezone, :sqlite_path, :providers, :default_provider_name, :data_dir, :history_dir, :options_dir, :max_workers,
                 :retry_count, :retry_delay_seconds, :option_fetch_timeout_seconds, :candle_fetch_timeout_seconds, :jobs, :import_jobs,
-                :option_root_tickers, :option_snapshot_filename_timezone
+                :option_root_tickers, :option_snapshot_filename_timezone, :s3_archive
 
     def initialize(
       timezone:,
@@ -94,6 +104,7 @@ module Tickrake
       default_provider_name:,
       option_root_tickers:,
       option_snapshot_filename_timezone: "utc",
+      s3_archive: nil,
       data_dir:,
       history_dir:,
       options_dir:,
@@ -111,6 +122,7 @@ module Tickrake
       @default_provider_name = default_provider_name
       @option_root_tickers = option_root_tickers
       @option_snapshot_filename_timezone = option_snapshot_filename_timezone
+      @s3_archive = s3_archive
       @data_dir = data_dir
       @history_dir = history_dir
       @options_dir = options_dir

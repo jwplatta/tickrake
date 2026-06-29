@@ -2,11 +2,14 @@
 
 module Tickrake
   class DeleteCompactedOptionSamples
-    def initialize(config:, tracker:, option_root:, sample_date:, provider_name:, dry_run: false, progress_reporter: nil)
+    def initialize(config:, tracker:, option_root:, sample_date:, provider_name:, dry_run: false, progress_reporter: nil, archive_service: nil)
+      @config = config
       @tracker = tracker
       @dry_run = dry_run
+      @archive_service = archive_service || (@config.s3_archive && Tickrake::Storage::S3Archive.new(@config))
+      @storage_paths = Tickrake::Storage::Paths.new(@config)
       @validator = Tickrake::OptionCompactionValidator.new(
-        config: config,
+        config: @config,
         option_root: option_root,
         sample_date: sample_date,
         provider_name: provider_name,
@@ -20,6 +23,7 @@ module Tickrake
       deletion_errors = []
 
       validation = @validator.validate
+      validation = validate_remote_archive(validation)
       return validation_result(validation) unless validation.safe_to_delete
       return validation_result(validation, dry_run: true) if @dry_run
 
@@ -82,6 +86,43 @@ module Tickrake
         deletion_errors: [],
         errors: []
       )
+    end
+
+    def validate_remote_archive(validation)
+      return validation unless validation.safe_to_delete
+      return validation unless @config.s3_archive
+
+      errors = compacted_formats.filter_map do |format|
+        compacted_path = @storage_paths.option_compacted_sample_path(
+          provider: validation.provider_name,
+          root: validation.option_root,
+          sample_date: validation.sample_date,
+          format: format
+        )
+        validate_remote_artifact(path: compacted_path, format: format)
+      rescue Tickrake::Error, Aws::S3::Errors::ServiceError => e
+        "Remote archive verification failed for compacted #{format.upcase}: #{e.message}"
+      end
+
+      return validation if errors.empty?
+
+      Tickrake::OptionCompactionValidator::Result.new(**validation.to_h.merge(safe_to_delete: false, errors: validation.errors + errors))
+    end
+
+    def validate_remote_artifact(path:, format:)
+      metadata = @tracker.file_metadata(path)
+      return "Compacted #{format.upcase} metadata not found: #{path}" unless metadata
+      return "Compacted #{format.upcase} metadata is missing remote_uri: #{path}" if metadata["remote_uri"].to_s.strip.empty?
+
+      remote_object = @archive_service.verify(path)
+      local_size = File.size(path)
+      return if remote_object.size == local_size
+
+      "Compacted #{format.upcase} remote size mismatch for #{path}: local=#{local_size} remote=#{remote_object.size}"
+    end
+
+    def compacted_formats
+      %w[csv parquet]
     end
   end
 end

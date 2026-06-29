@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Tickrake::DeleteCompactedOptionSamples do
-  def build_config(dir)
+  def build_config(dir, with_archive: false)
     Tickrake::Config.new(
       timezone: "America/Chicago",
       sqlite_path: File.join(dir, "tickrake.sqlite3"),
@@ -11,6 +11,7 @@ RSpec.describe Tickrake::DeleteCompactedOptionSamples do
       default_provider_name: "schwab",
       option_root_tickers: { "SPXW" => "SPX" },
       option_snapshot_filename_timezone: "utc",
+      s3_archive: with_archive ? Tickrake::S3ArchiveConfig.new(bucket: "tickrake", region: "us-east-1", prefix: "", storage_class: "GLACIER_IR") : nil,
       data_dir: File.join(dir, "data"),
       history_dir: File.join(dir, "data", "history"),
       options_dir: File.join(dir, "data", "options"),
@@ -98,6 +99,7 @@ RSpec.describe Tickrake::DeleteCompactedOptionSamples do
         storage_format: format,
         storage_location: "local",
         artifact_status: "ready_local",
+        remote_uri: nil,
         source_file_count: fixture[:raw_files].length,
         row_count: 2,
         first_observed_at: "2026-06-26T14:30:00Z",
@@ -238,6 +240,155 @@ RSpec.describe Tickrake::DeleteCompactedOptionSamples do
       expect(File.exist?(failing_path)).to eq(true)
       expect(tracker.file_metadata(fixture[:raw_files].first)).to eq(nil)
       expect(tracker.file_metadata(failing_path)).not_to eq(nil)
+    end
+  end
+
+  it "blocks raw deletion when archive config is present but remote metadata is missing" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir, with_archive: true)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      fixture = write_compaction_fixture(config: config, dir: dir)
+      insert_metadata(tracker, fixture)
+
+      result = described_class.new(
+        config: config,
+        tracker: tracker,
+        option_root: "SPXW",
+        sample_date: Date.new(2026, 6, 26),
+        provider_name: "schwab"
+      ).run
+
+      expect(result.safe_to_delete).to eq(false)
+      expect(result.errors).to include(a_string_matching(/Compacted CSV metadata is missing remote_uri/))
+      expect(result.errors).to include(a_string_matching(/Compacted PARQUET metadata is missing remote_uri/))
+      expect(fixture[:raw_files]).to all(satisfy { |path| File.exist?(path) })
+    end
+  end
+
+  it "blocks raw deletion when remote object verification fails" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir, with_archive: true)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      fixture = write_compaction_fixture(config: config, dir: dir)
+      insert_metadata(tracker, fixture)
+      tracker.upsert_file_metadata(
+        path: fixture[:compacted_csv],
+        dataset_type: "options_compacted_csv",
+        provider_name: "schwab",
+        ticker: "SPXW",
+        frequency: nil,
+        expiration_date: nil,
+        storage_format: "csv",
+        storage_location: "local",
+        artifact_status: "ready_local_and_remote",
+        remote_uri: "s3://tickrake/options/schwab/2026/06/26/SPXW_samples_2026-06-26.csv",
+        source_file_count: fixture[:raw_files].length,
+        row_count: 2,
+        first_observed_at: "2026-06-26T14:30:00Z",
+        last_observed_at: "2026-06-26T14:35:00Z",
+        file_mtime: File.mtime(fixture[:compacted_csv]).to_i,
+        file_size: File.size(fixture[:compacted_csv]),
+        updated_at: Time.now
+      )
+      tracker.upsert_file_metadata(
+        path: fixture[:compacted_parquet],
+        dataset_type: "options_compacted_parquet",
+        provider_name: "schwab",
+        ticker: "SPXW",
+        frequency: nil,
+        expiration_date: nil,
+        storage_format: "parquet",
+        storage_location: "local",
+        artifact_status: "ready_local_and_remote",
+        remote_uri: "s3://tickrake/options/schwab/2026/06/26/SPXW_samples_2026-06-26.parquet",
+        source_file_count: fixture[:raw_files].length,
+        row_count: 2,
+        first_observed_at: "2026-06-26T14:30:00Z",
+        last_observed_at: "2026-06-26T14:35:00Z",
+        file_mtime: File.mtime(fixture[:compacted_parquet]).to_i,
+        file_size: File.size(fixture[:compacted_parquet]),
+        updated_at: Time.now
+      )
+
+      archive_service = instance_double(Tickrake::Storage::S3Archive)
+      allow(archive_service).to receive(:verify).with(fixture[:compacted_csv]).and_raise(
+        Aws::S3::Errors::NotFound.new(nil, "missing")
+      )
+      allow(archive_service).to receive(:verify).with(fixture[:compacted_parquet]).and_return(
+        Tickrake::Storage::S3Archive::RemoteObject.new(
+          bucket: "tickrake",
+          key: "options/schwab/2026/06/26/SPXW_samples_2026-06-26.parquet",
+          size: File.size(fixture[:compacted_parquet])
+        )
+      )
+
+      result = described_class.new(
+        config: config,
+        tracker: tracker,
+        option_root: "SPXW",
+        sample_date: Date.new(2026, 6, 26),
+        provider_name: "schwab",
+        archive_service: archive_service
+      ).run
+
+      expect(result.safe_to_delete).to eq(false)
+      expect(result.errors).to include(a_string_matching(/Remote archive verification failed for compacted CSV/))
+    end
+  end
+
+  it "deletes raw snapshots after local validation and remote verification both pass" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir, with_archive: true)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      fixture = write_compaction_fixture(config: config, dir: dir)
+      insert_metadata(tracker, fixture)
+
+      {
+        fixture[:compacted_csv] => "csv",
+        fixture[:compacted_parquet] => "parquet"
+      }.each do |path, format|
+        tracker.upsert_file_metadata(
+          path: path,
+          dataset_type: "options_compacted_#{format}",
+          provider_name: "schwab",
+          ticker: "SPXW",
+          frequency: nil,
+          expiration_date: nil,
+          storage_format: format,
+          storage_location: "local",
+          artifact_status: "ready_local_and_remote",
+          remote_uri: "s3://tickrake/options/schwab/2026/06/26/#{File.basename(path)}",
+          source_file_count: fixture[:raw_files].length,
+          row_count: 2,
+          first_observed_at: "2026-06-26T14:30:00Z",
+          last_observed_at: "2026-06-26T14:35:00Z",
+          file_mtime: File.mtime(path).to_i,
+          file_size: File.size(path),
+          updated_at: Time.now
+        )
+      end
+
+      archive_service = instance_double(Tickrake::Storage::S3Archive)
+      allow(archive_service).to receive(:verify) do |path|
+        Tickrake::Storage::S3Archive::RemoteObject.new(
+          bucket: "tickrake",
+          key: "options/schwab/2026/06/26/#{File.basename(path)}",
+          size: File.size(path)
+        )
+      end
+
+      result = described_class.new(
+        config: config,
+        tracker: tracker,
+        option_root: "SPXW",
+        sample_date: Date.new(2026, 6, 26),
+        provider_name: "schwab",
+        archive_service: archive_service
+      ).run
+
+      expect(result.safe_to_delete).to eq(true)
+      expect(result.deleted_paths).to eq(fixture[:raw_files])
+      expect(result.deletion_errors).to eq([])
     end
   end
 end
