@@ -724,7 +724,7 @@ module Tickrake
         as_of: nil
       }
       parser = OptionParser.new do |opts|
-        opts.on("--type TYPE", "Dataset type: candles, options, or members") { |value| options[:type] = value }
+        opts.on("--type TYPE", "Dataset type: candles, options, compacted-options, or members") { |value| options[:type] = value }
         opts.on("--provider NAME", "Use the named provider namespace from config") { |value| options[:provider] = value }
         opts.on("--ticker SYMBOL", "Filter by ticker symbol") { |value| options[:ticker] = value }
         opts.on("--index CODE", "Filter members queries by market index code") { |value| options[:index] = value }
@@ -906,7 +906,7 @@ module Tickrake
           tickrake stop --job JOB_NAME|all [--config path/to/tickrake.yml]
           tickrake restart --job JOB_NAME|all [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml]
           tickrake status [--config path/to/tickrake.yml]
-          tickrake query [--type candles|options|members] [--provider NAME] [--ticker SYMBOL] [--index CODE] [--as-of YYYY-MM-DD] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--exp-date YYYY-MM-DD] [--limit N] [--ascending true|false] [--format text|json] [--config path/to/tickrake.yml]
+          tickrake query [--type candles|options|compacted-options|members] [--provider NAME] [--ticker SYMBOL] [--index CODE] [--as-of YYYY-MM-DD] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--exp-date YYYY-MM-DD] [--limit N] [--ascending true|false] [--format text|json] [--config path/to/tickrake.yml]
           tickrake storage-stats [--config path/to/tickrake.yml]
           tickrake validate-option-compaction --provider NAME --symbol ROOT --sample-date YYYY-MM-DD [--config path/to/tickrake.yml]
           tickrake archive-compacted-option-samples --provider NAME --symbol ROOT --sample-date YYYY-MM-DD [--dry-run] [--config path/to/tickrake.yml]

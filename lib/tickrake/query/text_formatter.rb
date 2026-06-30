@@ -37,6 +37,14 @@ module Tickrake
               lines << "  path: #{result.path}"
               lines << ""
             end
+          elsif dataset_type == "compacted-options"
+            grouped.each do |result|
+              lines << "- #{result.sample_date}"
+              lines << "  archive_state: #{result.archive_state}"
+              lines << "  csv: #{result.csv_artifact_status || 'missing'}"
+              lines << "  parquet: #{result.parquet_artifact_status || 'missing'}"
+              lines << ""
+            end
           else
             grouped.each do |result|
               lines << "- #{result.root_symbol} exp #{result.expiration_date}"

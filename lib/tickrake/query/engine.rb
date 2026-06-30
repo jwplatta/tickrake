@@ -3,7 +3,7 @@
 module Tickrake
   module Query
     class Engine
-      VALID_TYPES = %w[candles options members].freeze
+      VALID_TYPES = %w[candles options compacted-options members].freeze
       VALID_FORMATS = %w[text json].freeze
 
       def initialize(config:, tracker:, stdout:)
@@ -31,8 +31,8 @@ module Tickrake
           )
         else
           raise Tickrake::Error, "Provide at least one of --provider or --ticker." unless provider_name || ticker
-          raise Tickrake::Error, "--frequency can only be used with candle queries." if frequency && type == "options"
-          raise Tickrake::Error, "--exp-date can only be used with option queries." if expiration_date && type == "candles"
+          raise Tickrake::Error, "--frequency can only be used with candle queries." if frequency && %w[options compacted-options].include?(type)
+          raise Tickrake::Error, "--exp-date can only be used with option queries." if expiration_date && %w[candles compacted-options].include?(type)
           raise Tickrake::Error, "--limit can only be used with option queries." if limit && type == "candles"
           raise Tickrake::Error, "--limit must be positive." if limit && limit <= 0
           raise Tickrake::Error, "--ascending can only be used with option queries." if type == "candles" && ascending == false
@@ -76,6 +76,18 @@ module Tickrake
               start_date: start_date,
               end_date: end_date,
               expiration_date: expiration_date,
+              limit: limit,
+              ascending: ascending
+            )
+          )
+        end
+        if type == "compacted-options"
+          results.concat(
+            CompactedOptionsScanner.new(config: @config, tracker: @tracker).scan(
+              provider_name: provider_name,
+              ticker: ticker,
+              start_date: start_date,
+              end_date: end_date,
               limit: limit,
               ascending: ascending
             )

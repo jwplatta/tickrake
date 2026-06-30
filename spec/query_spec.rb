@@ -555,4 +555,147 @@ RSpec.describe "query engine" do
     expect(text).to include("file_path: /tmp/SPXW_exp2026-04-10_2026-04-10_20-04-33.csv")
     expect(text).not_to include("coverage:")
   end
+
+  it "lists compacted option artifacts grouped by sample date with archive state" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      tracker.bulk_upsert_file_metadata(
+        [
+          {
+            path: File.join(options_dir, "schwab", "2026", "06", "24", "SPXW_samples_2026-06-24.csv"),
+            dataset_type: "options_compacted_csv",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: nil,
+            storage_format: "csv",
+            storage_location: "local",
+            artifact_status: "ready_local_and_remote",
+            remote_uri: "s3://tickrake/options/schwab/2026/06/24/SPXW_samples_2026-06-24.csv",
+            source_file_count: 2,
+            row_count: 1,
+            first_observed_at: "2026-06-24T14:30:00Z",
+            last_observed_at: "2026-06-24T14:30:00Z",
+            file_mtime: 1,
+            file_size: 100
+          },
+          {
+            path: File.join(options_dir, "schwab", "2026", "06", "24", "SPXW_samples_2026-06-24.parquet"),
+            dataset_type: "options_compacted_parquet",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: nil,
+            storage_format: "parquet",
+            storage_location: "local",
+            artifact_status: "ready_local_and_remote",
+            remote_uri: "s3://tickrake/options/schwab/2026/06/24/SPXW_samples_2026-06-24.parquet",
+            source_file_count: 2,
+            row_count: 1,
+            first_observed_at: "2026-06-24T14:30:00Z",
+            last_observed_at: "2026-06-24T14:30:00Z",
+            file_mtime: 1,
+            file_size: 100
+          },
+          {
+            path: File.join(options_dir, "schwab", "2026", "06", "23", "SPXW_samples_2026-06-23.csv"),
+            dataset_type: "options_compacted_csv",
+            provider_name: "schwab",
+            ticker: "SPXW",
+            frequency: nil,
+            expiration_date: nil,
+            storage_format: "csv",
+            storage_location: "local",
+            artifact_status: "ready_local",
+            remote_uri: nil,
+            source_file_count: 2,
+            row_count: 1,
+            first_observed_at: "2026-06-23T14:30:00Z",
+            last_observed_at: "2026-06-23T14:30:00Z",
+            file_mtime: 1,
+            file_size: 100
+          }
+        ]
+      )
+      scanner = Tickrake::Query::CompactedOptionsScanner.new(config: config, tracker: tracker)
+
+      results = scanner.scan(provider_name: "schwab", ticker: "$SPX")
+
+      expect(results.map(&:sample_date)).to eq([Date.new(2026, 6, 23), Date.new(2026, 6, 24)])
+      expect(results.first.ticker).to eq("SPXW")
+      expect(results.first.archive_state).to eq("local_only")
+      expect(results.last.archive_state).to eq("archived")
+    end
+  end
+
+  it "filters compacted option artifacts by sample date range and limit" do
+    Dir.mktmpdir do |dir|
+      history_dir = File.join(dir, "history")
+      options_dir = File.join(dir, "options")
+      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+
+      %w[2026-06-22 2026-06-23 2026-06-24].each do |date|
+        tracker.upsert_file_metadata(
+          path: File.join(options_dir, "schwab", date.tr("-", "/"), "SPXW_samples_#{date}.csv"),
+          dataset_type: "options_compacted_csv",
+          provider_name: "schwab",
+          ticker: "SPXW",
+          frequency: nil,
+          expiration_date: nil,
+          storage_format: "csv",
+          storage_location: "local",
+          artifact_status: "ready_local",
+          remote_uri: nil,
+          source_file_count: 2,
+          row_count: 1,
+          first_observed_at: "#{date}T14:30:00Z",
+          last_observed_at: "#{date}T14:30:00Z",
+          file_mtime: 1,
+          file_size: 100
+        )
+      end
+
+      scanner = Tickrake::Query::CompactedOptionsScanner.new(config: config, tracker: tracker)
+      results = scanner.scan(
+        provider_name: "schwab",
+        ticker: "SPXW",
+        start_date: Date.new(2026, 6, 23),
+        end_date: Date.new(2026, 6, 24),
+        limit: 1,
+        ascending: false
+      )
+
+      expect(results.map(&:sample_date)).to eq([Date.new(2026, 6, 24)])
+    end
+  end
+
+  it "formats compacted option metadata in text output" do
+    result = Tickrake::Query::CompactedOptionsScanner::Result.new(
+      dataset_type: "compacted-options",
+      provider_name: "schwab",
+      ticker: "SPXW",
+      sample_date: Date.new(2026, 6, 24),
+      csv_artifact_status: "ready_local_and_remote",
+      parquet_artifact_status: "ready_local",
+      csv_remote_uri: "s3://tickrake/options/schwab/2026/06/24/SPXW_samples_2026-06-24.csv",
+      parquet_remote_uri: nil,
+      archive_state: "partial"
+    )
+
+    text = Tickrake::Query::TextFormatter.new.format(
+      results: [result],
+      filters: { provider: "schwab", ticker: "SPXW", type: "compacted-options", format: "text" }
+    )
+
+    expect(text).to include("Type: compacted-options")
+    expect(text).to include("Ticker: SPXW")
+    expect(text).to include("- 2026-06-24")
+    expect(text).to include("archive_state: partial")
+    expect(text).to include("csv: ready_local_and_remote")
+    expect(text).to include("parquet: ready_local")
+  end
 end
