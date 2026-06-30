@@ -85,20 +85,11 @@ def process_sample_date(config:, provider_name:, option_root:, sample_date:, dry
       provider_name: provider_name,
       dry_run: true
     ).run
-    delete_sources_result = Tickrake::DeleteCompactedOptionSamples.new(
-      config: config,
-      tracker: tracker,
-      option_root: option_root,
-      sample_date: sample_date,
-      provider_name: provider_name,
-      dry_run: true
-    ).run
-    raise Tickrake::Error, "Delete-source validation failed: #{delete_sources_result.errors.join('; ')}" unless delete_sources_result.safe_to_delete
 
     remote_uri = archive_result.remote_uris.fetch(csv_path)
     TaskResult.new(
       status: :planned,
-      message: "#{sample_date.iso8601}: would validate, archive #{archive_result.archived_paths.length} artifacts, delete #{delete_sources_result.source_paths.length} raw snapshots, and leave only #{File.basename(parquet_path)} locally (csv remote=#{remote_uri})"
+      message: "#{sample_date.iso8601}: would validate and archive #{archive_result.archived_paths.length} artifacts while keeping local raw snapshots, csv, and parquet (csv remote=#{remote_uri})"
     )
   else
     Tickrake::MaintenanceTasks::CompactOptionSamples.new(
@@ -124,30 +115,10 @@ def process_sample_date(config:, provider_name:, option_root:, sample_date:, dry
       provider_name: provider_name
     ).run
 
-    delete_sources_result = Tickrake::DeleteCompactedOptionSamples.new(
-      config: config,
-      tracker: tracker,
-      option_root: option_root,
-      sample_date: sample_date,
-      provider_name: provider_name
-    ).run
-    raise Tickrake::Error, "Delete-source validation failed: #{delete_sources_result.errors.join('; ')}" unless delete_sources_result.safe_to_delete
-    unless delete_sources_result.deletion_errors.empty?
-      raise Tickrake::Error, "Delete-source errors: #{delete_sources_result.deletion_errors.join('; ')}"
-    end
-
-    delete_csv_result = Tickrake::DeleteCompactedOptionSampleCsv.new(
-      config: config,
-      tracker: tracker,
-      option_root: option_root,
-      sample_date: sample_date,
-      provider_name: provider_name
-    ).run
-
     remote_uri = archive_result.remote_uris.fetch(csv_path)
     TaskResult.new(
       status: :archived,
-      message: "#{sample_date.iso8601}: archived #{archive_result.archived_paths.length} artifacts, deleted #{delete_sources_result.deleted_paths.length} raw snapshots, deleted local compacted csv=#{delete_csv_result.deleted}, kept parquet=#{File.basename(parquet_path)} locally, csv remote=#{remote_uri}"
+      message: "#{sample_date.iso8601}: archived #{archive_result.archived_paths.length} artifacts and kept local raw snapshots, csv, and parquet (csv remote=#{remote_uri})"
     )
   end
 ensure
