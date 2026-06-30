@@ -9,6 +9,32 @@ TaskResult = Struct.new(:status, :message, keyword_init: true)
 
 def cleanup_sample_date(config:, provider_name:, option_root:, sample_date:, dry_run:)
   tracker = Tickrake::Tracker.new(config.sqlite_path)
+  storage_paths = Tickrake::Storage::Paths.new(config)
+  csv_path = storage_paths.option_compacted_sample_path(
+    provider: provider_name,
+    root: option_root,
+    sample_date: sample_date,
+    format: "csv"
+  )
+  parquet_path = storage_paths.option_compacted_sample_path(
+    provider: provider_name,
+    root: option_root,
+    sample_date: sample_date,
+    format: "parquet"
+  )
+
+  unless File.exist?(csv_path)
+    if File.exist?(parquet_path)
+      return TaskResult.new(
+        status: :skipped,
+        message: "#{sample_date.iso8601}: skip, local compacted csv already absent; keeping #{File.basename(parquet_path)}"
+      )
+    end
+
+    reason = sample_date.saturday? || sample_date.sunday? ? "weekend, no compacted files expected" : "no local compacted csv"
+    return TaskResult.new(status: :skipped, message: "#{sample_date.iso8601}: skip, #{reason}")
+  end
+
   result = Tickrake::CleanupCompactedOptionSamples.new(
     config: config,
     tracker: tracker,
@@ -19,9 +45,15 @@ def cleanup_sample_date(config:, provider_name:, option_root:, sample_date:, dry
   ).run
 
   if dry_run
+    source_count = result.source_paths.length
+    delete_summary = if source_count.zero?
+      "would delete local compacted csv; raw snapshots already absent"
+    else
+      "would delete #{source_count} raw snapshots and local compacted csv"
+    end
     TaskResult.new(
       status: :planned,
-      message: "#{sample_date.iso8601}: would delete #{result.deleted_source_paths.length} raw snapshots and local compacted csv after verifying remote csv/parquet and local parquet"
+      message: "#{sample_date.iso8601}: #{delete_summary} after verifying remote csv/parquet and local parquet"
     )
   else
     TaskResult.new(
@@ -115,6 +147,7 @@ progress&.finish
 $stdout.puts("Summary:")
 $stdout.puts("  cleaned: #{counts[:cleaned]}")
 $stdout.puts("  planned: #{counts[:planned]}")
+$stdout.puts("  skipped: #{counts[:skipped]}")
 $stdout.puts("  errors: #{counts[:error]}")
 
 exit(errors.empty? ? 0 : 1)

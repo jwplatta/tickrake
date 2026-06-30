@@ -10,6 +10,7 @@ module Tickrake
       :csv_path,
       :parquet_path,
       :remote_uris,
+      :source_paths,
       :deleted_source_paths,
       :deleted_csv,
       keyword_init: true
@@ -72,6 +73,7 @@ module Tickrake
           csv_path => remote_csv.uri,
           parquet_path => remote_parquet.uri
         },
+        source_paths: delete_sources_result.source_paths,
         deleted_source_paths: delete_sources_result.deleted_paths,
         deleted_csv: delete_csv_result.deleted
       )
