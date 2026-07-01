@@ -242,6 +242,49 @@ RSpec.describe "job execution" do
     expect(result).not_to be_successful
   end
 
+  it "degrades an options run when a worker hits Timeout::ExitException" do
+    Dir.mktmpdir do |dir|
+      custom = config_with(
+        config,
+        options_dir: dir,
+        retry_count: 1,
+        retry_delay_seconds: 0,
+        max_workers: 2
+      )
+      client = instance_double("client")
+      success_chain = instance_double("SchwabRb::DataObjects::OptionChain", underlying_price: 5100.5, call_opts: [], put_opts: [])
+      runtime = Tickrake::Runtime.new(
+        config: custom,
+        tracker: tracker,
+        client_factory: instance_double(Tickrake::ClientFactory, build: client),
+        logger: logger
+      )
+
+      allow(client).to receive(:get_option_chain) do |symbol, **_kwargs|
+        raise Timeout::ExitException, "timed out" if symbol == "$SPX"
+
+        success_chain
+      end
+
+      result = nil
+      expect do
+        result = Tickrake::OptionsJob.new(
+          runtime,
+          universe: [
+            Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW"),
+            Tickrake::OptionSymbol.new(symbol: "QQQ", option_root: nil)
+          ],
+          expiration_date: Date.new(2026, 4, 11)
+        ).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
+      end.not_to raise_error
+
+      expect(tracker.fetch_runs.map { |row| row["status"] }).to contain_exactly("failed", "success")
+      expect(result.success_count).to eq(1)
+      expect(result.failure_count).to eq(1)
+      expect(result).to be_degraded
+    end
+  end
+
   it "rejects options collection for non-schwab providers" do
     custom = config_with(
       config,

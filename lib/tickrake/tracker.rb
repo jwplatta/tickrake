@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "monitor"
+
 module Tickrake
   class Tracker
     SQLITE_BUSY_TIMEOUT_MS = 10_000
@@ -44,86 +46,95 @@ module Tickrake
 
     def initialize(path, migrate: false)
       @path = Tickrake::PathSupport.expand_path(path)
+      @db_lock = Monitor.new
       FileUtils.mkdir_p(File.dirname(@path))
       migrate ? migrate! : ensure_schema_current!
     end
 
     def close
-      return unless defined?(@db) && @db
+      synchronize_db do
+        return unless defined?(@db) && @db
 
-      @db.close
-      @db = nil
+        @db.close
+        @db = nil
+      end
     end
 
     def record_start(attrs)
-      db.execute(
-        <<~SQL,
-          INSERT INTO fetch_runs (
-            job_type, dataset_type, symbol, frequency, option_root, requested_buckets,
-            resolved_expiration, scheduled_for, started_at, status, output_path, error_message
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        SQL
-        [
-          attrs.fetch(:job_type),
-          attrs.fetch(:dataset_type),
-          attrs.fetch(:symbol),
-          attrs[:frequency],
-          attrs[:option_root],
-          attrs[:requested_buckets] && JSON.dump(attrs[:requested_buckets]),
-          attrs[:resolved_expiration],
-          iso(attrs[:scheduled_for]),
-          iso(attrs.fetch(:started_at)),
-          "running",
-          attrs[:output_path],
-          nil
-        ]
-      )
-      db.last_insert_row_id
+      synchronize_db do
+        db.execute(
+          <<~SQL,
+            INSERT INTO fetch_runs (
+              job_type, dataset_type, symbol, frequency, option_root, requested_buckets,
+              resolved_expiration, scheduled_for, started_at, status, output_path, error_message
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          SQL
+          [
+            attrs.fetch(:job_type),
+            attrs.fetch(:dataset_type),
+            attrs.fetch(:symbol),
+            attrs[:frequency],
+            attrs[:option_root],
+            attrs[:requested_buckets] && JSON.dump(attrs[:requested_buckets]),
+            attrs[:resolved_expiration],
+            iso(attrs[:scheduled_for]),
+            iso(attrs.fetch(:started_at)),
+            "running",
+            attrs[:output_path],
+            nil
+          ]
+        )
+        db.last_insert_row_id
+      end
     end
 
     def record_finish(id:, status:, finished_at:, output_path: nil, error_message: nil)
-      db.execute(
-        <<~SQL,
-          UPDATE fetch_runs
-          SET status = ?, finished_at = ?, output_path = COALESCE(?, output_path), error_message = ?
-          WHERE id = ?
-        SQL
-        [
-          status,
-          iso(finished_at),
-          output_path,
-          error_message,
-          id
-        ]
-      )
+      synchronize_db do
+        db.execute(
+          <<~SQL,
+            UPDATE fetch_runs
+            SET status = ?, finished_at = ?, output_path = COALESCE(?, output_path), error_message = ?
+            WHERE id = ?
+          SQL
+          [
+            status,
+            iso(finished_at),
+            output_path,
+            error_message,
+            id
+          ]
+        )
+      end
     end
 
     def fetch_runs
-      db.execute("SELECT * FROM fetch_runs ORDER BY id")
+      synchronize_db { db.execute("SELECT * FROM fetch_runs ORDER BY id") }
     end
 
     def file_metadata(path)
-      db.get_first_row("SELECT * FROM file_metadata_cache WHERE path = ?", [Tickrake::PathSupport.expand_path(path)])
+      synchronize_db do
+        db.get_first_row("SELECT * FROM file_metadata_cache WHERE path = ?", [Tickrake::PathSupport.expand_path(path)])
+      end
     end
 
     def file_metadata_aggregate(where: nil, binds: [])
       base = "SELECT COUNT(*) AS file_count, COALESCE(SUM(file_size), 0) AS total_bytes, MIN(last_observed_at) AS oldest_observed_at, MAX(last_observed_at) AS newest_observed_at FROM file_metadata_cache"
       sql = where && !where.empty? ? "#{base} WHERE #{where}" : base
-      db.get_first_row(sql, binds)
+      synchronize_db { db.get_first_row(sql, binds) }
     end
 
     def file_metadata_aggregate_by_provider(where: nil, binds: [])
       base = "SELECT provider_name, COUNT(*) AS file_count, COALESCE(SUM(file_size), 0) AS total_bytes, MIN(last_observed_at) AS oldest_observed_at, MAX(last_observed_at) AS newest_observed_at FROM file_metadata_cache"
       sql = where && !where.empty? ? "#{base} WHERE #{where}" : base
       sql += " GROUP BY provider_name ORDER BY provider_name"
-      db.execute(sql, binds)
+      synchronize_db { db.execute(sql, binds) }
     end
 
     def file_metadata_largest(where: nil, binds: [], limit: 5)
       base = "SELECT path, file_size FROM file_metadata_cache"
       sql = where && !where.empty? ? "#{base} WHERE #{where}" : base
       sql += " ORDER BY file_size DESC LIMIT #{Integer(limit)}"
-      db.execute(sql, binds)
+      synchronize_db { db.execute(sql, binds) }
     end
 
     def file_metadata_rows(where: nil, binds: [], order_by: nil, limit: nil)
@@ -131,7 +142,7 @@ module Tickrake
       sql << " WHERE #{where}" if where && !where.empty?
       sql << " ORDER BY #{order_by}" if order_by && !order_by.empty?
       sql << " LIMIT #{Integer(limit)}" if limit
-      db.execute(sql, binds)
+      synchronize_db { db.execute(sql, binds) }
     end
 
     def upsert_file_metadata(attrs)
@@ -178,132 +189,148 @@ module Tickrake
       return 0 if normalized_paths.empty?
 
       placeholders = (["?"] * normalized_paths.length).join(", ")
-      with_transaction do
-        db.execute("DELETE FROM file_metadata_cache WHERE path IN (#{placeholders})", normalized_paths)
+      synchronize_db do
+        with_transaction do
+          db.execute("DELETE FROM file_metadata_cache WHERE path IN (#{placeholders})", normalized_paths)
+        end
+        db.changes
       end
-      db.changes
     end
 
     def upsert_tickers(rows)
       return if rows.empty?
 
       timestamp = iso(Time.now)
-      rows.each do |row|
-        db.execute(
-          <<~SQL,
-            INSERT INTO tickers (
-              ticker, security_name, gics_sector, gics_sub_industry,
-              headquarters_location, cik, founded, status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(ticker) DO UPDATE SET
-              security_name = excluded.security_name,
-              gics_sector = excluded.gics_sector,
-              gics_sub_industry = excluded.gics_sub_industry,
-              headquarters_location = excluded.headquarters_location,
-              cik = excluded.cik,
-              founded = excluded.founded,
-              status = excluded.status,
-              updated_at = excluded.updated_at
-          SQL
-          [
-            row.fetch("ticker"),
-            row["security_name"],
-            row["gics_sector"],
-            row["gics_sub_industry"],
-            row["headquarters_location"],
-            row["cik"],
-            row["founded"],
-            row["status"],
-            timestamp,
-            timestamp
-          ]
-        )
+      synchronize_db do
+        rows.each do |row|
+          db.execute(
+            <<~SQL,
+              INSERT INTO tickers (
+                ticker, security_name, gics_sector, gics_sub_industry,
+                headquarters_location, cik, founded, status, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(ticker) DO UPDATE SET
+                security_name = excluded.security_name,
+                gics_sector = excluded.gics_sector,
+                gics_sub_industry = excluded.gics_sub_industry,
+                headquarters_location = excluded.headquarters_location,
+                cik = excluded.cik,
+                founded = excluded.founded,
+                status = excluded.status,
+                updated_at = excluded.updated_at
+            SQL
+            [
+              row.fetch("ticker"),
+              row["security_name"],
+              row["gics_sector"],
+              row["gics_sub_industry"],
+              row["headquarters_location"],
+              row["cik"],
+              row["founded"],
+              row["status"],
+              timestamp,
+              timestamp
+            ]
+          )
+        end
       end
     end
 
     def replace_ticker_aliases(rows)
       return if rows.empty?
 
-      tickers = rows.map { |row| row.fetch("ticker") }.uniq
-      ensure_tickers_for_aliases(tickers)
-      ticker_ids = ticker_id_map(tickers)
-      placeholders = (["?"] * ticker_ids.length).join(", ")
-      db.execute("DELETE FROM ticker_aliases WHERE ticker_id IN (#{placeholders})", ticker_ids.values)
+      synchronize_db do
+        tickers = rows.map { |row| row.fetch("ticker") }.uniq
+        ensure_tickers_for_aliases(tickers)
+        ticker_ids = ticker_id_map(tickers)
+        placeholders = (["?"] * ticker_ids.length).join(", ")
+        db.execute("DELETE FROM ticker_aliases WHERE ticker_id IN (#{placeholders})", ticker_ids.values)
 
-      timestamp = iso(Time.now)
-      rows.each do |row|
-        db.execute(
-          <<~SQL,
-            INSERT INTO ticker_aliases (
-              ticker_id, alias_ticker, start_date, end_date, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-          SQL
-          [
-            ticker_ids.fetch(row.fetch("ticker")),
-            row.fetch("alias_ticker"),
-            row["start_date"],
-            row["end_date"],
-            timestamp,
-            timestamp
-          ]
-        )
+        timestamp = iso(Time.now)
+        rows.each do |row|
+          db.execute(
+            <<~SQL,
+              INSERT INTO ticker_aliases (
+                ticker_id, alias_ticker, start_date, end_date, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?)
+            SQL
+            [
+              ticker_ids.fetch(row.fetch("ticker")),
+              row.fetch("alias_ticker"),
+              row["start_date"],
+              row["end_date"],
+              timestamp,
+              timestamp
+            ]
+          )
+        end
       end
     end
 
     def replace_market_index_memberships(index_code:, index_name:, rows:)
-      market_index_id = upsert_market_index(index_code: index_code, index_name: index_name)
-      db.execute("DELETE FROM market_index_memberships WHERE market_index_id = ?", [market_index_id])
+      synchronize_db do
+        market_index_id = upsert_market_index(index_code: index_code, index_name: index_name)
+        db.execute("DELETE FROM market_index_memberships WHERE market_index_id = ?", [market_index_id])
 
-      ensure_tickers_for_memberships(rows)
-      ticker_ids = ticker_id_map(rows.map { |row| row.fetch("ticker") })
-      timestamp = iso(Time.now)
-      rows.each do |row|
-        db.execute(
-          <<~SQL,
-            INSERT INTO market_index_memberships (
-              market_index_id, ticker_id, start_date, end_date, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-          SQL
-          [
-            market_index_id,
-            ticker_ids.fetch(row.fetch("ticker")),
-            row.fetch("start_date"),
-            row["end_date"],
-            timestamp,
-            timestamp
-          ]
-        )
+        ensure_tickers_for_memberships(rows)
+        ticker_ids = ticker_id_map(rows.map { |row| row.fetch("ticker") })
+        timestamp = iso(Time.now)
+        rows.each do |row|
+          db.execute(
+            <<~SQL,
+              INSERT INTO market_index_memberships (
+                market_index_id, ticker_id, start_date, end_date, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?)
+            SQL
+            [
+              market_index_id,
+              ticker_ids.fetch(row.fetch("ticker")),
+              row.fetch("start_date"),
+              row["end_date"],
+              timestamp,
+              timestamp
+            ]
+          )
+        end
       end
     end
 
     def members_for_index(index_code:, as_of:)
-      db.execute(
-        <<~SQL,
-          SELECT tickers.ticker
-          FROM market_index_memberships memberships
-          INNER JOIN market_indexes indexes
-            ON indexes.id = memberships.market_index_id
-          INNER JOIN tickers
-            ON tickers.id = memberships.ticker_id
-          WHERE indexes.code = ?
-            AND memberships.start_date <= ?
-            AND (memberships.end_date IS NULL OR memberships.end_date >= ?)
-          ORDER BY tickers.ticker ASC
-        SQL
-        [index_code, as_of, as_of]
-      ).map { |row| row.fetch("ticker") }
+      synchronize_db do
+        db.execute(
+          <<~SQL,
+            SELECT tickers.ticker
+            FROM market_index_memberships memberships
+            INNER JOIN market_indexes indexes
+              ON indexes.id = memberships.market_index_id
+            INNER JOIN tickers
+              ON tickers.id = memberships.ticker_id
+            WHERE indexes.code = ?
+              AND memberships.start_date <= ?
+              AND (memberships.end_date IS NULL OR memberships.end_date >= ?)
+            ORDER BY tickers.ticker ASC
+          SQL
+          [index_code, as_of, as_of]
+        ).map { |row| row.fetch("ticker") }
+      end
     end
 
     def with_transaction
-      db.transaction
-      yield
-      db.commit
-    rescue StandardError
-      db.rollback if db.transaction_active?
-      raise
+      synchronize_db do
+        db.transaction
+        yield
+        db.commit
+      rescue StandardError
+        db.rollback if db.transaction_active?
+        raise
+      end
     end
 
     private
+
+    def synchronize_db(&block)
+      @db_lock.synchronize(&block)
+    end
 
     def db
       @db ||= SQLite3::Database.new(@path).tap do |database|
