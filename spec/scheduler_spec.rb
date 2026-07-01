@@ -128,6 +128,28 @@ RSpec.describe "schedulers" do
     expect(logger).to have_received(:error).with(/reached schwab failure threshold 3\/3/)
   end
 
+  it "counts timeout-degraded schwab options iterations as failures and exits after the threshold" do
+    degraded_job = instance_double(Tickrake::OptionsJob)
+    runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
+    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
+
+    runner.instance_variable_set(:@job, degraded_job)
+    allow(degraded_job).to receive(:run).and_return(
+      Tickrake::ScheduledRunResult.new(success_count: 0, failure_count: 1)
+    )
+
+    runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
+    runner.run_iteration(Time.new(2026, 4, 6, 9, 1, 0, "-05:00"))
+
+    expect do
+      runner.run_iteration(Time.new(2026, 4, 6, 9, 2, 0, "-05:00"))
+    end.to raise_error(Tickrake::SchedulerRestartRequired)
+
+    expect(logger).to have_received(:warn).with(/due to degraded run result; consecutive_failures=1\/3/)
+    expect(logger).to have_received(:warn).with(/due to degraded run result; consecutive_failures=2\/3/)
+    expect(logger).to have_received(:error).with(/reached schwab failure threshold 3\/3/)
+  end
+
   it "counts raised schwab iteration exceptions toward the restart threshold" do
     failing_job = instance_double(Tickrake::OptionsJob)
     runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)

@@ -215,6 +215,62 @@ RSpec.describe Tickrake::Tracker do
     end
   end
 
+  it "serializes concurrent fetch-run and metadata writes on one tracker connection" do
+    Dir.mktmpdir do |dir|
+      tracker = described_class.new(File.join(dir, "tickrake.sqlite3"))
+      ids = 8.times.map do |index|
+        tracker.record_start(
+          job_type: "options_monitor",
+          dataset_type: "options",
+          symbol: "SYM#{index}",
+          option_root: nil,
+          requested_buckets: [0],
+          resolved_expiration: "2026-07-01",
+          scheduled_for: Time.utc(2026, 7, 1, 14, 30, 0),
+          started_at: Time.utc(2026, 7, 1, 14, 30, 1)
+        )
+      end
+
+      errors = Queue.new
+      threads = ids.map do |id|
+        Thread.new do
+          Thread.current.report_on_exception = false
+
+          10.times do |attempt|
+            tracker.record_finish(
+              id: id,
+              status: "success",
+              finished_at: Time.utc(2026, 7, 1, 14, 30, attempt + 2),
+              output_path: File.join(dir, "options", "schwab", "SYM#{id}_#{attempt}.csv")
+            )
+            tracker.upsert_file_metadata(
+              path: File.join(dir, "options", "schwab", "SYM#{id}_#{attempt}.csv"),
+              dataset_type: "options",
+              provider_name: "schwab",
+              ticker: "SYM#{id}",
+              frequency: nil,
+              expiration_date: "2026-07-01",
+              row_count: attempt + 1,
+              first_observed_at: "2026-07-01T14:30:00Z",
+              last_observed_at: "2026-07-01T14:30:00Z",
+              file_mtime: attempt + 1,
+              file_size: (attempt + 1) * 100
+            )
+          end
+        rescue StandardError => e
+          errors << e
+        end
+      end
+      threads.each(&:join)
+
+      expect(errors.size).to eq(0), -> {
+        Array.new(errors.size) { errors.pop }.map { |error| "#{error.class}: #{error.message}" }.join("\n")
+      }
+      expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("success"))
+      expect(tracker.file_metadata_rows.length).to eq(80)
+    end
+  end
+
   it "requires explicit migration before opening a fresh database" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.sqlite3")

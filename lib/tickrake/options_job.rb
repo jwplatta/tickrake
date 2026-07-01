@@ -192,7 +192,7 @@ module Tickrake
         upsert_file_metadata(job: job, path: path, row_count: result.fetch(:row_count), sampled_at: run_time)
         @progress_reporter&.advance(title: option_progress_title(job))
         :success
-      rescue StandardError => e
+      rescue StandardError, Timeout::ExitException => e
         @runtime.logger.error("Failed option fetch for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}: #{e.message}")
         @runtime.tracker.record_finish(id: id, status: "failed", finished_at: Time.now, error_message: e.message)
         @progress_reporter&.advance(title: "#{option_progress_title(job)} failed")
@@ -328,7 +328,7 @@ module Tickrake
       begin
         attempts += 1
         Timeout.timeout(@runtime.config.option_fetch_timeout_seconds) { yield }
-      rescue StandardError => e
+      rescue StandardError, Timeout::ExitException => e
         if attempts <= @runtime.config.retry_count
           on_retry&.call(attempts, e)
           sleep @runtime.config.retry_delay_seconds
