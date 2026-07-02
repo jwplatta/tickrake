@@ -51,6 +51,23 @@ module Tickrake
         end
       end
 
+      CleanupResult = Struct.new(
+        :success,
+        :provider_name,
+        :option_root,
+        :sample_date,
+        :source_paths,
+        :deleted_source_paths,
+        :retained_local,
+        :remote_uris,
+        :errors,
+        keyword_init: true
+      ) do
+        def successful?
+          success
+        end
+      end
+
       class Processor
         DEFAULT_RETAIN_LOCAL = { "csv" => false, "parquet" => true }.freeze
 
@@ -253,6 +270,85 @@ module Tickrake
             sample_date: @sample_date,
             artifact_results: artifact_results,
             errors: errors
+          )
+        end
+
+        def cleanup(destination_name:, delete_sources:, retain_local:, dry_run: false)
+          remote_uris = {}
+          retained_local = {}
+          errors = []
+
+          %w[csv parquet].each do |artifact|
+            path = compacted_path_for(artifact)
+            raise Tickrake::Error, "Local compacted #{artifact.upcase} not found: #{path}" unless File.exist?(path)
+
+            remote_object = archive_service_for(destination_name).verify(path)
+            local_size = File.size(path)
+            if remote_object.size != local_size
+              raise Tickrake::Error, "Archived object size mismatch for #{path}: local=#{local_size} remote=#{remote_object.size}"
+            end
+            remote_uris[path] = remote_object.uri
+          end
+
+          validation = validate
+          unless validation.safe_to_delete
+            return CleanupResult.new(
+              success: false,
+              provider_name: @provider_name,
+              option_root: @option_root,
+              sample_date: @sample_date,
+              source_paths: validation.source_paths,
+              deleted_source_paths: [],
+              retained_local: { "csv" => true, "parquet" => true },
+              remote_uris: remote_uris,
+              errors: validation.errors
+            )
+          end
+
+          deleted_source_paths = []
+          if delete_sources && !dry_run
+            deleted_source_paths, = delete_source_paths(validation.source_paths)
+          end
+
+          retained_local = {}
+          %w[csv parquet].each do |artifact|
+            path = compacted_path_for(artifact)
+            keep_local = retain_local.fetch(artifact, DEFAULT_RETAIN_LOCAL.fetch(artifact))
+            if dry_run
+              retained_local[artifact] = keep_local
+              next
+            end
+
+            if keep_local
+              update_metadata_for_local_archive(path: path, remote_uri: remote_uris.fetch(path))
+            else
+              delete_local_artifact(path: path, remote_uri: remote_uris.fetch(path))
+            end
+            retained_local[artifact] = keep_local
+          end
+
+          CleanupResult.new(
+            success: true,
+            provider_name: @provider_name,
+            option_root: @option_root,
+            sample_date: @sample_date,
+            source_paths: validation.source_paths,
+            deleted_source_paths: deleted_source_paths,
+            retained_local: retained_local,
+            remote_uris: remote_uris,
+            errors: []
+          )
+        rescue StandardError => e
+          CleanupResult.new(
+            success: false,
+            provider_name: @provider_name,
+            option_root: @option_root,
+            sample_date: @sample_date,
+            source_paths: [],
+            deleted_source_paths: [],
+            retained_local: { "csv" => true, "parquet" => true },
+            remote_uris: remote_uris || {},
+            errors: [e.message]
           )
         end
 
