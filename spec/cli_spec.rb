@@ -62,8 +62,16 @@ RSpec.describe Tickrake::CLI do
       lookback_days: nil,
       dte_buckets: [],
       universe: [],
-      task: "compact_option_samples",
-      settings: { "option_root" => "SPXW" },
+      tasks: [
+        Tickrake::MaintenanceStepConfig.new(
+          action: "compact",
+          subject: "option_samples",
+          option_root: "SPXW",
+          delete_sources: false,
+          artifacts: [],
+          retain_local: {}
+        )
+      ],
       manual: true
     )
   end
@@ -290,9 +298,9 @@ RSpec.describe Tickrake::CLI do
     stderr = StringIO.new
     runtime = instance_double(Tickrake::Runtime)
     progress_reporter = instance_double(Tickrake::ProgressReporter)
-    result = Tickrake::MaintenanceTasks::CompactOptionSamples::Result.new(
-      task: "compact_option_samples",
+    result = Tickrake::MaintenanceJob::Result.new(
       processed_dates: [Date.new(2025, 12, 18), Date.new(2025, 12, 19)],
+      step_results: [],
       artifacts_written: ["/tmp/a.csv", "/tmp/a.parquet", "/tmp/b.csv", "/tmp/b.parquet"]
     )
     job = instance_double(Tickrake::MaintenanceJob, run: result)

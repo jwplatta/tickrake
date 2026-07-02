@@ -4,7 +4,7 @@ RSpec.describe Tickrake::ConfigLoader do
   it "loads the example config with typed scheduled jobs" do
     config = described_class.load(File.expand_path("../config/tickrake.example.yml", __dir__))
 
-    expect(config.jobs.map(&:name)).to eq(%w[index_options eod_candles spx_min_candles manual_candles manual_compact_spxw])
+    expect(config.jobs.map(&:name)).to eq(%w[index_options eod_candles spx_min_candles manual_candles manual_compact_spxw postclose_option_maintenance])
     expect(config.job("index_options").type).to eq("options")
     expect(config.job("index_options").interval_seconds).to eq(300)
     expect(config.job("index_options").dte_buckets).to include(0, 10, 30)
@@ -29,8 +29,10 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.job("eod_candles").universe.first.frequencies).to include("day", "30min", "10min", "5min", "1min")
     expect(config.job("manual_compact_spxw")).to be_manual
     expect(config.job("manual_compact_spxw").type).to eq("maintenance")
-    expect(config.job("manual_compact_spxw").task).to eq("compact_option_samples")
-    expect(config.job("manual_compact_spxw").settings).to eq("option_root" => "SPXW")
+    expect(config.job("manual_compact_spxw").tasks.length).to eq(1)
+    expect(config.job("manual_compact_spxw").tasks.first.action).to eq("compact")
+    expect(config.job("manual_compact_spxw").tasks.first.option_root).to eq("SPXW")
+    expect(config.universe("index_option_roots").option_roots).to eq(%w[SPXW SPY QQQ])
     expect(config.s3_archive.bucket).to eq("tickrake")
     expect(config.s3_archive.region).to eq("us-east-1")
     expect(config.s3_archive.storage_class).to eq("GLACIER_IR")
@@ -359,7 +361,7 @@ RSpec.describe Tickrake::ConfigLoader do
     end
   end
 
-  it "loads manual maintenance jobs with freeform settings" do
+  it "loads manual maintenance jobs with ordered tasks" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "manual-maintenance.yml")
       File.write(path, <<~YAML)
@@ -367,21 +369,37 @@ RSpec.describe Tickrake::ConfigLoader do
         providers:
           schwab:
             adapter: schwab
+        universes:
+          index_roots:
+            option_roots: [SPXW, SPY]
         schedule:
           compact_spxw:
             type: maintenance
             manual: true
             provider: schwab
-            task: compact_option_samples
-            settings:
-              option_root: SPXW
+            tasks:
+              - compact:
+                  subject: option_samples
+                  universe: index_roots
+                  delete_sources: true
+              - archive:
+                  subject: option_samples
+                  option_root: SPXW
+                  destination: s3_archive
+                  artifacts: [csv]
+                  retain_local:
+                    csv: false
+        storage:
+          s3_archive:
+            bucket: tickrake
       YAML
 
       config = described_class.load(path)
 
       expect(config.job("compact_spxw")).to be_manual
-      expect(config.job("compact_spxw").task).to eq("compact_option_samples")
-      expect(config.job("compact_spxw").settings).to eq("option_root" => "SPXW")
+      expect(config.job("compact_spxw").tasks.map(&:action)).to eq(%w[compact archive])
+      expect(config.job("compact_spxw").tasks.first.universe).to eq("index_roots")
+      expect(config.job("compact_spxw").tasks.last.retain_local).to eq("csv" => false)
     end
   end
 

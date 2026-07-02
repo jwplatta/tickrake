@@ -16,28 +16,27 @@ module Tickrake
       keyword_init: true
     )
 
-    def initialize(config:, tracker:, option_root:, sample_date:, provider_name:, archive_service: Tickrake::Storage::S3Archive.new(config), dry_run: false)
+    def initialize(config:, tracker:, option_root:, sample_date:, provider_name:, archive_service: nil, dry_run: false)
       @config = config
       @tracker = tracker
-      @option_root = option_root.to_s
+      @option_root = option_root
       @sample_date = sample_date
-      @provider_name = provider_name.to_s
+      @provider_name = provider_name
       @archive_service = archive_service
       @dry_run = dry_run
       @storage_paths = Tickrake::Storage::Paths.new(config)
     end
 
     def run
-      raise Tickrake::Error, "S3 archive is not configured." unless @config.s3_archive
-
-      csv_path = compacted_path(format: "csv")
-      parquet_path = compacted_path(format: "parquet")
-
+      csv_path = compacted_path("csv")
+      parquet_path = compacted_path("parquet")
       raise Tickrake::Error, "Local compacted CSV not found: #{csv_path}" unless File.exist?(csv_path)
       raise Tickrake::Error, "Local compacted Parquet not found: #{parquet_path}" unless File.exist?(parquet_path)
 
-      remote_csv = verify_remote_match!(csv_path)
-      remote_parquet = verify_remote_match!(parquet_path)
+      remote_csv = archive_service.verify(csv_path)
+      remote_parquet = archive_service.verify(parquet_path)
+      raise Tickrake::Error, "Archived object size mismatch for #{csv_path}: local=#{File.size(csv_path)} remote=#{remote_csv.size}" if remote_csv.size != File.size(csv_path)
+      raise Tickrake::Error, "Archived object size mismatch for #{parquet_path}: local=#{File.size(parquet_path)} remote=#{remote_parquet.size}" if remote_parquet.size != File.size(parquet_path)
 
       delete_sources_result = Tickrake::DeleteCompactedOptionSamples.new(
         config: @config,
@@ -48,9 +47,7 @@ module Tickrake
         dry_run: @dry_run
       ).run
       raise Tickrake::Error, "Delete-source validation failed: #{delete_sources_result.errors.join('; ')}" unless delete_sources_result.safe_to_delete
-      unless delete_sources_result.deletion_errors.empty?
-        raise Tickrake::Error, "Delete-source errors: #{delete_sources_result.deletion_errors.join('; ')}"
-      end
+      raise Tickrake::Error, "Delete-source errors: #{delete_sources_result.deletion_errors.join('; ')}" unless delete_sources_result.deletion_errors.empty?
 
       delete_csv_result = Tickrake::DeleteCompactedOptionSampleCsv.new(
         config: @config,
@@ -58,7 +55,7 @@ module Tickrake
         option_root: @option_root,
         sample_date: @sample_date,
         provider_name: @provider_name,
-        archive_service: @archive_service,
+        archive_service: archive_service,
         dry_run: @dry_run
       ).run
 
@@ -81,7 +78,7 @@ module Tickrake
 
     private
 
-    def compacted_path(format:)
+    def compacted_path(format)
       @storage_paths.option_compacted_sample_path(
         provider: @provider_name,
         root: @option_root,
@@ -90,15 +87,8 @@ module Tickrake
       )
     end
 
-    def verify_remote_match!(path)
-      remote_object = @archive_service.verify(path)
-      local_size = File.size(path)
-      if remote_object.size != local_size
-        raise Tickrake::Error,
-              "Archived object size mismatch for #{path}: local=#{local_size} remote=#{remote_object.size}"
-      end
-
-      remote_object
+    def archive_service
+      @archive_service ||= Tickrake::Storage::S3Archive.new(@config, archive_config: @config.s3_archive)
     end
   end
 end

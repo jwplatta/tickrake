@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - Added `tickrake delete-compacted-option-samples` for validated raw-snapshot cleanup, with `--dry-run` and source metadata-row removal.
 - Added optional `storage.s3_archive` config plus `tickrake archive-compacted-option-samples` to mirror compacted option artifacts into S3 before raw snapshot cleanup.
 - Added provider-level scheduled-job resilience settings so Schwab schedulers can serialize runs and auto-restart after repeated failures.
+- Added reusable maintenance universes loaded from config or separate YAML files so one maintenance job can target many option roots.
 
 ### Fixed
 - Fixed IBKR provider hangs on early-date fetches and improved symbol period resolution.
@@ -28,6 +29,7 @@ All notable changes to this project will be documented in this file.
 - Fixed MCP tool schemas to avoid invalid empty `required` arrays under newer `mcp` gem validation.
 - Fixed option-compaction validation flows to require an explicit provider instead of falling back to `default_provider`.
 - Fixed compacted option parquet artifacts to persist numeric and timestamp columns with typed parquet schemas instead of writing every field as a string.
+- Fixed maintenance safety so raw source CSVs are only deleted after compaction validation succeeds, and local compacted artifacts are only deleted after successful archive verification for that artifact.
 
 ### Changed
 - Updated contributor and agent documentation.
@@ -35,6 +37,7 @@ All notable changes to this project will be documented in this file.
 - Normalized S&P 500 index storage around `ticker_id` foreign keys and `ticker_aliases` rows keyed by the current accepted ticker.
 - Changed Tickrake to require explicit database migrations instead of running them automatically when the tracker opens the SQLite database.
 - Moved Tickrake logs into `~/.tickrake/logs/` and added 14-day log-family retention on top of size-based rotation with 5 files per log family.
+- Reworked maintenance jobs from single `task/settings` entries into ordered `tasks:` pipelines with `compact` and `archive` steps for option-sample maintenance.
 
 ## [0.3.0] - 2026-04-26
 

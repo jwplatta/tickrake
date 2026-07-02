@@ -11,6 +11,20 @@ module Tickrake
     end
   end
 
+  UniverseConfig = Struct.new(:name, :option_roots, keyword_init: true)
+  MaintenanceStepConfig = Struct.new(
+    :action,
+    :subject,
+    :provider,
+    :universe,
+    :option_root,
+    :delete_sources,
+    :destination,
+    :artifacts,
+    :retain_local,
+    keyword_init: true
+  )
+
   SchedulerWindow = Struct.new(:days, :start_time, :end_time, keyword_init: true)
   OptionSymbol = Struct.new(:symbol, :option_root, :provider, keyword_init: true)
   ProviderDefinition = Struct.new(:name, :adapter, :settings, :symbol_map, keyword_init: true) do
@@ -57,6 +71,7 @@ module Tickrake
     :lookback_days,
     :dte_buckets,
     :universe,
+    :tasks,
     :task,
     :settings,
     :manual,
@@ -95,7 +110,7 @@ module Tickrake
   class Config
     attr_reader :timezone, :sqlite_path, :providers, :default_provider_name, :data_dir, :history_dir, :options_dir, :max_workers,
                 :retry_count, :retry_delay_seconds, :option_fetch_timeout_seconds, :candle_fetch_timeout_seconds, :jobs, :import_jobs,
-                :option_root_tickers, :option_snapshot_filename_timezone, :s3_archive
+                :option_root_tickers, :option_snapshot_filename_timezone, :archives, :universes
 
     def initialize(
       timezone:,
@@ -104,7 +119,9 @@ module Tickrake
       default_provider_name:,
       option_root_tickers:,
       option_snapshot_filename_timezone: "utc",
+      archives: nil,
       s3_archive: nil,
+      universes: {},
       data_dir:,
       history_dir:,
       options_dir:,
@@ -122,7 +139,8 @@ module Tickrake
       @default_provider_name = default_provider_name
       @option_root_tickers = option_root_tickers
       @option_snapshot_filename_timezone = option_snapshot_filename_timezone
-      @s3_archive = s3_archive
+      @archives = normalize_archives(archives: archives, s3_archive: s3_archive)
+      @universes = universes
       @data_dir = data_dir
       @history_dir = history_dir
       @options_dir = options_dir
@@ -141,6 +159,14 @@ module Tickrake
       raise ConfigError, "Unknown job `#{selected_name}`." unless selected_job
 
       selected_job
+    end
+
+    def universe(name)
+      selected_name = name.to_s
+      selected_universe = @universes.fetch(selected_name, nil)
+      raise ConfigError, "Unknown universe `#{selected_name}`." unless selected_universe
+
+      selected_universe
     end
 
     def import_job(name)
@@ -214,6 +240,10 @@ module Tickrake
         return [provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)].compact.uniq if entries.empty?
 
         entries.map { |entry| provider_name_for_entry_with_override(override_name, entry, scheduled_job: job) }.uniq
+      when "maintenance"
+        explicit_providers = Array(job.tasks).filter_map(&:provider)
+        fallback_provider = provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)
+        (explicit_providers + [fallback_provider]).compact.uniq
       else
         [provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)].compact.uniq
       end
@@ -222,6 +252,18 @@ module Tickrake
     def ticker_for_option_root(option_root)
       normalized_root = option_root.to_s.upcase
       @option_root_tickers.fetch(normalized_root, normalized_root)
+    end
+
+    def s3_archive
+      @archives["s3_archive"]
+    end
+
+    private
+
+    def normalize_archives(archives:, s3_archive:)
+      normalized = (archives || {}).dup
+      normalized["s3_archive"] ||= s3_archive if s3_archive
+      normalized
     end
   end
 end

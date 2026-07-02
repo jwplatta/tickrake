@@ -48,6 +48,9 @@ runtime:
   retry_delay_seconds: 2
   option_fetch_timeout_seconds: 30
   candle_fetch_timeout_seconds: 60
+universes:
+  index_option_roots:
+    file: universes/index_option_roots.yml
 schedule:
   index_options:
     type: options
@@ -126,6 +129,26 @@ schedule:
     type: maintenance
     manual: true
     provider: schwab
-    task: compact_option_samples
-    settings:
-      option_root: SPXW
+    tasks:
+      - compact:
+          subject: option_samples
+          option_root: SPXW
+          delete_sources: false
+  postclose_option_maintenance:
+    type: maintenance
+    provider: schwab
+    run_at: "18:05"
+    days: [mon, tue, wed, thu, fri]
+    tasks:
+      - compact:
+          subject: option_samples
+          universe: index_option_roots
+          delete_sources: true
+      - archive:
+          subject: option_samples
+          universe: index_option_roots
+          destination: s3_archive
+          artifacts: [csv, parquet]
+          retain_local:
+            csv: false
+            parquet: true
