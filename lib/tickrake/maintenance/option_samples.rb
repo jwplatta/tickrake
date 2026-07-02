@@ -22,7 +22,20 @@ module Tickrake
         :option_root,
         :sample_date,
         :artifacts_written,
-        :validation,
+        :errors,
+        keyword_init: true
+      ) do
+        def successful?
+          success
+        end
+      end
+
+      SourceCleanupResult = Struct.new(
+        :success,
+        :provider_name,
+        :option_root,
+        :sample_date,
+        :source_paths,
         :deleted_source_paths,
         :metadata_rows_removed,
         :errors,
@@ -47,19 +60,22 @@ module Tickrake
         end
 
         def archived_paths
-          artifact_results.filter_map { |result| result[:path] if result[:uploaded] }
+          artifact_results.map { |result| result.fetch(:path) }
+        end
+
+        def remote_uris
+          artifact_results.each_with_object({}) do |result, memo|
+            memo[result.fetch(:path)] = result.fetch(:remote_uri)
+          end
         end
       end
 
-      CleanupResult = Struct.new(
+      RetentionResult = Struct.new(
         :success,
         :provider_name,
         :option_root,
         :sample_date,
-        :source_paths,
-        :deleted_source_paths,
         :retained_local,
-        :remote_uris,
         :errors,
         keyword_init: true
       ) do
@@ -68,10 +84,10 @@ module Tickrake
         end
       end
 
-      class Processor
-        DEFAULT_RETAIN_LOCAL = { "csv" => false, "parquet" => true }.freeze
+      class Context
+        attr_reader :config, :tracker, :provider_name, :option_root, :sample_date, :logger, :storage_paths
 
-        def initialize(config:, tracker:, provider_name:, option_root:, sample_date:, logger:, storage_paths: Tickrake::Storage::Paths.new(config), writer: Tickrake::Storage::OptionCompactedWriter.new, archive_services: {})
+        def initialize(config:, tracker:, provider_name:, option_root:, sample_date:, logger:, storage_paths: Tickrake::Storage::Paths.new(config))
           @config = config
           @tracker = tracker
           @provider_name = provider_name.to_s
@@ -79,326 +95,96 @@ module Tickrake
           @sample_date = sample_date
           @logger = logger
           @storage_paths = storage_paths
-          @writer = writer
-          @archive_services = archive_services
         end
 
-        def compact(delete_sources:, progress_reporter: nil)
-          raw_files = dataset.raw_snapshot_files(sample_date: @sample_date)
+        def dataset
+          @dataset ||= Tickrake::Storage::OptionCompactionDataset.new(
+            config: config,
+            provider_name: provider_name,
+            option_root: option_root,
+            storage_paths: storage_paths
+          )
+        end
+
+        def compacted_path(format)
+          storage_paths.option_compacted_sample_path(
+            provider: provider_name,
+            root: option_root,
+            sample_date: sample_date,
+            format: format
+          )
+        end
+
+        def log(level, message)
+          logger&.public_send(level, "maintenance option_samples provider=#{provider_name} root=#{option_root} sample_date=#{sample_date}: #{message}")
+        end
+      end
+
+      class Compactor
+        def initialize(context:, writer: Tickrake::Storage::OptionCompactedWriter.new)
+          @context = context
+          @writer = writer
+        end
+
+        def run(progress_reporter: nil)
+          raw_files = @context.dataset.raw_snapshot_files(sample_date: @context.sample_date)
           if raw_files.empty?
-            log(:info, "compact skipped: no raw option snapshots found")
+            @context.log(:info, "compact skipped: no raw option snapshots found")
             return CompactResult.new(
               success: true,
-              provider_name: @provider_name,
-              option_root: @option_root,
-              sample_date: @sample_date,
+              provider_name: @context.provider_name,
+              option_root: @context.option_root,
+              sample_date: @context.sample_date,
               artifacts_written: [],
-              validation: ValidationResult.new(
-                safe_to_delete: false,
-                provider_name: @provider_name,
-                option_root: @option_root,
-                sample_date: @sample_date,
-                compacted_path: compacted_csv_path,
-                source_paths: [],
-                expected_row_count: 0,
-                actual_row_count: 0,
-                errors: ["No raw option snapshots found."]
-              ),
-              deleted_source_paths: [],
-              metadata_rows_removed: nil,
               errors: []
             )
           end
 
           progress_reporter&.add_total(raw_files.length - 1)
-          built = dataset.build_rows(
-            sample_date: @sample_date,
+          built = @context.dataset.build_rows(
+            sample_date: @context.sample_date,
             raw_files: raw_files,
             progress_reporter: progress_reporter,
-            progress_title_prefix: "Compact #{@sample_date.iso8601}"
+            progress_title_prefix: "Compact #{@context.sample_date.iso8601}"
           )
-          @writer.write(csv_path: compacted_csv_path, parquet_path: compacted_parquet_path, headers: built.fetch(:headers), rows: built.fetch(:rows))
-          upsert_compacted_metadata(path: compacted_csv_path, format: "csv", sampled_times: built.fetch(:sampled_times), row_count: built.fetch(:rows).length, source_file_count: built.fetch(:raw_files).length)
-          upsert_compacted_metadata(path: compacted_parquet_path, format: "parquet", sampled_times: built.fetch(:sampled_times), row_count: built.fetch(:rows).length, source_file_count: built.fetch(:raw_files).length)
 
-          validation = validate(progress_reporter: nil)
-          unless validation.safe_to_delete
-            log(:error, "compact validation failed: #{validation.errors.join('; ')}")
-            return CompactResult.new(
-              success: false,
-              provider_name: @provider_name,
-              option_root: @option_root,
-              sample_date: @sample_date,
-              artifacts_written: [compacted_csv_path, compacted_parquet_path],
-              validation: validation,
-              deleted_source_paths: [],
-              metadata_rows_removed: nil,
-              errors: validation.errors
-            )
-          end
-
-          deleted_source_paths = []
-          metadata_rows_removed = nil
-          if delete_sources
-            deleted_source_paths, metadata_rows_removed = delete_source_paths(validation.source_paths)
-            log(:info, "deleted #{deleted_source_paths.length} raw source snapshot CSVs after successful compaction validation")
-          else
-            log(:info, "compaction validation succeeded; raw source snapshots retained")
-          end
+          csv_path = @context.compacted_path("csv")
+          parquet_path = @context.compacted_path("parquet")
+          @writer.write(csv_path: csv_path, parquet_path: parquet_path, headers: built.fetch(:headers), rows: built.fetch(:rows))
+          upsert_metadata(path: csv_path, format: "csv", sampled_times: built.fetch(:sampled_times), row_count: built.fetch(:rows).length, source_file_count: built.fetch(:raw_files).length)
+          upsert_metadata(path: parquet_path, format: "parquet", sampled_times: built.fetch(:sampled_times), row_count: built.fetch(:rows).length, source_file_count: built.fetch(:raw_files).length)
 
           CompactResult.new(
             success: true,
-            provider_name: @provider_name,
-            option_root: @option_root,
-            sample_date: @sample_date,
-            artifacts_written: [compacted_csv_path, compacted_parquet_path],
-            validation: validation,
-            deleted_source_paths: deleted_source_paths,
-            metadata_rows_removed: metadata_rows_removed,
+            provider_name: @context.provider_name,
+            option_root: @context.option_root,
+            sample_date: @context.sample_date,
+            artifacts_written: [csv_path, parquet_path],
             errors: []
           )
         rescue StandardError => e
-          log(:error, "compact failed: #{e.class}: #{e.message}")
+          @context.log(:error, "compact failed: #{e.class}: #{e.message}")
           CompactResult.new(
             success: false,
-            provider_name: @provider_name,
-            option_root: @option_root,
-            sample_date: @sample_date,
+            provider_name: @context.provider_name,
+            option_root: @context.option_root,
+            sample_date: @context.sample_date,
             artifacts_written: [],
-            validation: nil,
-            deleted_source_paths: [],
-            metadata_rows_removed: nil,
             errors: [e.message]
-          )
-        end
-
-        def validate(progress_reporter: nil)
-          compacted_headers, compacted_rows = read_compacted_csv(compacted_csv_path)
-          built = dataset.build_rows(
-            sample_date: @sample_date,
-            progress_reporter: progress_reporter,
-            progress_title_prefix: "Validate #{@sample_date.iso8601}"
-          )
-          progress_reporter&.advance(title: "Validate #{File.basename(compacted_csv_path)}")
-
-          errors = []
-          errors << "No matching source snapshot files found." if built.fetch(:raw_files).empty?
-          errors << "Compacted CSV headers do not match expected compaction headers." unless compacted_headers == built.fetch(:headers)
-          if compacted_rows.length != built.fetch(:rows).length
-            errors << "Compacted CSV row count #{compacted_rows.length} does not match expected row count #{built.fetch(:rows).length}."
-          end
-
-          mismatch = first_row_mismatch(compacted_rows, built.fetch(:rows))
-          errors << mismatch if mismatch
-
-          ValidationResult.new(
-            safe_to_delete: errors.empty?,
-            provider_name: @provider_name,
-            option_root: @option_root,
-            sample_date: @sample_date,
-            compacted_path: compacted_csv_path,
-            source_paths: built.fetch(:raw_files),
-            expected_row_count: built.fetch(:rows).length,
-            actual_row_count: compacted_rows.length,
-            errors: errors
-          )
-        rescue Errno::ENOENT
-          ValidationResult.new(
-            safe_to_delete: false,
-            provider_name: @provider_name,
-            option_root: @option_root,
-            sample_date: @sample_date,
-            compacted_path: compacted_csv_path,
-            source_paths: [],
-            expected_row_count: 0,
-            actual_row_count: 0,
-            errors: ["Compacted CSV file not found: #{compacted_csv_path}"]
           )
         ensure
           progress_reporter&.finish
         end
 
-        def archive(destination_name:, artifacts:, retain_local:)
-          archive_service = archive_service_for(destination_name)
-          selected_artifacts = artifacts.empty? ? %w[csv parquet] : artifacts
-          artifact_results = []
-          errors = []
-
-          selected_artifacts.each do |artifact|
-            path = compacted_path_for(artifact)
-            log(:info, "archive start artifact=#{artifact} destination=#{destination_name} path=#{path}")
-            raise Tickrake::Error, "Compacted artifact not found: #{path}" unless File.exist?(path)
-
-            remote_object = archive_service.upload(path)
-            remote_object = archive_service.verify(path)
-            local_size = File.size(path)
-            if remote_object.size != local_size
-              raise Tickrake::Error, "Archived object size mismatch for #{path}: local=#{local_size} remote=#{remote_object.size}"
-            end
-
-            keep_local = retain_local.fetch(artifact, DEFAULT_RETAIN_LOCAL.fetch(artifact))
-            if keep_local
-              update_metadata_for_local_archive(path: path, remote_uri: remote_object.uri)
-            else
-              delete_local_artifact(path: path, remote_uri: remote_object.uri)
-            end
-            log(:info, "archive finished artifact=#{artifact} destination=#{destination_name} remote_uri=#{remote_object.uri} retain_local=#{keep_local}")
-
-            artifact_results << {
-              artifact: artifact,
-              path: path,
-              uploaded: true,
-              remote_uri: remote_object.uri,
-              retained_local: keep_local
-            }
-          rescue StandardError => e
-            log(:error, "archive failed artifact=#{artifact} destination=#{destination_name}: #{e.class}: #{e.message}")
-            artifact_results << {
-              artifact: artifact,
-              path: path,
-              uploaded: false,
-              remote_uri: nil,
-              retained_local: true
-            }
-            errors << e.message
-          end
-
-          ArchiveResult.new(
-            success: errors.empty?,
-            provider_name: @provider_name,
-            option_root: @option_root,
-            sample_date: @sample_date,
-            artifact_results: artifact_results,
-            errors: errors
-          )
-        end
-
-        def cleanup(destination_name:, delete_sources:, retain_local:, dry_run: false)
-          remote_uris = {}
-          retained_local = {}
-          errors = []
-
-          %w[csv parquet].each do |artifact|
-            path = compacted_path_for(artifact)
-            raise Tickrake::Error, "Local compacted #{artifact.upcase} not found: #{path}" unless File.exist?(path)
-
-            remote_object = archive_service_for(destination_name).verify(path)
-            local_size = File.size(path)
-            if remote_object.size != local_size
-              raise Tickrake::Error, "Archived object size mismatch for #{path}: local=#{local_size} remote=#{remote_object.size}"
-            end
-            remote_uris[path] = remote_object.uri
-          end
-
-          validation = validate
-          unless validation.safe_to_delete
-            return CleanupResult.new(
-              success: false,
-              provider_name: @provider_name,
-              option_root: @option_root,
-              sample_date: @sample_date,
-              source_paths: validation.source_paths,
-              deleted_source_paths: [],
-              retained_local: { "csv" => true, "parquet" => true },
-              remote_uris: remote_uris,
-              errors: validation.errors
-            )
-          end
-
-          deleted_source_paths = []
-          if delete_sources && !dry_run
-            deleted_source_paths, = delete_source_paths(validation.source_paths)
-          end
-
-          retained_local = {}
-          %w[csv parquet].each do |artifact|
-            path = compacted_path_for(artifact)
-            keep_local = retain_local.fetch(artifact, DEFAULT_RETAIN_LOCAL.fetch(artifact))
-            if dry_run
-              retained_local[artifact] = keep_local
-              next
-            end
-
-            if keep_local
-              update_metadata_for_local_archive(path: path, remote_uri: remote_uris.fetch(path))
-            else
-              delete_local_artifact(path: path, remote_uri: remote_uris.fetch(path))
-            end
-            retained_local[artifact] = keep_local
-          end
-
-          CleanupResult.new(
-            success: true,
-            provider_name: @provider_name,
-            option_root: @option_root,
-            sample_date: @sample_date,
-            source_paths: validation.source_paths,
-            deleted_source_paths: deleted_source_paths,
-            retained_local: retained_local,
-            remote_uris: remote_uris,
-            errors: []
-          )
-        rescue StandardError => e
-          CleanupResult.new(
-            success: false,
-            provider_name: @provider_name,
-            option_root: @option_root,
-            sample_date: @sample_date,
-            source_paths: [],
-            deleted_source_paths: [],
-            retained_local: { "csv" => true, "parquet" => true },
-            remote_uris: remote_uris || {},
-            errors: [e.message]
-          )
-        end
-
         private
 
-        def dataset
-          @dataset ||= Tickrake::Storage::OptionCompactionDataset.new(
-            config: @config,
-            provider_name: @provider_name,
-            option_root: @option_root,
-            storage_paths: @storage_paths
-          )
-        end
-
-        def compacted_csv_path
-          @compacted_csv_path ||= @storage_paths.option_compacted_sample_path(
-            provider: @provider_name,
-            root: @option_root,
-            sample_date: @sample_date,
-            format: "csv"
-          )
-        end
-
-        def compacted_parquet_path
-          @compacted_parquet_path ||= @storage_paths.option_compacted_sample_path(
-            provider: @provider_name,
-            root: @option_root,
-            sample_date: @sample_date,
-            format: "parquet"
-          )
-        end
-
-        def compacted_path_for(artifact)
-          artifact == "csv" ? compacted_csv_path : compacted_parquet_path
-        end
-
-        def archive_service_for(destination_name)
-          return @archive_services.fetch(destination_name) if @archive_services.key?(destination_name)
-
-          archive_config = @config.archives.fetch(destination_name)
-          Tickrake::Storage::S3Archive.new(@config, archive_config: archive_config)
-        end
-
-        def upsert_compacted_metadata(path:, format:, sampled_times:, row_count:, source_file_count:)
+        def upsert_metadata(path:, format:, sampled_times:, row_count:, source_file_count:)
           stat = File.stat(path)
-          @tracker.upsert_file_metadata(
+          @context.tracker.upsert_file_metadata(
             path: path,
             dataset_type: format == "csv" ? "options_compacted_csv" : "options_compacted_parquet",
-            provider_name: @provider_name,
-            ticker: @option_root,
+            provider_name: @context.provider_name,
+            ticker: @context.option_root,
             frequency: nil,
             expiration_date: nil,
             storage_format: format,
@@ -414,19 +200,236 @@ module Tickrake
             updated_at: Time.now
           )
         end
+      end
 
-        def delete_source_paths(paths)
-          deleted_paths = []
-          paths.each do |path|
-            File.delete(path)
-            deleted_paths << path
-          end
-          [deleted_paths, @tracker.delete_file_metadata_paths(deleted_paths)]
+      class Validator
+        def initialize(context:)
+          @context = context
         end
 
-        def update_metadata_for_local_archive(path:, remote_uri:)
+        def run(progress_reporter: nil)
+          compacted_path = @context.compacted_path("csv")
+          compacted_headers, compacted_rows = read_compacted_csv(compacted_path)
+          built = @context.dataset.build_rows(
+            sample_date: @context.sample_date,
+            progress_reporter: progress_reporter,
+            progress_title_prefix: "Validate #{@context.sample_date.iso8601}"
+          )
+          progress_reporter&.advance(title: "Validate #{File.basename(compacted_path)}")
+
+          errors = []
+          errors << "No matching source snapshot files found." if built.fetch(:raw_files).empty?
+          errors << "Compacted CSV headers do not match expected compaction headers." unless compacted_headers == built.fetch(:headers)
+          if compacted_rows.length != built.fetch(:rows).length
+            errors << "Compacted CSV row count #{compacted_rows.length} does not match expected row count #{built.fetch(:rows).length}."
+          end
+          mismatch = first_row_mismatch(compacted_rows, built.fetch(:rows))
+          errors << mismatch if mismatch
+
+          ValidationResult.new(
+            safe_to_delete: errors.empty?,
+            provider_name: @context.provider_name,
+            option_root: @context.option_root,
+            sample_date: @context.sample_date,
+            compacted_path: compacted_path,
+            source_paths: built.fetch(:raw_files),
+            expected_row_count: built.fetch(:rows).length,
+            actual_row_count: compacted_rows.length,
+            errors: errors
+          )
+        rescue Errno::ENOENT
+          ValidationResult.new(
+            safe_to_delete: false,
+            provider_name: @context.provider_name,
+            option_root: @context.option_root,
+            sample_date: @context.sample_date,
+            compacted_path: compacted_path,
+            source_paths: [],
+            expected_row_count: 0,
+            actual_row_count: 0,
+            errors: ["Compacted CSV file not found: #{compacted_path}"]
+          )
+        ensure
+          progress_reporter&.finish
+        end
+
+        private
+
+        def read_compacted_csv(path)
+          rows = []
+          headers = nil
+          CSV.foreach(path, headers: true) do |row|
+            headers ||= row.headers
+            rows << row.fields
+          end
+          [headers || [], rows]
+        end
+
+        def first_row_mismatch(actual_rows, expected_rows)
+          actual_rows.zip(expected_rows).each_with_index do |(actual, expected), index|
+            next if actual == expected
+
+            return "First row mismatch at row #{index + 1}."
+          end
+          nil
+        end
+      end
+
+      class SourceSampleCleaner
+        def initialize(context:)
+          @context = context
+        end
+
+        def run(source_paths:, dry_run: false)
+          return build_result(source_paths: source_paths, deleted_source_paths: [], metadata_rows_removed: nil, errors: []) if dry_run
+
+          deleted_source_paths = []
+          errors = []
+          source_paths.each do |path|
+            File.delete(path)
+            deleted_source_paths << path
+          rescue StandardError => e
+            errors << "Failed to delete source snapshot CSV #{path}: #{e.message}"
+            break
+          end
+
+          metadata_rows_removed = deleted_source_paths.empty? ? 0 : @context.tracker.delete_file_metadata_paths(deleted_source_paths)
+          build_result(source_paths: source_paths, deleted_source_paths: deleted_source_paths, metadata_rows_removed: metadata_rows_removed, errors: errors)
+        rescue StandardError => e
+          build_result(source_paths: source_paths, deleted_source_paths: [], metadata_rows_removed: nil, errors: [e.message])
+        end
+
+        private
+
+        def build_result(source_paths:, deleted_source_paths:, metadata_rows_removed:, errors:)
+          SourceCleanupResult.new(
+            success: errors.empty?,
+            provider_name: @context.provider_name,
+            option_root: @context.option_root,
+            sample_date: @context.sample_date,
+            source_paths: source_paths,
+            deleted_source_paths: deleted_source_paths,
+            metadata_rows_removed: metadata_rows_removed,
+            errors: errors
+          )
+        end
+      end
+
+      class ArtifactArchiver
+        def initialize(context:, archive_services: {})
+          @context = context
+          @archive_services = archive_services
+        end
+
+        def upload(destination_name:, artifacts:)
+          with_artifacts(destination_name: destination_name, artifacts: artifacts) do |artifact, path, service|
+            @context.log(:info, "archive start artifact=#{artifact} destination=#{destination_name} path=#{path}")
+            service.upload(path)
+            remote_object = service.verify(path)
+            verify_size!(path, remote_object)
+            @context.log(:info, "archive uploaded artifact=#{artifact} destination=#{destination_name} remote_uri=#{remote_object.uri}")
+            { artifact: artifact, path: path, remote_uri: remote_object.uri }
+          end
+        end
+
+        def verify_existing(destination_name:, artifacts:)
+          with_artifacts(destination_name: destination_name, artifacts: artifacts) do |artifact, path, service|
+            remote_object = service.verify(path)
+            verify_size!(path, remote_object)
+            { artifact: artifact, path: path, remote_uri: remote_object.uri }
+          end
+        end
+
+        private
+
+        def with_artifacts(destination_name:, artifacts:)
+          selected_artifacts = artifacts.empty? ? %w[csv parquet] : artifacts
+          results = []
+          errors = []
+
+          selected_artifacts.each do |artifact|
+            path = @context.compacted_path(artifact)
+            raise Tickrake::Error, "Compacted artifact not found: #{path}" unless File.exist?(path)
+
+            results << yield(artifact, path, archive_service_for(destination_name))
+          rescue StandardError => e
+            @context.log(:error, "archive failed artifact=#{artifact}: #{e.class}: #{e.message}")
+            errors << e.message
+          end
+
+          ArchiveResult.new(
+            success: errors.empty?,
+            provider_name: @context.provider_name,
+            option_root: @context.option_root,
+            sample_date: @context.sample_date,
+            artifact_results: results,
+            errors: errors
+          )
+        end
+
+        def archive_service_for(destination_name)
+          return @archive_services.fetch(destination_name) if @archive_services.key?(destination_name)
+
+          archive_config = @context.config.archives.fetch(destination_name)
+          Tickrake::Storage::S3Archive.new(@context.config, archive_config: archive_config)
+        end
+
+        def verify_size!(path, remote_object)
+          local_size = File.size(path)
+          return if remote_object.size == local_size
+
+          raise Tickrake::Error, "Archived object size mismatch for #{path}: local=#{local_size} remote=#{remote_object.size}"
+        end
+      end
+
+      class LocalArtifactManager
+        DEFAULT_RETAIN_LOCAL = { "csv" => false, "parquet" => true }.freeze
+
+        def initialize(context:)
+          @context = context
+        end
+
+        def apply(remote_uris:, retain_local:, artifacts:, dry_run: false)
+          selected_artifacts = artifacts.empty? ? %w[csv parquet] : artifacts
+          retained_local = {}
+
+          selected_artifacts.each do |artifact|
+            path = @context.compacted_path(artifact)
+            keep_local = retain_local.fetch(artifact, DEFAULT_RETAIN_LOCAL.fetch(artifact))
+            retained_local[artifact] = keep_local
+            next if dry_run
+
+            if keep_local
+              mark_local_and_remote(path: path, remote_uri: remote_uris.fetch(path))
+            else
+              delete_local_copy(path: path, remote_uri: remote_uris.fetch(path))
+            end
+          end
+
+          RetentionResult.new(
+            success: true,
+            provider_name: @context.provider_name,
+            option_root: @context.option_root,
+            sample_date: @context.sample_date,
+            retained_local: retained_local,
+            errors: []
+          )
+        rescue StandardError => e
+          RetentionResult.new(
+            success: false,
+            provider_name: @context.provider_name,
+            option_root: @context.option_root,
+            sample_date: @context.sample_date,
+            retained_local: retained_local || {},
+            errors: [e.message]
+          )
+        end
+
+        private
+
+        def mark_local_and_remote(path:, remote_uri:)
           metadata = fetch_metadata(path)
-          @tracker.upsert_file_metadata(
+          @context.tracker.upsert_file_metadata(
             path: path,
             dataset_type: metadata.fetch("dataset_type"),
             provider_name: metadata.fetch("provider_name"),
@@ -447,11 +450,11 @@ module Tickrake
           )
         end
 
-        def delete_local_artifact(path:, remote_uri:)
+        def delete_local_copy(path:, remote_uri:)
           metadata = fetch_metadata(path)
           original_mtime = metadata["file_mtime"]
           File.delete(path)
-          @tracker.upsert_file_metadata(
+          @context.tracker.upsert_file_metadata(
             path: path,
             dataset_type: metadata.fetch("dataset_type"),
             provider_name: metadata.fetch("provider_name"),
@@ -473,33 +476,10 @@ module Tickrake
         end
 
         def fetch_metadata(path)
-          metadata = @tracker.file_metadata(path)
+          metadata = @context.tracker.file_metadata(path)
           raise Tickrake::Error, "Compacted artifact metadata not found: #{path}" unless metadata
 
           metadata
-        end
-
-        def read_compacted_csv(path)
-          rows = []
-          headers = nil
-          CSV.foreach(path, headers: true) do |row|
-            headers ||= row.headers
-            rows << row.fields
-          end
-          [headers || [], rows]
-        end
-
-        def first_row_mismatch(actual_rows, expected_rows)
-          actual_rows.zip(expected_rows).each_with_index do |(actual, expected), index|
-            next if actual == expected
-
-            return "First row mismatch at row #{index + 1}."
-          end
-          nil
-        end
-
-        def log(level, message)
-          @logger&.public_send(level, "maintenance option_samples provider=#{@provider_name} root=#{@option_root} sample_date=#{@sample_date}: #{message}")
         end
       end
     end

@@ -48,7 +48,7 @@ module Tickrake
             Array(@scheduled_job.tasks).each do |step|
               next unless step_matches_target?(step, provider_name: provider_name, option_root: option_root)
 
-              processor = Tickrake::Maintenance::OptionSamples::Processor.new(
+              context = Tickrake::Maintenance::OptionSamples::Context.new(
                 config: @runtime.config,
                 tracker: @runtime.tracker,
                 provider_name: provider_name,
@@ -57,7 +57,7 @@ module Tickrake
                 logger: @runtime.logger
               )
 
-              result = run_step(processor: processor, step: step)
+              result = run_step(context: context, step: step)
               artifacts_written.concat(step_artifacts(result))
               step_results << StepExecution.new(
                 action: step.action,
@@ -88,19 +88,56 @@ module Tickrake
 
     private
 
-    def run_step(processor:, step:)
+    def run_step(context:, step:)
       case step.action
       when "compact"
-        processor.compact(delete_sources: step.delete_sources, progress_reporter: @progress_reporter)
+        run_compact_step(context: context, delete_sources: step.delete_sources)
       when "archive"
-        processor.archive(
-          destination_name: step.destination,
-          artifacts: step.artifacts,
-          retain_local: step.retain_local
-        )
+        run_archive_step(context: context, destination_name: step.destination, artifacts: step.artifacts, retain_local: step.retain_local)
       else
         raise Tickrake::Error, "Unknown maintenance action `#{step.action}`."
       end
+    end
+
+    def run_compact_step(context:, delete_sources:)
+      compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run(progress_reporter: @progress_reporter)
+      return compact unless compact.successful?
+
+      validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
+      unless validation.safe_to_delete
+        return Tickrake::Maintenance::OptionSamples::CompactResult.new(
+          success: false,
+          provider_name: context.provider_name,
+          option_root: context.option_root,
+          sample_date: context.sample_date,
+          artifacts_written: compact.artifacts_written,
+          errors: validation.errors
+        )
+      end
+
+      if delete_sources
+        cleanup = Tickrake::Maintenance::OptionSamples::SourceSampleCleaner.new(context: context).run(source_paths: validation.source_paths)
+        return cleanup if !cleanup.successful?
+      end
+
+      compact
+    end
+
+    def run_archive_step(context:, destination_name:, artifacts:, retain_local:)
+      archive = Tickrake::Maintenance::OptionSamples::ArtifactArchiver.new(context: context).upload(
+        destination_name: destination_name,
+        artifacts: artifacts
+      )
+      return archive unless archive.successful?
+
+      retention = Tickrake::Maintenance::OptionSamples::LocalArtifactManager.new(context: context).apply(
+        remote_uris: archive.remote_uris,
+        retain_local: step_retain_local(retain_local),
+        artifacts: artifacts
+      )
+      return retention if !retention.successful?
+
+      archive
     end
 
     def step_artifacts(result)
@@ -115,6 +152,10 @@ module Tickrake
 
     def step_errors(result)
       result.respond_to?(:errors) ? result.errors : []
+    end
+
+    def step_retain_local(retain_local)
+      retain_local || {}
     end
 
     def selected_dates(now)

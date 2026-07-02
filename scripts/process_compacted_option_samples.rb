@@ -10,7 +10,7 @@ TaskResult = Struct.new(:status, :message, keyword_init: true)
 
 def process_sample_date(config:, provider_name:, option_root:, sample_date:, dry_run:)
   tracker = Tickrake::Tracker.new(config.sqlite_path)
-  processor = Tickrake::Maintenance::OptionSamples::Processor.new(
+  context = Tickrake::Maintenance::OptionSamples::Context.new(
     config: config,
     tracker: tracker,
     provider_name: provider_name,
@@ -20,22 +20,32 @@ def process_sample_date(config:, provider_name:, option_root:, sample_date:, dry
   )
 
   if dry_run
-    validation = processor.validate
+    validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
     if validation.errors.any? && validation.errors != ["Compacted CSV file not found: #{validation.compacted_path}"]
       raise Tickrake::Error, "Validation failed: #{validation.errors.join('; ')}"
     end
+    return TaskResult.new(status: :planned, message: "#{sample_date.iso8601}: would compact and archive csv/parquet") if validation.errors.any?
 
-    archive = processor.archive(destination_name: "s3_archive", artifacts: %w[csv parquet], retain_local: { "csv" => true, "parquet" => true })
+    archive = Tickrake::Maintenance::OptionSamples::ArtifactArchiver.new(context: context).verify_existing(
+      destination_name: "s3_archive",
+      artifacts: %w[csv parquet]
+    )
     if archive.errors.empty?
       TaskResult.new(status: :planned, message: "#{sample_date.iso8601}: would archive #{archive.archived_paths.length} artifacts and keep local csv/parquet")
     else
       TaskResult.new(status: :planned, message: "#{sample_date.iso8601}: would compact and archive csv/parquet")
     end
   else
-    compact = processor.compact(delete_sources: false)
+    compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run
     raise Tickrake::Error, "Compaction failed: #{compact.errors.join('; ')}" unless compact.successful?
 
-    archive = processor.archive(destination_name: "s3_archive", artifacts: %w[csv parquet], retain_local: { "csv" => true, "parquet" => true })
+    validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
+    raise Tickrake::Error, "Validation failed: #{validation.errors.join('; ')}" unless validation.safe_to_delete
+
+    archive = Tickrake::Maintenance::OptionSamples::ArtifactArchiver.new(context: context).upload(
+      destination_name: "s3_archive",
+      artifacts: %w[csv parquet]
+    )
     raise Tickrake::Error, "Archive failed: #{archive.errors.join('; ')}" unless archive.successful?
 
     TaskResult.new(status: :archived, message: "#{sample_date.iso8601}: archived #{archive.archived_paths.length} artifacts and kept local csv/parquet")

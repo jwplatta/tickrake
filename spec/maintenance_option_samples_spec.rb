@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Tickrake::Maintenance::OptionSamples::Processor do
+RSpec.describe "option sample maintenance" do
   let(:logger) { Logger.new(nil) }
 
   def build_config(dir, with_archive: true)
@@ -43,7 +43,7 @@ RSpec.describe Tickrake::Maintenance::OptionSamples::Processor do
     { raw_files: [raw_a, raw_b], sample_dir: sample_dir }
   end
 
-  it "compacts, validates, archives, and cleans up through the shared processor" do
+  it "runs compaction, validation, archive, source cleanup, and local artifact retention as separate concerns" do
     Dir.mktmpdir do |dir|
       config = build_config(dir)
       Tickrake::Tracker.migrate!(config.sqlite_path)
@@ -58,31 +58,42 @@ RSpec.describe Tickrake::Maintenance::OptionSamples::Processor do
         Tickrake::Storage::S3Archive::RemoteObject.new(bucket: "tickrake", key: key, size: File.size(path))
       end
 
-      processor = described_class.new(
+      context = Tickrake::Maintenance::OptionSamples::Context.new(
         config: config,
         tracker: tracker,
         provider_name: "schwab",
         option_root: "SPXW",
         sample_date: Date.new(2026, 6, 26),
-        logger: logger,
-        archive_services: { "s3_archive" => archive_service }
+        logger: logger
       )
 
-      compact = processor.compact(delete_sources: false, progress_reporter: progress_reporter)
+      compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run(progress_reporter: progress_reporter)
       expect(compact).to be_successful
       expect(compact.artifacts_written.map { |path| File.basename(path) }).to eq(%w[SPXW_samples_2026-06-26.csv SPXW_samples_2026-06-26.parquet])
 
-      validation = processor.validate
+      validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
       expect(validation.safe_to_delete).to eq(true)
 
-      archive = processor.archive(destination_name: "s3_archive", artifacts: %w[csv parquet], retain_local: { "csv" => true, "parquet" => true })
+      archive = Tickrake::Maintenance::OptionSamples::ArtifactArchiver.new(
+        context: context,
+        archive_services: { "s3_archive" => archive_service }
+      ).upload(destination_name: "s3_archive", artifacts: %w[csv parquet])
       expect(archive).to be_successful
-      expect(tracker.file_metadata(archive.archived_paths.first)["remote_uri"]).to include("s3://tickrake/")
+      expect(archive.remote_uris.values).to all(include("s3://tickrake/"))
 
-      cleanup = processor.cleanup(destination_name: "s3_archive", delete_sources: true, retain_local: { "csv" => false, "parquet" => true })
-      expect(cleanup).to be_successful
-      expect(cleanup.deleted_source_paths).to match_array(fixture[:raw_files])
-      expect(cleanup.retained_local).to eq("csv" => false, "parquet" => true)
+      source_cleanup = Tickrake::Maintenance::OptionSamples::SourceSampleCleaner.new(context: context).run(
+        source_paths: validation.source_paths
+      )
+      expect(source_cleanup).to be_successful
+      expect(source_cleanup.deleted_source_paths).to match_array(fixture[:raw_files])
+
+      retention = Tickrake::Maintenance::OptionSamples::LocalArtifactManager.new(context: context).apply(
+        remote_uris: archive.remote_uris,
+        retain_local: { "csv" => false, "parquet" => true },
+        artifacts: %w[csv parquet]
+      )
+      expect(retention).to be_successful
+      expect(retention.retained_local).to eq("csv" => false, "parquet" => true)
     end
   end
 end

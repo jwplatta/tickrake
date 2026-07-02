@@ -10,7 +10,7 @@ TaskResult = Struct.new(:status, :message, keyword_init: true)
 
 def cleanup_sample_date(config:, provider_name:, option_root:, sample_date:, dry_run:)
   tracker = Tickrake::Tracker.new(config.sqlite_path)
-  processor = Tickrake::Maintenance::OptionSamples::Processor.new(
+  context = Tickrake::Maintenance::OptionSamples::Context.new(
     config: config,
     tracker: tracker,
     provider_name: provider_name,
@@ -19,23 +19,38 @@ def cleanup_sample_date(config:, provider_name:, option_root:, sample_date:, dry
     logger: Logger.new($stderr).tap { |logger| logger.level = Logger::WARN }
   )
 
-  result = processor.cleanup(
+  archive = Tickrake::Maintenance::OptionSamples::ArtifactArchiver.new(context: context).verify_existing(
     destination_name: "s3_archive",
-    delete_sources: true,
-    retain_local: { "csv" => false, "parquet" => true },
+    artifacts: %w[csv parquet]
+  )
+  raise Tickrake::Error, "Archive verification failed: #{archive.errors.join('; ')}" unless archive.successful?
+
+  validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
+  raise Tickrake::Error, "Cleanup failed: #{validation.errors.join('; ')}" unless validation.safe_to_delete
+
+  source_cleanup = Tickrake::Maintenance::OptionSamples::SourceSampleCleaner.new(context: context).run(
+    source_paths: validation.source_paths,
     dry_run: dry_run
   )
-  raise Tickrake::Error, "Cleanup failed: #{result.errors.join('; ')}" unless result.successful?
+  raise Tickrake::Error, "Source cleanup failed: #{source_cleanup.errors.join('; ')}" unless source_cleanup.successful?
+
+  retention = Tickrake::Maintenance::OptionSamples::LocalArtifactManager.new(context: context).apply(
+    remote_uris: archive.remote_uris,
+    retain_local: { "csv" => false, "parquet" => true },
+    artifacts: %w[csv parquet],
+    dry_run: dry_run
+  )
+  raise Tickrake::Error, "Artifact cleanup failed: #{retention.errors.join('; ')}" unless retention.successful?
 
   if dry_run
     TaskResult.new(
       status: :planned,
-      message: "#{sample_date.iso8601}: would delete #{result.source_paths.length} raw snapshots and local compacted csv after verifying remote csv/parquet"
+      message: "#{sample_date.iso8601}: would delete #{source_cleanup.source_paths.length} raw snapshots and local compacted csv after verifying remote csv/parquet"
     )
   else
     TaskResult.new(
       status: :cleaned,
-      message: "#{sample_date.iso8601}: deleted #{result.deleted_source_paths.length} raw snapshots, deleted local compacted csv=#{!result.retained_local.fetch('csv')}, kept local parquet=#{result.retained_local.fetch('parquet')}"
+      message: "#{sample_date.iso8601}: deleted #{source_cleanup.deleted_source_paths.length} raw snapshots, deleted local compacted csv=#{!retention.retained_local.fetch('csv')}, kept local parquet=#{retention.retained_local.fetch('parquet')}"
     )
   end
 ensure
