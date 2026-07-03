@@ -33,6 +33,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Updated contributor and agent documentation.
+- Switched daily option-sample compaction to DuckDB-backed CSV ingest and artifact export for faster compacted CSV/parquet generation.
 - Reworked option snapshot storage into dated provider folders and added a one-off migration script for legacy flat paths.
 - Normalized S&P 500 index storage around `ticker_id` foreign keys and `ticker_aliases` rows keyed by the current accepted ticker.
 - Changed Tickrake to require explicit database migrations instead of running them automatically when the tracker opens the SQLite database.
