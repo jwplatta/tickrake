@@ -33,12 +33,12 @@ RSpec.describe "option sample maintenance" do
     raw_a = File.join(sample_dir, "SPXW_exp2026-06-26_2026-06-26_14-30-00.csv")
     raw_b = File.join(sample_dir, "SPXW_exp2026-06-27_2026-06-26_14-35-00.csv")
     File.write(raw_a, <<~CSV)
-      contract_type,symbol,description,strike,expiration_date,mark,bid,bid_size,ask,ask_size,last,last_size,open_interest,total_volume,delta,gamma,theta,vega,rho,volatility,theoretical_volatility,theoretical_option_value,intrinsic_value,extrinsic_value,underlying_price
-      CALL,SPXW1,desc1,2800.0,2026-06-26,1.1,1.0,2,1.2,3,1.15,1,10,20,0.5,0.1,-0.2,0.3,0.05,0.22,0.21,1.05,0.5,0.55,6000.0
+      contract_type,symbol,description,strike,expiration_date,open,high,low,close,mark,bid,bid_size,ask,ask_size,last,last_size,open_interest,total_volume,transactions,delta,gamma,theta,vega,rho,volatility,theoretical_volatility,theoretical_option_value,intrinsic_value,extrinsic_value,underlying_price
+      CALL,SPXW1,desc1,2800.0,2026-06-26,1.0,1.2,0.9,1.1,1.1,1.0,2,1.2,3,1.15,1,10,20,4,0.5,0.1,-0.2,0.3,0.05,0.22,0.21,1.05,0.5,0.55,6000.0
     CSV
     File.write(raw_b, <<~CSV)
-      contract_type,symbol,description,strike,expiration_date,mark,bid,bid_size,ask,ask_size,last,last_size,open_interest,total_volume,delta,gamma,theta,vega,rho,volatility,theoretical_volatility,theoretical_option_value,intrinsic_value,extrinsic_value,underlying_price
-      PUT,SPXW2,desc2,2805.0,2026-06-27,2.1,2.0,4,2.2,5,2.15,1,11,21,-0.5,0.2,-0.3,0.4,-0.05,0.32,0.31,2.05,0.6,1.45,6001.0
+      contract_type,symbol,description,strike,expiration_date,open,high,low,close,mark,bid,bid_size,ask,ask_size,last,last_size,open_interest,total_volume,transactions,delta,gamma,theta,vega,rho,volatility,theoretical_volatility,theoretical_option_value,intrinsic_value,extrinsic_value,underlying_price
+      PUT,SPXW2,desc2,2805.0,2026-06-27,2.0,2.2,1.9,2.1,2.1,2.0,4,2.2,5,2.15,1,11,21,6,-0.5,0.2,-0.3,0.4,-0.05,0.32,0.31,2.05,0.6,1.45,6001.0
     CSV
     { raw_files: [raw_a, raw_b], sample_dir: sample_dir }
   end
@@ -70,6 +70,10 @@ RSpec.describe "option sample maintenance" do
       compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run(progress_reporter: progress_reporter)
       expect(compact).to be_successful
       expect(compact.artifacts_written.map { |path| File.basename(path) }).to eq(%w[SPXW_samples_2026-06-26.csv SPXW_samples_2026-06-26.parquet])
+      compacted_csv_path = compact.artifacts_written.find { |path| path.end_with?(".csv") }
+      compacted_csv = CSV.read(compacted_csv_path, headers: true)
+      expect(compacted_csv.headers.last).to eq("sampled_at")
+      expect(compacted_csv.map { |row| row["sampled_at"] }).to eq(["2026-06-26T14:30:00Z", "2026-06-26T14:35:00Z"])
 
       validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
       expect(validation.safe_to_delete).to eq(true)

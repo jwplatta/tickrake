@@ -3,6 +3,7 @@
 require "csv"
 require "date"
 require "digest"
+require "duckdb"
 require "fileutils"
 require "json"
 require "logger"
@@ -16,6 +17,8 @@ require "timeout"
 require "yaml"
 
 require "schwab_rb"
+
+DuckDB.default_timezone = :utc if defined?(DuckDB) && DuckDB.respond_to?(:default_timezone=)
 
 module Tickrake
 end
@@ -37,6 +40,7 @@ require_relative "tickrake/storage/parquet_writer"
 require_relative "tickrake/storage/paths"
 require_relative "tickrake/storage/option_sample_writer"
 require_relative "tickrake/storage/option_compacted_writer"
+require_relative "tickrake/storage/duckdb_option_compacted_writer"
 require_relative "tickrake/storage/candle_reconciler"
 require_relative "tickrake/storage/candle_metadata_sync"
 require_relative "tickrake/storage/stats_report"
