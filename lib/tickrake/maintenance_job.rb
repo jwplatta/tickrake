@@ -102,6 +102,7 @@ module Tickrake
     def run_compact_step(context:, delete_sources:)
       compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run(progress_reporter: @progress_reporter)
       return compact unless compact.successful?
+      return compact if compact.artifacts_written.empty?
 
       validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
       unless validation.safe_to_delete

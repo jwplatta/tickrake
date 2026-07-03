@@ -100,4 +100,67 @@ RSpec.describe "option sample maintenance" do
       expect(retention.retained_local).to eq("csv" => false, "parquet" => true)
     end
   end
+
+  it "treats a no-source compaction date as a clean skip" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir, with_archive: false)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      context = Tickrake::Maintenance::OptionSamples::Context.new(
+        config: config,
+        tracker: tracker,
+        provider_name: "schwab",
+        option_root: "DIA",
+        sample_date: Date.new(2026, 7, 1),
+        logger: logger
+      )
+
+      compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run
+      expect(compact).to be_successful
+      expect(compact.artifacts_written).to eq([])
+
+      maintenance_job = Tickrake::MaintenanceJob.new(
+        Tickrake::Runtime.new(
+          config: config,
+          tracker: tracker,
+          client_factory: instance_double(Tickrake::ClientFactory),
+          logger: logger
+        ),
+        scheduled_job: Tickrake::ScheduledJobConfig.new(
+          name: "compact_dia",
+          type: "maintenance",
+          provider: "schwab",
+          interval_seconds: nil,
+          windows: [],
+          run_at: "15:20",
+          days: %w[mon tue wed thu fri],
+          lookback_days: nil,
+          dte_buckets: [],
+          universe: [],
+          tasks: [
+            Tickrake::MaintenanceStepConfig.new(
+              action: "compact",
+              subject: "option_samples",
+              provider: "schwab",
+              universe: nil,
+              universes: [],
+              tickers: [],
+              option_root: "DIA",
+              delete_sources: true,
+              destination: nil,
+              artifacts: [],
+              retain_local: {}
+            )
+          ],
+          task: nil,
+          settings: {},
+          manual: false
+        )
+      )
+
+      result = maintenance_job.run(now: Time.utc(2026, 7, 1, 21, 0, 0))
+      expect(result).to be_successful
+      expect(result.artifacts_written).to eq([])
+      expect(result.step_results.first.errors).to eq([])
+    end
+  end
 end
