@@ -11,6 +11,7 @@ Applies to Codex and Gemini. Keep changes small, additive, and compatible with e
 ## Project Rules
 
 - Prefer targeted edits and focused specs over broad refactors.
+- Prefer small classes with a single responsibility over large multi-purpose classes.
 - Keep schema changes additive in `lib/tickrake/db/migrations/`.
 - Preserve on-disk dataset naming unless the task explicitly changes it.
 - When touching import, query, scheduler, or tracker code, verify both runtime behavior and metadata-cache behavior.

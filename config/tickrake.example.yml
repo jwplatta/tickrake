@@ -48,6 +48,9 @@ runtime:
   retry_delay_seconds: 2
   option_fetch_timeout_seconds: 30
   candle_fetch_timeout_seconds: 60
+universes:
+  index_option_roots:
+    file: universes/index_option_roots.yml
 schedule:
   index_options:
     type: options
@@ -81,22 +84,18 @@ schedule:
     run_at: "16:05"
     days: [mon, tue, wed, thu, fri]
     lookback_days: 7
+    frequencies: [day, 30min, 10min, 5min, minute]
     universe:
       - symbol: $SPX
         start_date: "2020-01-01"
-        frequencies: [day, 30min, 10min, 5min, minute]
       - symbol: SPY
         start_date: "2020-01-01"
-        frequencies: [day, 30min, 10min, 5min, minute]
       - symbol: QQQ
         start_date: "2020-01-01"
-        frequencies: [day, 30min, 10min, 5min, minute]
       - symbol: $VIX
         start_date: "2020-01-01"
-        frequencies: [day]
       - symbol: $VIX9D
         start_date: "2020-01-01"
-        frequencies: [day]
   spx_min_candles:
     type: candles
     provider: ibkr-paper
@@ -106,26 +105,45 @@ schedule:
         start: "08:30"
         end: "15:00"
     lookback_days: 7
+    frequencies: [30min, 5min, minute]
     universe:
       - symbol: $SPX
         start_date: "2026-03-01"
-        frequencies: [30min, 5min, minute]
   manual_candles:
     type: candles
     manual: true
     provider: ibkr-paper
     lookback_days: 7
+    frequencies: [day, minute]
     universe:
       - symbol: SPY
         start_date: "2020-01-01"
-        frequencies: [day, minute]
       - symbol: QQQ
         start_date: "2020-01-01"
-        frequencies: [day, minute]
   manual_compact_spxw:
     type: maintenance
     manual: true
     provider: schwab
-    task: compact_option_samples
-    settings:
-      option_root: SPXW
+    tasks:
+      - compact:
+          subject: option_samples
+          option_root: SPXW
+          delete_sources: false
+  postclose_option_maintenance:
+    type: maintenance
+    provider: schwab
+    run_at: "18:05"
+    days: [mon, tue, wed, thu, fri]
+    tasks:
+      - compact:
+          subject: option_samples
+          universe: index_option_roots
+          delete_sources: true
+      - archive:
+          subject: option_samples
+          universe: index_option_roots
+          destination: s3_archive
+          artifacts: [csv, parquet]
+          retain_local:
+            csv: false
+            parquet: true

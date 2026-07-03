@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "date"
+require "logger"
 require "optparse"
 require_relative "../lib/tickrake"
 
@@ -9,56 +10,47 @@ TaskResult = Struct.new(:status, :message, keyword_init: true)
 
 def cleanup_sample_date(config:, provider_name:, option_root:, sample_date:, dry_run:)
   tracker = Tickrake::Tracker.new(config.sqlite_path)
-  storage_paths = Tickrake::Storage::Paths.new(config)
-  csv_path = storage_paths.option_compacted_sample_path(
-    provider: provider_name,
-    root: option_root,
-    sample_date: sample_date,
-    format: "csv"
-  )
-  parquet_path = storage_paths.option_compacted_sample_path(
-    provider: provider_name,
-    root: option_root,
-    sample_date: sample_date,
-    format: "parquet"
-  )
-
-  unless File.exist?(csv_path)
-    if File.exist?(parquet_path)
-      return TaskResult.new(
-        status: :skipped,
-        message: "#{sample_date.iso8601}: skip, local compacted csv already absent; keeping #{File.basename(parquet_path)}"
-      )
-    end
-
-    reason = sample_date.saturday? || sample_date.sunday? ? "weekend, no compacted files expected" : "no local compacted csv"
-    return TaskResult.new(status: :skipped, message: "#{sample_date.iso8601}: skip, #{reason}")
-  end
-
-  result = Tickrake::CleanupCompactedOptionSamples.new(
+  context = Tickrake::Maintenance::OptionSamples::Context.new(
     config: config,
     tracker: tracker,
+    provider_name: provider_name,
     option_root: option_root,
     sample_date: sample_date,
-    provider_name: provider_name,
+    logger: Logger.new($stderr).tap { |logger| logger.level = Logger::WARN }
+  )
+
+  archive = Tickrake::Maintenance::OptionSamples::ArtifactArchiver.new(context: context).verify_existing(
+    destination_name: "s3_archive",
+    artifacts: %w[csv parquet]
+  )
+  raise Tickrake::Error, "Archive verification failed: #{archive.errors.join('; ')}" unless archive.successful?
+
+  validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
+  raise Tickrake::Error, "Cleanup failed: #{validation.errors.join('; ')}" unless validation.safe_to_delete
+
+  source_cleanup = Tickrake::Maintenance::OptionSamples::SourceSampleCleaner.new(context: context).run(
+    source_paths: validation.source_paths,
     dry_run: dry_run
-  ).run
+  )
+  raise Tickrake::Error, "Source cleanup failed: #{source_cleanup.errors.join('; ')}" unless source_cleanup.successful?
+
+  retention = Tickrake::Maintenance::OptionSamples::LocalArtifactManager.new(context: context).apply(
+    remote_uris: archive.remote_uris,
+    retain_local: { "csv" => false, "parquet" => true },
+    artifacts: %w[csv parquet],
+    dry_run: dry_run
+  )
+  raise Tickrake::Error, "Artifact cleanup failed: #{retention.errors.join('; ')}" unless retention.successful?
 
   if dry_run
-    source_count = result.source_paths.length
-    delete_summary = if source_count.zero?
-      "would delete local compacted csv; raw snapshots already absent"
-    else
-      "would delete #{source_count} raw snapshots and local compacted csv"
-    end
     TaskResult.new(
       status: :planned,
-      message: "#{sample_date.iso8601}: #{delete_summary} after verifying remote csv/parquet and local parquet"
+      message: "#{sample_date.iso8601}: would delete #{source_cleanup.source_paths.length} raw snapshots and local compacted csv after verifying remote csv/parquet"
     )
   else
     TaskResult.new(
       status: :cleaned,
-      message: "#{sample_date.iso8601}: deleted #{result.deleted_source_paths.length} raw snapshots, deleted local compacted csv=#{result.deleted_csv}, kept parquet=#{File.basename(result.parquet_path)} locally"
+      message: "#{sample_date.iso8601}: deleted #{source_cleanup.deleted_source_paths.length} raw snapshots, deleted local compacted csv=#{!retention.retained_local.fetch('csv')}, kept local parquet=#{retention.retained_local.fetch('parquet')}"
     )
   end
 ensure
@@ -77,14 +69,13 @@ options = {
 
 parser = OptionParser.new do |opts|
   opts.banner = "Usage: ruby scripts/cleanup_compacted_option_samples.rb --provider NAME --ticker ROOT --start-date YYYY-MM-DD --end-date YYYY-MM-DD [--concurrency N] [--dry-run] [--config PATH]"
-
-  opts.on("--provider NAME", "Provider folder name for the compacted dataset") { |value| options[:provider_name] = value }
-  opts.on("--ticker ROOT", "--symbol ROOT", "Option root ticker to clean up (for example SPXW)") { |value| options[:ticker] = value }
-  opts.on("--start-date YYYY-MM-DD", "First sample date to clean up") { |value| options[:start_date] = Date.iso8601(value) }
-  opts.on("--end-date YYYY-MM-DD", "Last sample date to clean up") { |value| options[:end_date] = Date.iso8601(value) }
-  opts.on("--concurrency N", Integer, "Number of concurrent workers (default: 4)") { |value| options[:concurrency] = value }
-  opts.on("--dry-run", "Print the cleanup plan without deleting local files or metadata") { options[:dry_run] = true }
-  opts.on("--config PATH", "Path to tickrake config") { |value| options[:config_path] = value }
+  opts.on("--provider NAME") { |value| options[:provider_name] = value }
+  opts.on("--ticker ROOT", "--symbol ROOT") { |value| options[:ticker] = value }
+  opts.on("--start-date YYYY-MM-DD") { |value| options[:start_date] = Date.iso8601(value) }
+  opts.on("--end-date YYYY-MM-DD") { |value| options[:end_date] = Date.iso8601(value) }
+  opts.on("--concurrency N", Integer) { |value| options[:concurrency] = value }
+  opts.on("--dry-run") { options[:dry_run] = true }
+  opts.on("--config PATH") { |value| options[:config_path] = value }
 end
 
 parser.parse!(ARGV)
@@ -102,7 +93,6 @@ raise Tickrake::Error, "S3 archive is not configured." unless config.s3_archive
 dates = (options[:start_date]..options[:end_date]).to_a
 queue = Queue.new
 dates.each { |sample_date| queue << sample_date }
-
 progress = Tickrake::ProgressReporter.build(total: dates.length, title: "Cleanup", output: $stdout)
 message_mutex = Mutex.new
 counts_mutex = Mutex.new
@@ -143,11 +133,8 @@ end
 
 workers.each(&:join)
 progress&.finish
-
 $stdout.puts("Summary:")
 $stdout.puts("  cleaned: #{counts[:cleaned]}")
 $stdout.puts("  planned: #{counts[:planned]}")
-$stdout.puts("  skipped: #{counts[:skipped]}")
 $stdout.puts("  errors: #{counts[:error]}")
-
 exit(errors.empty? ? 0 : 1)

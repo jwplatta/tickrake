@@ -1,0 +1,142 @@
+universes:
+  spx_symbols:
+    - symbol: $SPX
+      option_roots: [SPXW]
+
+  stock_option_symbols:
+    - symbol: ADBE
+    - symbol: ACN
+    - symbol: ADSK
+    - symbol: ADP
+    - symbol: ANSS
+    - symbol: CDNS
+    - symbol: CRM
+    - symbol: DAY
+    - symbol: EPAM
+    - symbol: FICO
+    - symbol: GEN
+    - symbol: GPN
+    - symbol: INTU
+    - symbol: IT
+    - symbol: MA
+    - symbol: MSCI
+    - symbol: NTAP
+    - symbol: NOW
+    - symbol: ORCL
+    - symbol: PAYC
+    - symbol: PAYX
+    - symbol: PYPL
+    - symbol: SNPS
+    - symbol: V
+    - symbol: AAPL
+    - symbol: ANET
+    - symbol: CSCO
+    - symbol: DELL
+    - symbol: HPQ
+    - symbol: HPE
+    - symbol: STX
+    - symbol: WDC
+    - symbol: AMD
+    - symbol: AMAT
+    - symbol: AVGO
+    - symbol: INTC
+    - symbol: KLAC
+    - symbol: LRCX
+    - symbol: MCHP
+    - symbol: MPWR
+    - symbol: MU
+    - symbol: NVDA
+    - symbol: 'ON'
+    - symbol: QCOM
+    - symbol: SWKS
+    - symbol: TER
+    - symbol: TXN
+    - symbol: IBM
+    - symbol: DXC
+    - symbol: MSFT
+    - symbol: MRVL
+    - symbol: TSLA
+    - symbol: FTNT
+    - symbol: ADI
+    - symbol: NXPI
+    - symbol: CRWD
+    - symbol: PANW
+    - symbol: NFLX
+    - symbol: PLTR
+    - symbol: META
+    - symbol: GOOGLE
+    - symbol: GOOG
+    - symbol: AMZN
+    - symbol: UBER
+    - symbol: HOOD
+    - symbol: SCHW
+    - symbol: SBUX
+    - symbol: SPCX
+    - symbol: SMCI
+    - symbol: CRWV
+
+  etf_option_symbols:
+    - symbol: XLC
+    - symbol: XLY
+    - symbol: XLP
+    - symbol: XLE
+    - symbol: XLF
+    - symbol: XLV
+    - symbol: XLI
+    - symbol: XLK
+    - symbol: XLB
+    - symbol: XLRE
+    - symbol: XLU
+    - symbol: SPY
+    - symbol: RSP
+    - symbol: IWM
+    - symbol: QQQ
+    - symbol: GLD
+    - symbol: SLV
+    - symbol: DRAM
+    - symbol: SOXL
+
+  eod_candle_symbols:
+    - symbol: $SPX
+    - symbol: XSP
+    - symbol: SPY
+    - symbol: XLB
+    - symbol: XLK
+    - symbol: XLF
+    - symbol: XLE
+    - symbol: XLI
+    - symbol: XLY
+    - symbol: XLP
+    - symbol: XLRE
+    - symbol: XLU
+    - symbol: XLV
+    - symbol: RSP
+    - symbol: QQQ
+    - symbol: IWM
+    - symbol: DIA
+    - symbol: TLT
+    - symbol: $VIX
+    - symbol: $VIX9D
+    - symbol: $VIX1D
+    - symbol: $NDX
+    - symbol: $RUT
+  futures_candle_symbols:
+    - symbol: /ES
+    - symbol: /NQ
+    - symbol: /RTY
+    - symbol: /YM
+
+  dashboard_candle_symbols:
+    - symbol: $SPX
+      start_date: "2026-01-01"
+    - symbol: SPY
+      start_date: "2026-01-01"
+    - symbol: $VIX
+      start_date: "2026-01-01"
+    - symbol: $VIX9D
+      start_date: "2026-01-01"
+    - symbol: $VIX1D
+      start_date: "2026-01-01"
+
+  sp500_day_symbols:
+    file: universes/sp500_day_symbols.yml

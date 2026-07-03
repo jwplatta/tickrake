@@ -8,7 +8,10 @@ module Tickrake
     VALID_DAYS = %w[mon tue wed thu fri sat sun].freeze
     VALID_JOB_TYPES = %w[options candles maintenance].freeze
     VALID_IMPORT_TYPES = %w[options].freeze
-    VALID_MAINTENANCE_TASKS = %w[compact_option_samples].freeze
+    VALID_MAINTENANCE_ACTIONS = %w[compact archive].freeze
+    VALID_MAINTENANCE_SUBJECTS = %w[option_samples].freeze
+    VALID_ARCHIVE_DESTINATIONS = %w[s3_archive].freeze
+    VALID_ARCHIVE_ARTIFACTS = %w[csv parquet].freeze
     VALID_S3_STORAGE_CLASSES = %w[STANDARD GLACIER GLACIER_IR].freeze
 
     def self.load(path)
@@ -31,7 +34,9 @@ module Tickrake
       data_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "data_dir", "~/.tickrake/data"))
       history_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "history_dir", File.join(data_dir, "history")))
       options_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "options_dir", File.join(data_dir, "options")))
-      s3_archive = load_s3_archive_config(data.fetch("storage", {}))
+      archives = load_archives(data.fetch("storage", {}))
+      universes = load_universes(data.fetch("universes", {}))
+      @universes = universes
       runtime = data.fetch("runtime", {})
       jobs = load_jobs(data.fetch("schedule", {}))
       import_jobs = load_import_jobs(data.fetch("imports", {}))
@@ -43,7 +48,8 @@ module Tickrake
         default_provider_name: default_provider_name,
         option_root_tickers: option_root_tickers,
         option_snapshot_filename_timezone: option_snapshot_filename_timezone,
-        s3_archive: s3_archive,
+        archives: archives,
+        universes: universes,
         data_dir: data_dir,
         history_dir: history_dir,
         options_dir: options_dir,
@@ -88,9 +94,8 @@ module Tickrake
           validate_candle_schedule!(job)
           job.universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
         elsif job.maintenance?
-          raise ConfigError, "Unknown maintenance task `#{job.task}` for `#{job.name}`." unless VALID_MAINTENANCE_TASKS.include?(job.task)
           validate_maintenance_schedule!(job)
-          validate_maintenance_settings!(job)
+          validate_maintenance_tasks!(config, job)
         end
       end
 
@@ -117,11 +122,11 @@ module Tickrake
       raise ConfigError, "Invalid options.snapshot_filename_timezone: #{raw_value}"
     end
 
-    def load_s3_archive_config(raw_storage)
+    def load_archives(raw_storage)
       raise ConfigError, "storage must be a mapping." unless raw_storage.is_a?(Hash)
 
       raw_s3_archive = raw_storage["s3_archive"]
-      return nil if raw_s3_archive.nil?
+      return {} if raw_s3_archive.nil?
 
       raise ConfigError, "storage.s3_archive must be a mapping." unless raw_s3_archive.is_a?(Hash)
 
@@ -135,12 +140,120 @@ module Tickrake
         raise ConfigError, "Invalid storage.s3_archive.storage_class: #{storage_class}"
       end
 
-      S3ArchiveConfig.new(
-        bucket: bucket,
-        region: region.nil? || region.empty? ? nil : region,
-        prefix: prefix,
-        storage_class: storage_class
-      )
+      {
+        "s3_archive" => S3ArchiveConfig.new(
+          bucket: bucket,
+          region: region.nil? || region.empty? ? nil : region,
+          prefix: prefix,
+          storage_class: storage_class
+        )
+      }
+    end
+
+    def load_universes(raw_universes)
+      raise ConfigError, "universes must be a mapping." unless raw_universes.is_a?(Hash)
+
+      merged_universes = raw_universes.dup
+      if merged_universes.key?("file")
+        file_universes = load_universes_file(merged_universes.delete("file"))
+        merged_universes = file_universes.merge(merged_universes)
+      end
+
+      merged_universes.each_with_object({}) do |(name, raw_universe), universes|
+        universes[name.to_s] = load_universe(name, raw_universe)
+      end
+    end
+
+    def load_universes_file(relative_path)
+      path = File.expand_path(relative_path.to_s, File.dirname(@path))
+      raise ConfigError, "universes file not found: #{path}" unless File.exist?(path)
+
+      data = YAML.safe_load(File.read(path), permitted_classes: [Date], aliases: true) || {}
+      raise ConfigError, "universes file must contain a mapping." unless data.is_a?(Hash)
+
+      universes = data.key?("universes") ? data.fetch("universes") : data
+      raise ConfigError, "universes file must define a universes mapping." unless universes.is_a?(Hash)
+
+      universes
+    end
+
+    def load_universe(name, raw_universe)
+      raise ConfigError, "universe `#{name}` must be a mapping or array." unless raw_universe.is_a?(Hash) || raw_universe.is_a?(Array)
+
+      data =
+        if raw_universe.is_a?(Hash) && raw_universe.key?("file")
+          load_universe_file(name, raw_universe.fetch("file"))
+        else
+          raw_universe
+        end
+
+      entries = load_universe_entries(name, data)
+      raise ConfigError, "universe `#{name}` requires symbols." if entries.empty?
+
+      UniverseConfig.new(name: name.to_s, entries: entries)
+    end
+
+    def load_universe_file(name, relative_path)
+      path = File.expand_path(relative_path.to_s, File.dirname(@path))
+      raise ConfigError, "universe `#{name}` file not found: #{path}" unless File.exist?(path)
+
+      data = YAML.safe_load(File.read(path), permitted_classes: [Date], aliases: true) || {}
+      raise ConfigError, "universe `#{name}` file must contain a mapping or array." unless data.is_a?(Hash) || data.is_a?(Array)
+
+      data
+    end
+
+    def load_universe_entries(name, data)
+      raw_entries =
+        case data
+        when Array
+          data
+        when Hash
+          if data.key?("symbols")
+            Array(data.fetch("symbols"))
+          elsif data.key?("entries")
+            Array(data.fetch("entries"))
+          elsif data.key?("option_roots")
+            Array(data.fetch("option_roots")).map { |value| { "symbol" => value.to_s } }
+          else
+            []
+          end
+        else
+          []
+        end
+
+      raw_entries.map { |entry| load_universe_entry(name, entry) }
+    end
+
+    def load_universe_entry(name, raw_entry)
+      case raw_entry
+      when String
+        UniverseEntry.new(
+          symbol: raw_entry,
+          option_root: nil,
+          option_roots: [],
+          start_date: nil,
+          need_extended_hours_data: false,
+          need_previous_close: false
+        )
+      when Hash
+        row = stringify_keys(raw_entry)
+        symbol = row.fetch("symbol").to_s
+        raise ConfigError, "universe `#{name}` entries require symbol." if symbol.empty?
+        raise ConfigError, "universe `#{name}` entries cannot define frequencies; set frequencies on the candles job." if row.key?("frequencies")
+        raise ConfigError, "universe `#{name}` entries cannot define provider; set provider on the job." if row.key?("provider")
+
+        UniverseEntry.new(
+          symbol: symbol,
+          option_root: row["option_root"]&.to_s,
+          option_roots: Array(row["option_roots"]).map(&:to_s),
+          start_date: row["start_date"] ? Date.iso8601(row.fetch("start_date").to_s) : nil,
+          need_extended_hours_data: !!row.fetch("need_extended_hours_data", false),
+          need_previous_close: !!row.fetch("need_previous_close", false)
+        )
+      else
+        raise ConfigError, "universe `#{name}` entries must be strings or mappings."
+      end
     end
 
     def load_jobs(schedule)
@@ -179,7 +292,6 @@ module Tickrake
 
     def build_job(name, raw_job)
       raise ConfigError, "job `#{name}` must be a mapping." unless raw_job.is_a?(Hash)
-
       raise ConfigError, "job `#{name}` must define type." unless raw_job.key?("type")
 
       type = raw_job.fetch("type").to_s
@@ -209,7 +321,8 @@ module Tickrake
         days: [],
         lookback_days: nil,
         dte_buckets: Array(raw_job.fetch("dte_buckets")).map { |bucket| parse_bucket(bucket) },
-        universe: Array(raw_job.fetch("universe")).map { |row| load_option_symbol(row) },
+        universe: load_options_universe(raw_job),
+        tasks: [],
         task: nil,
         settings: {},
         manual: manual
@@ -232,7 +345,8 @@ module Tickrake
         days: uses_daily_schedule ? normalize_days(raw_job.fetch("days")) : [],
         lookback_days: Integer(raw_job.fetch("lookback_days")),
         dte_buckets: [],
-        universe: Array(raw_job.fetch("universe")).map { |row| load_candle_symbol(row) },
+        universe: load_candles_universe(raw_job),
+        tasks: [],
         task: nil,
         settings: {},
         manual: manual
@@ -244,6 +358,7 @@ module Tickrake
       validate_no_schedule_fields!(name, raw_job, %w[interval_seconds windows run_at days]) if manual
       uses_interval_schedule = raw_job.key?("interval_seconds") || raw_job.key?("windows")
       uses_daily_schedule = raw_job.key?("run_at") || raw_job.key?("days")
+      raise ConfigError, "maintenance job `#{name}` must use tasks: and no longer supports task:/settings:." if raw_job.key?("task") || raw_job.key?("settings")
 
       ScheduledJobConfig.new(
         name: name.to_s,
@@ -256,9 +371,35 @@ module Tickrake
         lookback_days: nil,
         dte_buckets: [],
         universe: [],
-        task: raw_job.fetch("task").to_s,
-        settings: stringify_keys(raw_job.fetch("settings", {})),
+        tasks: Array(raw_job.fetch("tasks")).map { |row| load_maintenance_step(name, row) },
+        task: nil,
+        settings: {},
         manual: manual
+      )
+    end
+
+    def load_maintenance_step(job_name, raw_step)
+      raise ConfigError, "maintenance job `#{job_name}` task entry must be a mapping." unless raw_step.is_a?(Hash)
+      raise ConfigError, "maintenance job `#{job_name}` task entry must define exactly one action." unless raw_step.keys.length == 1
+
+      action = raw_step.keys.first.to_s
+      raise ConfigError, "Unknown maintenance action `#{action}` for `#{job_name}`." unless VALID_MAINTENANCE_ACTIONS.include?(action)
+
+      settings = stringify_keys(raw_step.fetch(action))
+      raise ConfigError, "maintenance job `#{job_name}` action `#{action}` settings must be a mapping." unless settings.is_a?(Hash)
+
+      MaintenanceStepConfig.new(
+        action: action,
+        subject: settings.fetch("subject", "").to_s,
+        provider: settings["provider"]&.to_s,
+        universe: settings["universe"]&.to_s,
+        universes: Array(settings["universes"]).map(&:to_s),
+        tickers: Array(settings["tickers"]),
+        option_root: settings["option_root"]&.to_s,
+        delete_sources: settings.fetch("delete_sources", false),
+        destination: settings["destination"]&.to_s,
+        artifacts: Array(settings["artifacts"]).map(&:to_s),
+        retain_local: stringify_keys(settings["retain_local"])
       )
     end
 
@@ -302,21 +443,52 @@ module Tickrake
       end
     end
 
-    def validate_maintenance_settings!(job)
-      settings = job.settings || {}
-      raise ConfigError, "maintenance job `#{job.name}` settings must be a mapping." unless settings.is_a?(Hash)
+    def validate_maintenance_tasks!(config, job)
+      raise ConfigError, "maintenance job `#{job.name}` requires at least one task." if Array(job.tasks).empty?
 
-      case job.task
-      when "compact_option_samples"
-        raise ConfigError, "maintenance job `#{job.name}` requires settings.option_root." if settings["option_root"].to_s.strip.empty?
+      Array(job.tasks).each do |step|
+        raise ConfigError, "maintenance job `#{job.name}` requires a valid subject." unless VALID_MAINTENANCE_SUBJECTS.include?(step.subject)
+        config.provider_definition(step.provider) if step.provider
+        validate_maintenance_target!(config, job, step)
+
+        case step.action
+        when "compact"
+          raise ConfigError, "maintenance job `#{job.name}` compact task delete_sources must be boolean." unless boolean?(step.delete_sources)
+        when "archive"
+          raise ConfigError, "maintenance job `#{job.name}` archive task destination is required." if step.destination.to_s.empty?
+          unless VALID_ARCHIVE_DESTINATIONS.include?(step.destination)
+            raise ConfigError, "maintenance job `#{job.name}` archive task destination `#{step.destination}` is unsupported."
+          end
+          raise ConfigError, "maintenance job `#{job.name}` archive task destination `#{step.destination}` is not configured." if config.archives[step.destination].nil?
+
+          artifacts = step.artifacts.empty? ? VALID_ARCHIVE_ARTIFACTS : step.artifacts
+          unless artifacts.all? { |artifact| VALID_ARCHIVE_ARTIFACTS.include?(artifact) }
+            raise ConfigError, "maintenance job `#{job.name}` archive task artifacts must be csv and/or parquet."
+          end
+          unless step.retain_local.keys.all? { |key| VALID_ARCHIVE_ARTIFACTS.include?(key) && boolean?(step.retain_local[key]) }
+            raise ConfigError, "maintenance job `#{job.name}` archive task retain_local keys must be csv/parquet booleans."
+          end
+        end
       end
+    end
+
+    def validate_maintenance_target!(config, job, step)
+      has_universe = !step.universe.to_s.empty?
+      has_universes = !Array(step.universes).empty?
+      has_tickers = !Array(step.tickers).empty?
+      has_option_root = !step.option_root.to_s.empty?
+      raise ConfigError, "maintenance job `#{job.name}` task `#{step.action}` requires universe, universes, tickers, or option_root." unless has_universe || has_universes || has_tickers || has_option_root
+      raise ConfigError, "maintenance job `#{job.name}` task `#{step.action}` cannot combine option_root with universe/universes/tickers." if has_option_root && (has_universe || has_universes || has_tickers)
+
+      config.universe(step.universe) if has_universe
+      Array(step.universes).each { |name| config.universe(name) }
     end
 
     def validate_no_schedule_fields!(name, raw_job, fields)
       present = fields.select { |field| raw_job.key?(field) }
       return if present.empty?
 
-      raise ConfigError, "manual job `#{name}` cannot define schedule fields: #{present.join(", ")}."
+      raise ConfigError, "manual job `#{name}` cannot define schedule fields: #{present.join(', ')}."
     end
 
     def load_scheduler_windows(raw_windows)
@@ -329,19 +501,86 @@ module Tickrake
       end
     end
 
-    def load_option_symbol(row)
-      OptionSymbol.new(symbol: row.fetch("symbol"), option_root: row["option_root"], provider: row["provider"])
+    def load_options_universe(raw_job)
+      load_job_entries(raw_job).flat_map do |entry|
+        expand_option_universe_entry(entry, raw_job)
+      end
     end
 
-    def load_candle_symbol(row)
-      CandleSymbol.new(
-        symbol: row.fetch("symbol"),
-        provider: row["provider"],
-        frequencies: Array(row.fetch("frequencies")).map { |value| normalize_frequency(value) }.uniq,
-        start_date: Date.iso8601(row.fetch("start_date")),
-        need_extended_hours_data: !!row.fetch("need_extended_hours_data", false),
-        need_previous_close: !!row.fetch("need_previous_close", false)
-      )
+    def load_candles_universe(raw_job)
+      expand_candle_entries(load_job_entries(raw_job), raw_job, universe_name: "job")
+    end
+
+    def expand_option_universe_entry(entry, raw_job)
+      default_roots = Array(raw_job["option_roots"]).map(&:to_s)
+      default_root = raw_job["option_root"]&.to_s
+      roots = Array(entry.option_roots).map(&:to_s)
+      roots << entry.option_root.to_s unless entry.option_root.to_s.empty?
+      roots.concat(default_roots)
+      roots << default_root unless default_root.to_s.empty?
+      roots = roots.reject(&:empty?).uniq
+      roots = [nil] if roots.empty?
+
+      roots.map do |option_root|
+        OptionSymbol.new(symbol: entry.symbol, option_root: option_root)
+      end
+    end
+
+    def expand_candle_entries(entries, raw_job, universe_name:)
+      default_frequencies = Array(raw_job["frequencies"]).map { |value| normalize_frequency(value) }.uniq
+      default_start_date = raw_job["start_date"] ? Date.iso8601(raw_job.fetch("start_date").to_s) : nil
+      default_extended_hours = !!raw_job.fetch("need_extended_hours_data", false)
+      default_previous_close = !!raw_job.fetch("need_previous_close", false)
+
+      entries.map do |entry|
+        start_date = entry.start_date || default_start_date
+        raise ConfigError, "candles job universe `#{universe_name}` requires job-level frequencies." if default_frequencies.empty?
+        raise ConfigError, "candles job universe `#{universe_name}` requires start_date for #{entry.symbol}." if start_date.nil?
+
+        CandleSymbol.new(
+          symbol: entry.symbol,
+          provider: nil,
+          frequencies: default_frequencies,
+          start_date: start_date,
+          need_extended_hours_data: entry.need_extended_hours_data || default_extended_hours,
+          need_previous_close: entry.need_previous_close || default_previous_close
+        )
+      end
+    end
+
+    def load_job_entries(raw_job)
+      entries = []
+
+      case raw_job["universe"]
+      when String
+        entries.concat(universe(raw_job["universe"]).entries)
+      when Array
+        entries.concat(Array(raw_job["universe"]).map { |row| load_inline_universe_entry("job", row) })
+      when nil
+      else
+        raise ConfigError, "job universe must be a string or array."
+      end
+
+      Array(raw_job["universes"]).each do |name|
+        entries.concat(universe(name).entries)
+      end
+
+      Array(raw_job["tickers"]).each do |row|
+        entries << load_inline_universe_entry("job", row)
+      end
+
+      entries
+    end
+
+    def load_inline_universe_entry(job_type, row)
+      load_universe_entry("#{job_type} job", row)
+    end
+
+    def universe(name)
+      selected = @universes.fetch(name.to_s, nil)
+      raise ConfigError, "Unknown universe `#{name}`." unless selected
+
+      selected
     end
 
     def load_providers(data)
@@ -405,6 +644,10 @@ module Tickrake
     def dig(hash, *keys)
       default = keys.pop
       keys.reduce(hash) { |value, key| value.is_a?(Hash) ? value[key] : nil } || default
+    end
+
+    def boolean?(value)
+      value == true || value == false
     end
 
     def parse_bucket(bucket)

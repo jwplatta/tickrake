@@ -332,6 +332,9 @@ module Tickrake
           end_date: end_date,
           progress_reporter: progress_reporter
         ).run
+        unless result.successful?
+          raise Tickrake::Error, "Maintenance job #{job.name} finished with #{result.failure_count} failed step(s). Check the job log for details."
+        end
         @stdout.puts(
           "Completed job #{job.name}: processed #{result.processed_dates.length} date(s), "\
           "wrote #{result.artifacts_written.length} artifact(s)."

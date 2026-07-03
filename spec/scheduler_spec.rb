@@ -50,8 +50,16 @@ RSpec.describe "schedulers" do
       lookback_days: nil,
       dte_buckets: [],
       universe: [],
-      task: "compact_option_samples",
-      settings: { "option_root" => "SPXW" }
+      tasks: [
+        Tickrake::MaintenanceStepConfig.new(
+          action: "compact",
+          subject: "option_samples",
+          option_root: "SPXW",
+          delete_sources: false,
+          artifacts: [],
+          retain_local: {}
+        )
+      ]
     )
     runner = Tickrake::MaintenanceSchedulerRunner.new(runtime, scheduled_job: maintenance_job)
 
