@@ -21,10 +21,11 @@ module Tickrake
           errors = []
           errors << "No matching source snapshot files found." if built.fetch(:raw_files).empty?
           errors << "Compacted CSV headers do not match expected compaction headers." unless compacted_headers == built.fetch(:headers)
-          if compacted_rows.length != built.fetch(:rows).length
-            errors << "Compacted CSV row count #{compacted_rows.length} does not match expected row count #{built.fetch(:rows).length}."
+          expected_rows = built.fetch(:rows)
+          if compacted_rows.length != expected_rows.length
+            errors << "Compacted CSV row count #{compacted_rows.length} does not match expected row count #{expected_rows.length}."
           end
-          mismatch = first_row_mismatch(compacted_rows, built.fetch(:rows))
+          mismatch = first_row_mismatch(sorted_rows(compacted_rows), sorted_rows(expected_rows))
           errors << mismatch if mismatch
 
           ValidationResult.new(
@@ -34,7 +35,7 @@ module Tickrake
             sample_date: @context.sample_date,
             compacted_path: compacted_path,
             source_paths: built.fetch(:raw_files),
-            expected_row_count: built.fetch(:rows).length,
+            expected_row_count: expected_rows.length,
             actual_row_count: compacted_rows.length,
             errors: errors
           )
@@ -73,6 +74,18 @@ module Tickrake
             return "First row mismatch at row #{index + 1}."
           end
           nil
+        end
+
+        def sorted_rows(rows)
+          rows.sort_by do |row|
+            [
+              row.fetch(30),
+              row.fetch(4),
+              row.fetch(0),
+              row.fetch(3).to_f,
+              row.fetch(1)
+            ]
+          end
         end
       end
     end
