@@ -19,6 +19,16 @@ def cleanup_sample_date(config:, provider_name:, option_root:, sample_date:, dry
     logger: Logger.new($stderr).tap { |logger| logger.level = Logger::WARN }
   )
 
+  raw_files = context.dataset.raw_snapshot_files(sample_date: sample_date)
+  csv_path = context.compacted_path("csv")
+  parquet_path = context.compacted_path("parquet")
+  if raw_files.empty? && !File.exist?(csv_path) && !File.exist?(parquet_path)
+    return TaskResult.new(
+      status: :skipped,
+      message: "#{sample_date.iso8601}: skipped cleanup because no raw snapshots or compacted artifacts exist"
+    )
+  end
+
   archive = Tickrake::Maintenance::OptionSamples::ArtifactArchiver.new(context: context).verify_existing(
     destination_name: "s3_archive",
     artifacts: %w[csv parquet]
@@ -136,5 +146,6 @@ progress&.finish
 $stdout.puts("Summary:")
 $stdout.puts("  cleaned: #{counts[:cleaned]}")
 $stdout.puts("  planned: #{counts[:planned]}")
+$stdout.puts("  skipped: #{counts[:skipped]}")
 $stdout.puts("  errors: #{counts[:error]}")
 exit(errors.empty? ? 0 : 1)
