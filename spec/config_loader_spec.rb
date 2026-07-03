@@ -342,10 +342,10 @@ RSpec.describe Tickrake::ConfigLoader do
             manual: true
             provider: ibkr-paper
             lookback_days: 14
+            frequencies: [day, minute]
             universe:
               - symbol: SPY
                 start_date: "2020-01-01"
-                frequencies: [day, minute]
       YAML
 
       config = described_class.load(path)
@@ -400,6 +400,88 @@ RSpec.describe Tickrake::ConfigLoader do
       expect(config.job("compact_spxw").tasks.map(&:action)).to eq(%w[compact archive])
       expect(config.job("compact_spxw").tasks.first.universe).to eq("index_roots")
       expect(config.job("compact_spxw").tasks.last.retain_local).to eq("csv" => false)
+    end
+  end
+
+  it "loads named universes from an external yaml file for options, candles, and maintenance jobs" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tickrake.yml")
+      universe_path = File.join(dir, "universes.yml")
+
+      File.write(universe_path, <<~YAML)
+        universes:
+          trading_symbols:
+            - symbol: $SPX
+              option_roots: [SPXW]
+            - symbol: SPY
+          futures_symbols:
+            - symbol: /ES
+              provider: schwab
+      YAML
+
+      File.write(path, <<~YAML)
+        default_provider: schwab
+        providers:
+          schwab:
+            adapter: schwab
+            symbol_map:
+              /ES: ^ES
+          ibkr-paper:
+            adapter: ibkr
+        universes:
+          file: universes.yml
+        storage:
+          s3_archive:
+            bucket: tickrake
+        schedule:
+          index_options:
+            type: options
+            provider: schwab
+            interval_seconds: 300
+            windows:
+              - days: [mon]
+                start: "08:30"
+                end: "15:00"
+            dte_buckets: [0DTE]
+            universe: trading_symbols
+          eod_candles:
+            type: candles
+            provider: ibkr-paper
+            run_at: "15:05"
+            days: [mon]
+            lookback_days: 7
+            start_date: "2020-01-01"
+            frequencies: [day, 1min]
+            universe: futures_symbols
+          postclose_option_maintenance:
+            type: maintenance
+            provider: schwab
+            run_at: "18:05"
+            days: [mon]
+            tasks:
+              - compact:
+                  subject: option_samples
+                  universe: trading_symbols
+                  delete_sources: true
+              - archive:
+                  subject: option_samples
+                  universe: trading_symbols
+                  destination: s3_archive
+                  retain_local:
+                    csv: false
+      YAML
+
+      config = described_class.load(path)
+
+      expect(config.universe("trading_symbols").symbols).to eq(["$SPX", "SPY"])
+      expect(config.universe("trading_symbols").option_roots).to eq(%w[SPXW SPY])
+      expect(config.job("index_options").universe.map { |entry| [entry.symbol, entry.option_root] }).to eq([["$SPX", "SPXW"], ["SPY", nil]])
+      candle_entry = config.job("eod_candles").universe.first
+      expect(candle_entry.symbol).to eq("/ES")
+      expect(candle_entry.provider).to eq("schwab")
+      expect(candle_entry.start_date).to eq(Date.new(2020, 1, 1))
+      expect(candle_entry.frequencies).to eq(%w[day 1min])
+      expect(config.job("postclose_option_maintenance").tasks.first.universe).to eq("trading_symbols")
     end
   end
 
@@ -496,10 +578,10 @@ RSpec.describe Tickrake::ConfigLoader do
             run_at: "16:05"
             days: [mon]
             lookback_days: 7
+            frequencies: [day]
             universe:
               - symbol: SPY
                 start_date: "2020-01-01"
-                frequencies: [day]
           intraday_candles:
             type: candles
             provider: ibkr-paper
@@ -509,10 +591,10 @@ RSpec.describe Tickrake::ConfigLoader do
                 start: "08:30"
                 end: "15:00"
             lookback_days: 7
+            frequencies: [30min, 5min, 1min]
             universe:
               - symbol: $SPX
                 start_date: "2026-03-01"
-                frequencies: [30min, 5min, 1min]
       YAML
 
       config = described_class.load(path)
@@ -637,10 +719,10 @@ RSpec.describe Tickrake::ConfigLoader do
             run_at: "16:05"
             days: [mon]
             lookback_days: -1
+            frequencies: [day]
             universe:
               - symbol: SPY
                 start_date: "2020-01-01"
-                frequencies: [day]
       YAML
 
       expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /lookback_days must be non-negative/)
@@ -666,10 +748,10 @@ RSpec.describe Tickrake::ConfigLoader do
                 start: "08:30"
                 end: "15:00"
             lookback_days: 7
+            frequencies: [day]
             universe:
               - symbol: SPY
                 start_date: "2020-01-01"
-                frequencies: [day]
       YAML
 
       expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /must use either interval_seconds\/windows or run_at\/days, not both/)
@@ -688,10 +770,10 @@ RSpec.describe Tickrake::ConfigLoader do
           missing_candles:
             type: candles
             lookback_days: 7
+            frequencies: [day]
             universe:
               - symbol: SPY
                 start_date: "2020-01-01"
-                frequencies: [day]
       YAML
 
       expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /must define either interval_seconds\/windows or run_at\/days/)
@@ -715,10 +797,10 @@ RSpec.describe Tickrake::ConfigLoader do
                 start: "08:30"
                 end: "15:00"
             lookback_days: 7
+            frequencies: [1min]
             universe:
               - symbol: SPY
                 start_date: "2020-01-01"
-                frequencies: [1min]
       YAML
 
       expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /interval must be positive/)
@@ -739,10 +821,10 @@ RSpec.describe Tickrake::ConfigLoader do
             interval_seconds: 120
             windows: []
             lookback_days: 7
+            frequencies: [1min]
             universe:
               - symbol: SPY
                 start_date: "2020-01-01"
-                frequencies: [1min]
       YAML
 
       expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /At least one candles job window is required/)

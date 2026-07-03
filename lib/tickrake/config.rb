@@ -11,12 +11,41 @@ module Tickrake
     end
   end
 
-  UniverseConfig = Struct.new(:name, :option_roots, keyword_init: true)
+  UniverseEntry = Struct.new(
+    :symbol,
+    :option_root,
+    :option_roots,
+    :start_date,
+    :need_extended_hours_data,
+    :need_previous_close,
+    keyword_init: true
+  )
+  UniverseConfig = Struct.new(:name, :entries, keyword_init: true) do
+    def symbols
+      entries.map(&:symbol)
+    end
+
+    def option_roots
+      entries.flat_map do |entry|
+        roots = if Array(entry.option_roots).any?
+                  entry.option_roots
+                elsif !entry.option_root.to_s.empty?
+                  [entry.option_root]
+                else
+                  [entry.symbol]
+                end
+
+        roots.map { |root| root.to_s.strip.upcase }.reject(&:empty?)
+      end.uniq
+    end
+  end
   MaintenanceStepConfig = Struct.new(
     :action,
     :subject,
     :provider,
     :universe,
+    :universes,
+    :tickers,
     :option_root,
     :delete_sources,
     :destination,
@@ -222,9 +251,7 @@ module Tickrake
     end
 
     def provider_name_for_entry(entry, scheduled_job: nil, fallback: nil)
-      resolved_fallback = fallback || scheduled_job&.provider || default_provider_name
-
-      (entry&.provider || resolved_fallback).to_s
+      (fallback || scheduled_job&.provider || default_provider_name).to_s
     end
 
     def provider_name_for_entry_with_override(override_name, entry, scheduled_job: nil)
@@ -236,10 +263,7 @@ module Tickrake
     def provider_names_for_job(job, override_name: nil)
       case job.type
       when "options", "candles"
-        entries = Array(job.universe)
-        return [provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)].compact.uniq if entries.empty?
-
-        entries.map { |entry| provider_name_for_entry_with_override(override_name, entry, scheduled_job: job) }.uniq
+        [provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)].compact.uniq
       when "maintenance"
         explicit_providers = Array(job.tasks).filter_map(&:provider)
         fallback_provider = provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)

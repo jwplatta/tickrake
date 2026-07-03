@@ -36,6 +36,7 @@ module Tickrake
       options_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "options_dir", File.join(data_dir, "options")))
       archives = load_archives(data.fetch("storage", {}))
       universes = load_universes(data.fetch("universes", {}))
+      @universes = universes
       runtime = data.fetch("runtime", {})
       jobs = load_jobs(data.fetch("schedule", {}))
       import_jobs = load_import_jobs(data.fetch("imports", {}))
@@ -152,24 +153,44 @@ module Tickrake
     def load_universes(raw_universes)
       raise ConfigError, "universes must be a mapping." unless raw_universes.is_a?(Hash)
 
-      raw_universes.each_with_object({}) do |(name, raw_universe), universes|
+      merged_universes = raw_universes.dup
+      if merged_universes.key?("file")
+        file_universes = load_universes_file(merged_universes.delete("file"))
+        merged_universes = file_universes.merge(merged_universes)
+      end
+
+      merged_universes.each_with_object({}) do |(name, raw_universe), universes|
         universes[name.to_s] = load_universe(name, raw_universe)
       end
     end
 
+    def load_universes_file(relative_path)
+      path = File.expand_path(relative_path.to_s, File.dirname(@path))
+      raise ConfigError, "universes file not found: #{path}" unless File.exist?(path)
+
+      data = YAML.safe_load(File.read(path), permitted_classes: [Date], aliases: true) || {}
+      raise ConfigError, "universes file must contain a mapping." unless data.is_a?(Hash)
+
+      universes = data.key?("universes") ? data.fetch("universes") : data
+      raise ConfigError, "universes file must define a universes mapping." unless universes.is_a?(Hash)
+
+      universes
+    end
+
     def load_universe(name, raw_universe)
-      raise ConfigError, "universe `#{name}` must be a mapping." unless raw_universe.is_a?(Hash)
+      raise ConfigError, "universe `#{name}` must be a mapping or array." unless raw_universe.is_a?(Hash) || raw_universe.is_a?(Array)
 
-      data = if raw_universe.key?("file")
-        load_universe_file(name, raw_universe.fetch("file"))
-      else
-        raw_universe
-      end
+      data =
+        if raw_universe.is_a?(Hash) && raw_universe.key?("file")
+          load_universe_file(name, raw_universe.fetch("file"))
+        else
+          raw_universe
+        end
 
-      option_roots = Array(data.fetch("option_roots", nil)).map { |value| value.to_s.strip.upcase }.reject(&:empty?).uniq
-      raise ConfigError, "universe `#{name}` requires option_roots." if option_roots.empty?
+      entries = load_universe_entries(name, data)
+      raise ConfigError, "universe `#{name}` requires symbols." if entries.empty?
 
-      UniverseConfig.new(name: name.to_s, option_roots: option_roots)
+      UniverseConfig.new(name: name.to_s, entries: entries)
     end
 
     def load_universe_file(name, relative_path)
@@ -177,9 +198,62 @@ module Tickrake
       raise ConfigError, "universe `#{name}` file not found: #{path}" unless File.exist?(path)
 
       data = YAML.safe_load(File.read(path), permitted_classes: [Date], aliases: true) || {}
-      raise ConfigError, "universe `#{name}` file must contain a mapping." unless data.is_a?(Hash)
+      raise ConfigError, "universe `#{name}` file must contain a mapping or array." unless data.is_a?(Hash) || data.is_a?(Array)
 
       data
+    end
+
+    def load_universe_entries(name, data)
+      raw_entries =
+        case data
+        when Array
+          data
+        when Hash
+          if data.key?("symbols")
+            Array(data.fetch("symbols"))
+          elsif data.key?("entries")
+            Array(data.fetch("entries"))
+          elsif data.key?("option_roots")
+            Array(data.fetch("option_roots")).map { |value| { "symbol" => value.to_s } }
+          else
+            []
+          end
+        else
+          []
+        end
+
+      raw_entries.map { |entry| load_universe_entry(name, entry) }
+    end
+
+    def load_universe_entry(name, raw_entry)
+      case raw_entry
+      when String
+        UniverseEntry.new(
+          symbol: raw_entry,
+          option_root: nil,
+          option_roots: [],
+          start_date: nil,
+          need_extended_hours_data: false,
+          need_previous_close: false
+        )
+      when Hash
+        row = stringify_keys(raw_entry)
+        symbol = row.fetch("symbol").to_s
+        raise ConfigError, "universe `#{name}` entries require symbol." if symbol.empty?
+        raise ConfigError, "universe `#{name}` entries cannot define frequencies; set frequencies on the candles job." if row.key?("frequencies")
+        raise ConfigError, "universe `#{name}` entries cannot define provider; set provider on the job." if row.key?("provider")
+
+        UniverseEntry.new(
+          symbol: symbol,
+          option_root: row["option_root"]&.to_s,
+          option_roots: Array(row["option_roots"]).map(&:to_s),
+          start_date: row["start_date"] ? Date.iso8601(row.fetch("start_date").to_s) : nil,
+          need_extended_hours_data: !!row.fetch("need_extended_hours_data", false),
+          need_previous_close: !!row.fetch("need_previous_close", false)
+        )
+      else
+        raise ConfigError, "universe `#{name}` entries must be strings or mappings."
+      end
     end
 
     def load_jobs(schedule)
@@ -247,7 +321,7 @@ module Tickrake
         days: [],
         lookback_days: nil,
         dte_buckets: Array(raw_job.fetch("dte_buckets")).map { |bucket| parse_bucket(bucket) },
-        universe: Array(raw_job.fetch("universe")).map { |row| load_option_symbol(row) },
+        universe: load_options_universe(raw_job),
         tasks: [],
         task: nil,
         settings: {},
@@ -271,7 +345,7 @@ module Tickrake
         days: uses_daily_schedule ? normalize_days(raw_job.fetch("days")) : [],
         lookback_days: Integer(raw_job.fetch("lookback_days")),
         dte_buckets: [],
-        universe: Array(raw_job.fetch("universe")).map { |row| load_candle_symbol(row) },
+        universe: load_candles_universe(raw_job),
         tasks: [],
         task: nil,
         settings: {},
@@ -319,6 +393,8 @@ module Tickrake
         subject: settings.fetch("subject", "").to_s,
         provider: settings["provider"]&.to_s,
         universe: settings["universe"]&.to_s,
+        universes: Array(settings["universes"]).map(&:to_s),
+        tickers: Array(settings["tickers"]),
         option_root: settings["option_root"]&.to_s,
         delete_sources: settings.fetch("delete_sources", false),
         destination: settings["destination"]&.to_s,
@@ -398,11 +474,14 @@ module Tickrake
 
     def validate_maintenance_target!(config, job, step)
       has_universe = !step.universe.to_s.empty?
+      has_universes = !Array(step.universes).empty?
+      has_tickers = !Array(step.tickers).empty?
       has_option_root = !step.option_root.to_s.empty?
-      raise ConfigError, "maintenance job `#{job.name}` task `#{step.action}` requires either universe or option_root." unless has_universe || has_option_root
-      raise ConfigError, "maintenance job `#{job.name}` task `#{step.action}` cannot define both universe and option_root." if has_universe && has_option_root
+      raise ConfigError, "maintenance job `#{job.name}` task `#{step.action}` requires universe, universes, tickers, or option_root." unless has_universe || has_universes || has_tickers || has_option_root
+      raise ConfigError, "maintenance job `#{job.name}` task `#{step.action}` cannot combine option_root with universe/universes/tickers." if has_option_root && (has_universe || has_universes || has_tickers)
 
       config.universe(step.universe) if has_universe
+      Array(step.universes).each { |name| config.universe(name) }
     end
 
     def validate_no_schedule_fields!(name, raw_job, fields)
@@ -422,19 +501,86 @@ module Tickrake
       end
     end
 
-    def load_option_symbol(row)
-      OptionSymbol.new(symbol: row.fetch("symbol"), option_root: row["option_root"], provider: row["provider"])
+    def load_options_universe(raw_job)
+      load_job_entries(raw_job).flat_map do |entry|
+        expand_option_universe_entry(entry, raw_job)
+      end
     end
 
-    def load_candle_symbol(row)
-      CandleSymbol.new(
-        symbol: row.fetch("symbol"),
-        provider: row["provider"],
-        frequencies: Array(row.fetch("frequencies")).map { |value| normalize_frequency(value) }.uniq,
-        start_date: Date.iso8601(row.fetch("start_date")),
-        need_extended_hours_data: !!row.fetch("need_extended_hours_data", false),
-        need_previous_close: !!row.fetch("need_previous_close", false)
-      )
+    def load_candles_universe(raw_job)
+      expand_candle_entries(load_job_entries(raw_job), raw_job, universe_name: "job")
+    end
+
+    def expand_option_universe_entry(entry, raw_job)
+      default_roots = Array(raw_job["option_roots"]).map(&:to_s)
+      default_root = raw_job["option_root"]&.to_s
+      roots = Array(entry.option_roots).map(&:to_s)
+      roots << entry.option_root.to_s unless entry.option_root.to_s.empty?
+      roots.concat(default_roots)
+      roots << default_root unless default_root.to_s.empty?
+      roots = roots.reject(&:empty?).uniq
+      roots = [nil] if roots.empty?
+
+      roots.map do |option_root|
+        OptionSymbol.new(symbol: entry.symbol, option_root: option_root)
+      end
+    end
+
+    def expand_candle_entries(entries, raw_job, universe_name:)
+      default_frequencies = Array(raw_job["frequencies"]).map { |value| normalize_frequency(value) }.uniq
+      default_start_date = raw_job["start_date"] ? Date.iso8601(raw_job.fetch("start_date").to_s) : nil
+      default_extended_hours = !!raw_job.fetch("need_extended_hours_data", false)
+      default_previous_close = !!raw_job.fetch("need_previous_close", false)
+
+      entries.map do |entry|
+        start_date = entry.start_date || default_start_date
+        raise ConfigError, "candles job universe `#{universe_name}` requires job-level frequencies." if default_frequencies.empty?
+        raise ConfigError, "candles job universe `#{universe_name}` requires start_date for #{entry.symbol}." if start_date.nil?
+
+        CandleSymbol.new(
+          symbol: entry.symbol,
+          provider: nil,
+          frequencies: default_frequencies,
+          start_date: start_date,
+          need_extended_hours_data: entry.need_extended_hours_data || default_extended_hours,
+          need_previous_close: entry.need_previous_close || default_previous_close
+        )
+      end
+    end
+
+    def load_job_entries(raw_job)
+      entries = []
+
+      case raw_job["universe"]
+      when String
+        entries.concat(universe(raw_job["universe"]).entries)
+      when Array
+        entries.concat(Array(raw_job["universe"]).map { |row| load_inline_universe_entry("job", row) })
+      when nil
+      else
+        raise ConfigError, "job universe must be a string or array."
+      end
+
+      Array(raw_job["universes"]).each do |name|
+        entries.concat(universe(name).entries)
+      end
+
+      Array(raw_job["tickers"]).each do |row|
+        entries << load_inline_universe_entry("job", row)
+      end
+
+      entries
+    end
+
+    def load_inline_universe_entry(job_type, row)
+      load_universe_entry("#{job_type} job", row)
+    end
+
+    def universe(name)
+      selected = @universes.fetch(name.to_s, nil)
+      raise ConfigError, "Unknown universe `#{name}`." unless selected
+
+      selected
     end
 
     def load_providers(data)

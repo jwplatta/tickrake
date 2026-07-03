@@ -169,8 +169,31 @@ module Tickrake
 
     def option_roots_for(step)
       return [step.option_root] unless step.option_root.to_s.empty?
-
-      @runtime.config.universe(step.universe).option_roots
+      roots = []
+      roots.concat(@runtime.config.universe(step.universe).option_roots) unless step.universe.to_s.empty?
+      Array(step.universes).each do |name|
+        roots.concat(@runtime.config.universe(name).option_roots)
+      end
+      Array(step.tickers).each do |row|
+        entry = row.is_a?(String) ? Tickrake::UniverseEntry.new(symbol: row) : Tickrake::UniverseEntry.new(
+          symbol: row.fetch("symbol"),
+          option_root: row["option_root"],
+          option_roots: Array(row["option_roots"]),
+          start_date: nil,
+          need_extended_hours_data: false,
+          need_previous_close: false
+        )
+        roots.concat(
+          if Array(entry.option_roots).any?
+            entry.option_roots
+          elsif !entry.option_root.to_s.empty?
+            [entry.option_root]
+          else
+            [entry.symbol]
+          end
+        )
+      end
+      roots.map { |root| root.to_s.strip.upcase }.reject(&:empty?).uniq
     end
 
     def provider_name_for(step)
