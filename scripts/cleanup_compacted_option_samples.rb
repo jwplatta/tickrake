@@ -20,12 +20,10 @@ def cleanup_sample_date(config:, provider_name:, option_root:, sample_date:, dry
   )
 
   raw_files = context.dataset.raw_snapshot_files(sample_date: sample_date)
-  csv_path = context.compacted_path("csv")
-  parquet_path = context.compacted_path("parquet")
-  if raw_files.empty? && !File.exist?(csv_path) && !File.exist?(parquet_path)
+  if raw_files.empty?
     return TaskResult.new(
       status: :skipped,
-      message: "#{sample_date.iso8601}: skipped cleanup because no raw snapshots or compacted artifacts exist"
+      message: "#{sample_date.iso8601}: skipped cleanup because raw snapshots are already absent"
     )
   end
 
