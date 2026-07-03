@@ -20,11 +20,10 @@ def process_sample_date(config:, provider_name:, option_root:, sample_date:, dry
   )
 
   if dry_run
-    validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
-    if validation.errors.any? && validation.errors != ["Compacted CSV file not found: #{validation.compacted_path}"]
-      raise Tickrake::Error, "Validation failed: #{validation.errors.join('; ')}"
+    raw_files = context.dataset.raw_snapshot_files(sample_date: sample_date)
+    if raw_files.empty?
+      return TaskResult.new(status: :skipped, message: "#{sample_date.iso8601}: skipped because no raw option snapshots were found")
     end
-    return TaskResult.new(status: :planned, message: "#{sample_date.iso8601}: would compact and archive csv/parquet") if validation.errors.any?
 
     archive = Tickrake::Maintenance::OptionSamples::ArtifactArchiver.new(context: context).verify_existing(
       destination_name: "s3_archive",
@@ -38,6 +37,7 @@ def process_sample_date(config:, provider_name:, option_root:, sample_date:, dry
   else
     compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run
     raise Tickrake::Error, "Compaction failed: #{compact.errors.join('; ')}" unless compact.successful?
+    return TaskResult.new(status: :skipped, message: "#{sample_date.iso8601}: skipped because no raw option snapshots were found") if compact.artifacts_written.empty?
 
     validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
     raise Tickrake::Error, "Validation failed: #{validation.errors.join('; ')}" unless validation.safe_to_delete
@@ -133,5 +133,6 @@ progress&.finish
 $stdout.puts("Summary:")
 $stdout.puts("  archived: #{counts[:archived]}")
 $stdout.puts("  planned: #{counts[:planned]}")
+$stdout.puts("  skipped: #{counts[:skipped]}")
 $stdout.puts("  errors: #{counts[:error]}")
 exit(errors.empty? ? 0 : 1)
