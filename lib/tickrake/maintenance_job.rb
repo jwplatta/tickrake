@@ -102,6 +102,9 @@ module Tickrake
     def run_compact_step(context:, delete_sources:)
       compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run(progress_reporter: @progress_reporter)
       return compact unless compact.successful?
+      # No raw snapshots found — compact was skipped. Return success with empty artifacts_written
+      # so the step loop continues to the archive step, which resolves compacted file paths
+      # independently and will upload any already-compacted files that exist on disk.
       return compact if compact.artifacts_written.empty?
 
       validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
