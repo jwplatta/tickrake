@@ -141,6 +141,8 @@ module Tickrake
       )
       return retention if !retention.successful?
 
+      publish_index(context: context, destination_name: destination_name)
+
       archive
     end
 
@@ -217,6 +219,27 @@ module Tickrake
 
     def step_matches_target?(step, provider_name:, option_root:)
       provider_name_for(step) == provider_name && option_roots_for(step).include?(option_root)
+    end
+
+    def publish_index(context:, destination_name:)
+      s3_archive = index_s3_archive(context, destination_name)
+      Tickrake::Index::Publisher.new(
+        tracker: @runtime.tracker,
+        options_dir: @runtime.config.options_dir,
+        logger: @runtime.logger,
+        s3_archive: s3_archive
+      ).publish(provider: context.provider_name, root: context.option_root)
+    rescue StandardError => e
+      @runtime.logger.error(
+        "Index publish failed provider=#{context.provider_name} root=#{context.option_root}: #{e.class}: #{e.message}"
+      )
+    end
+
+    def index_s3_archive(context, destination_name)
+      archive_config = context.config.archives[destination_name]
+      return nil unless archive_config
+
+      Tickrake::Storage::S3Archive.new(context.config, archive_config: archive_config)
     end
   end
 end
