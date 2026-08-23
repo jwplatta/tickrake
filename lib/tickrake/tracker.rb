@@ -189,6 +189,88 @@ module Tickrake
       end
     end
 
+    def historical_index_rows(provider_name:, root:)
+      synchronize_db do
+        db.execute(
+          <<~SQL,
+            SELECT
+              provider_name,
+              ticker AS root,
+              substr(path, instr(path, '_samples_') + 9, 10) AS sample_date,
+              storage_format,
+              remote_uri,
+              path,
+              row_count,
+              source_file_count,
+              first_observed_at,
+              last_observed_at,
+              artifact_status,
+              storage_location,
+              updated_at
+            FROM file_metadata_cache
+            WHERE dataset_type IN ('options_compacted_csv', 'options_compacted_parquet')
+              AND provider_name = ?
+              AND ticker = ?
+            ORDER BY sample_date, storage_format
+          SQL
+          [provider_name, root]
+        )
+      end
+    end
+
+    def intraday_index_rows(provider_name:, root:)
+      synchronize_db do
+        db.execute(
+          <<~SQL,
+            WITH latest AS (
+              SELECT collection_id
+              FROM file_metadata_cache
+              WHERE dataset_type = 'options'
+                AND provider_name = ?
+                AND ticker = ?
+                AND collection_id IS NOT NULL
+              GROUP BY collection_id
+              ORDER BY MAX(last_observed_at) DESC
+              LIMIT 1
+            )
+            SELECT
+              provider_name,
+              ticker AS root,
+              collection_id,
+              date(last_observed_at) AS sample_date,
+              last_observed_at AS sampled_at,
+              expiration_date,
+              path,
+              row_count,
+              file_size,
+              updated_at
+            FROM file_metadata_cache
+            WHERE dataset_type = 'options'
+              AND provider_name = ?
+              AND ticker = ?
+              AND collection_id = (SELECT collection_id FROM latest)
+            ORDER BY expiration_date
+          SQL
+          [provider_name, root, provider_name, root]
+        )
+      end
+    end
+
+    def known_roots(provider_name:)
+      synchronize_db do
+        db.execute(
+          <<~SQL,
+            SELECT DISTINCT ticker AS root
+            FROM file_metadata_cache
+            WHERE dataset_type IN ('options_compacted_csv', 'options_compacted_parquet', 'options')
+              AND provider_name = ?
+            ORDER BY ticker
+          SQL
+          [provider_name]
+        ).map { |row| row.fetch("root") }
+      end
+    end
+
     def delete_file_metadata_paths(paths)
       normalized_paths = Array(paths).map { |path| Tickrake::PathSupport.expand_path(path) }.uniq
       return 0 if normalized_paths.empty?
