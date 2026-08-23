@@ -17,9 +17,10 @@ module Tickrake
     def run(now: Time.now)
       @runtime.logger.info("Starting options scrape at #{now.utc.iso8601}")
       run_time = now
+      collection_id = "options-#{run_time.utc.strftime("%Y%m%dT%H%M%SZ")}"
       queue = build_queue(run_time.to_date)
-      @runtime.logger.info("Resolved #{queue.length} option fetch tasks.")
-      result = process_queue(queue, run_time)
+      @runtime.logger.info("Resolved #{queue.length} option fetch tasks. collection_id=#{collection_id}")
+      result = process_queue(queue, run_time, collection_id)
       @progress_reporter&.finish
       @runtime.logger.info("Completed options scrape at #{Time.now.utc.iso8601}")
       result
@@ -114,7 +115,7 @@ module Tickrake
       end
     end
 
-    def process_queue(queue, run_time)
+    def process_queue(queue, run_time, collection_id)
       index = 0
       mutex = Mutex.new
       worker_count = [@runtime.config.max_workers, queue.length].min
@@ -133,7 +134,7 @@ module Tickrake
 
             # Scheduled-run resilience treats any per-fetch failure as a degraded
             # iteration, even though the job continues processing the remaining queue.
-            outcome = fetch_one(job, run_time)
+            outcome = fetch_one(job, run_time, collection_id)
             mutex.synchronize do
               if outcome == :success
                 success_count += 1
@@ -156,7 +157,7 @@ module Tickrake
       @scheduled_job&.dte_buckets || @runtime.config.dte_buckets
     end
 
-    def fetch_one(job, run_time)
+    def fetch_one(job, run_time, collection_id)
       requested_bucket = job.fetch(:requested_buckets).join(",")
       @runtime.logger.info(
         "Fetching option chain for #{job.fetch(:symbol)} provider=#{job.fetch(:provider_name)} bucket=#{requested_bucket} resolved_exp=#{job.fetch(:expiration_date)} root=#{job[:option_root] || '-'}"
@@ -169,7 +170,8 @@ module Tickrake
         requested_buckets: job.fetch(:requested_buckets),
         resolved_expiration: job.fetch(:expiration_date).iso8601,
         scheduled_for: run_time,
-        started_at: Time.now
+        started_at: Time.now,
+        collection_id: collection_id
       )
 
       retries = 0
@@ -189,7 +191,7 @@ module Tickrake
         path = result.fetch(:path)
         @runtime.logger.info("Wrote option chain for #{job.fetch(:symbol)} to #{path}")
         @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
-        upsert_file_metadata(job: job, path: path, row_count: result.fetch(:row_count), sampled_at: run_time)
+        upsert_file_metadata(job: job, path: path, row_count: result.fetch(:row_count), sampled_at: run_time, collection_id: collection_id)
         @progress_reporter&.advance(title: option_progress_title(job))
         :success
       rescue StandardError, Timeout::ExitException => e
@@ -302,7 +304,7 @@ module Tickrake
       @client ||= @runtime.client_factory.build
     end
 
-    def upsert_file_metadata(job:, path:, row_count:, sampled_at:)
+    def upsert_file_metadata(job:, path:, row_count:, sampled_at:, collection_id: nil)
       stat = File.stat(path)
       observed_at = sampled_at.utc.iso8601
       ticker = job[:option_root] || job.fetch(:symbol)
@@ -318,7 +320,8 @@ module Tickrake
         last_observed_at: observed_at,
         file_mtime: stat.mtime.to_i,
         file_size: stat.size,
-        updated_at: Time.now
+        updated_at: Time.now,
+        collection_id: collection_id
       )
     end
 
