@@ -24,6 +24,7 @@ module Tickrake
       file_mtime
       file_size
       updated_at
+      collection_id
     ].freeze
 
     def self.migrate!(path)
@@ -40,7 +41,8 @@ module Tickrake
         Tickrake::DB::Migrations::AddOptionExpirationAndIndexes,
         Tickrake::DB::Migrations::AddOptionTickerTimeIndex,
         Tickrake::DB::Migrations::CreateMarketIndexTables,
-        Tickrake::DB::Migrations::AddArtifactMetadataToFileCache
+        Tickrake::DB::Migrations::AddArtifactMetadataToFileCache,
+        Tickrake::DB::Migrations::AddCollectionId
       ].freeze
     end
 
@@ -66,8 +68,9 @@ module Tickrake
           <<~SQL,
             INSERT INTO fetch_runs (
               job_type, dataset_type, symbol, frequency, option_root, requested_buckets,
-              resolved_expiration, scheduled_for, started_at, status, output_path, error_message
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              resolved_expiration, scheduled_for, started_at, status, output_path, error_message,
+              collection_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           SQL
           [
             attrs.fetch(:job_type),
@@ -81,7 +84,8 @@ module Tickrake
             iso(attrs.fetch(:started_at)),
             "running",
             attrs[:output_path],
-            nil
+            nil,
+            attrs[:collection_id]
           ]
         )
         db.last_insert_row_id
@@ -159,7 +163,7 @@ module Tickrake
             <<~SQL,
               INSERT INTO file_metadata_cache (
                 #{FILE_METADATA_COLUMNS.join(", ")}
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT(path) DO UPDATE SET
                 dataset_type = excluded.dataset_type,
                 provider_name = excluded.provider_name,
@@ -176,7 +180,8 @@ module Tickrake
                 last_observed_at = excluded.last_observed_at,
                 file_mtime = excluded.file_mtime,
                 file_size = excluded.file_size,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                collection_id = excluded.collection_id
             SQL
             FILE_METADATA_COLUMNS.map { |column| values.fetch(column) }
           )
@@ -359,7 +364,8 @@ module Tickrake
         "last_observed_at" => attrs[:last_observed_at],
         "file_mtime" => attrs.fetch(:file_mtime).to_i,
         "file_size" => attrs.fetch(:file_size).to_i,
-        "updated_at" => iso(attrs[:updated_at] || Time.now)
+        "updated_at" => iso(attrs[:updated_at] || Time.now),
+        "collection_id" => attrs[:collection_id]
       }
     end
 
