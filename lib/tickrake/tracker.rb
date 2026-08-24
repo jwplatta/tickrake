@@ -229,6 +229,7 @@ module Tickrake
                 AND provider_name = ?
                 AND ticker = ?
                 AND collection_id IS NOT NULL
+                AND date(last_observed_at) = date('now')
               GROUP BY collection_id
               ORDER BY MAX(last_observed_at) DESC
               LIMIT 1
