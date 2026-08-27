@@ -101,6 +101,135 @@ RSpec.describe "option sample maintenance" do
     end
   end
 
+  def build_maintenance_job(config, tracker, tasks:)
+    Tickrake::MaintenanceJob.new(
+      Tickrake::Runtime.new(
+        config: config,
+        tracker: tracker,
+        client_factory: instance_double(Tickrake::ClientFactory),
+        logger: logger
+      ),
+      scheduled_job: Tickrake::ScheduledJobConfig.new(
+        name: "compact_spxw",
+        type: "maintenance",
+        provider: "schwab",
+        interval_seconds: nil,
+        windows: [],
+        run_at: "21:00",
+        days: %w[mon tue wed thu fri],
+        lookback_days: nil,
+        dte_buckets: [],
+        universe: [],
+        tasks: tasks,
+        task: nil,
+        settings: {},
+        manual: false
+      )
+    )
+  end
+
+  def compact_task(delete_sources: true)
+    Tickrake::MaintenanceStepConfig.new(
+      action: "compact",
+      subject: "option_samples",
+      provider: "schwab",
+      universe: nil,
+      universes: [],
+      tickers: [],
+      option_root: "SPXW",
+      delete_sources: delete_sources,
+      destination: nil,
+      artifacts: [],
+      retain_local: {}
+    )
+  end
+
+  def archive_task
+    Tickrake::MaintenanceStepConfig.new(
+      action: "archive",
+      subject: "option_samples",
+      provider: "schwab",
+      universe: nil,
+      universes: [],
+      tickers: [],
+      option_root: "SPXW",
+      delete_sources: false,
+      destination: "s3_archive",
+      artifacts: %w[csv parquet],
+      retain_local: { "csv" => false, "parquet" => true }
+    )
+  end
+
+  def stub_archive_service
+    archive_service = instance_double(Tickrake::Storage::S3Archive)
+    allow(archive_service).to receive(:upload) do |path|
+      key = path.split("/data/").last
+      Tickrake::Storage::S3Archive::RemoteObject.new(bucket: "tickrake-dev", key: key, size: File.size(path))
+    end
+    allow(archive_service).to receive(:verify) do |path|
+      key = path.split("/data/").last
+      Tickrake::Storage::S3Archive::RemoteObject.new(bucket: "tickrake-dev", key: key, size: File.size(path))
+    end
+    archive_service
+  end
+
+  it "publishes ROOT.json and tickers.json after a successful archive step" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir)
+      Tickrake::Tracker.migrate!(config.sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      write_raw_fixture(config)
+
+      archive_service = stub_archive_service
+
+      job = build_maintenance_job(config, tracker, tasks: [compact_task, archive_task])
+
+      allow_any_instance_of(Tickrake::Maintenance::OptionSamples::ArtifactArchiver).to receive(:archive_service_for)
+        .and_return(archive_service)
+      allow_any_instance_of(Tickrake::MaintenanceJob).to receive(:index_s3_archive)
+        .and_return(archive_service)
+
+      result = job.run(now: Time.utc(2026, 6, 26, 21, 0, 0))
+      expect(result).to be_successful
+
+      root_json = File.join(config.options_dir, "schwab", "SPXW.json")
+      tickers_json = File.join(config.options_dir, "schwab", "tickers.json")
+
+      expect(File.exist?(root_json)).to be true
+      expect(File.exist?(tickers_json)).to be true
+
+      root_payload = JSON.parse(File.read(root_json))
+      expect(root_payload["provider"]).to eq("schwab")
+      expect(root_payload["root"]).to eq("SPXW")
+      expect(root_payload["historical"].length).to eq(1)
+      expect(root_payload["historical"].first["sample_date"]).to eq("2026-06-26")
+
+      tickers_payload = JSON.parse(File.read(tickers_json))
+      expect(tickers_payload["roots"]).to include("SPXW")
+    end
+  end
+
+  it "does not fail the archive step when index publish raises" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir)
+      Tickrake::Tracker.migrate!(config.sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      write_raw_fixture(config)
+
+      archive_service = stub_archive_service
+
+      job = build_maintenance_job(config, tracker, tasks: [compact_task, archive_task])
+
+      allow_any_instance_of(Tickrake::Maintenance::OptionSamples::ArtifactArchiver).to receive(:archive_service_for)
+        .and_return(archive_service)
+      allow_any_instance_of(Tickrake::Index::Publisher).to receive(:publish)
+        .and_raise(Tickrake::Error, "simulated index publish failure")
+
+      result = job.run(now: Time.utc(2026, 6, 26, 21, 0, 0))
+      expect(result).to be_successful
+    end
+  end
+
   it "treats a no-source compaction date as a clean skip" do
     Dir.mktmpdir do |dir|
       config = build_config(dir, with_archive: false)
