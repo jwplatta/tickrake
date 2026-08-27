@@ -257,6 +257,22 @@ module Tickrake
       end
     end
 
+    def collection_file_count(collection_id:, provider_name:, root:)
+      synchronize_db do
+        db.get_first_value(
+          <<~SQL,
+            SELECT COUNT(*)
+            FROM file_metadata_cache
+            WHERE dataset_type = 'options'
+              AND provider_name = ?
+              AND ticker = ?
+              AND collection_id = ?
+          SQL
+          [provider_name, root, collection_id]
+        ).to_i
+      end
+    end
+
     def known_roots(provider_name:)
       synchronize_db do
         db.execute(

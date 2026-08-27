@@ -20,9 +20,11 @@ module Tickrake
       collection_id = "options-#{run_time.utc.strftime("%Y%m%dT%H%M%SZ")}"
       queue = build_queue(run_time.to_date)
       @runtime.logger.info("Resolved #{queue.length} option fetch tasks. collection_id=#{collection_id}")
+      expected_counts = expected_counts_by_root(queue)
       result = process_queue(queue, run_time, collection_id)
       @progress_reporter&.finish
       @runtime.logger.info("Completed options scrape at #{Time.now.utc.iso8601}")
+      publish_intraday(collection_id: collection_id, expected_counts: expected_counts) unless expected_counts.empty?
       result
     end
 
@@ -322,6 +324,23 @@ module Tickrake
         file_size: stat.size,
         updated_at: Time.now,
         collection_id: collection_id
+      )
+    end
+
+    def expected_counts_by_root(queue)
+      queue.group_by { |job| [job.fetch(:provider_name), job[:option_root] || job.fetch(:symbol)] }
+           .transform_values(&:length)
+    end
+
+    def publish_intraday(collection_id:, expected_counts:)
+      Tickrake::Index::IntradayPublisher.new(
+        tracker: @runtime.tracker,
+        options_dir: @runtime.config.options_dir,
+        logger: @runtime.logger
+      ).publish(collection_id: collection_id, expected_counts: expected_counts)
+    rescue StandardError => e
+      @runtime.logger.error(
+        "Intraday index publish failed collection_id=#{collection_id}: #{e.class}: #{e.message}"
       )
     end
 
