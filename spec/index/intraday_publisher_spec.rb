@@ -53,7 +53,7 @@ RSpec.describe Tickrake::Index::IntradayPublisher do
 
         payload = JSON.parse(File.read(root_json))
         expect(payload["intraday"]).not_to be_nil
-        expect(payload["intraday"]["collection_id"]).to eq(collection_id)
+        expect(payload["intraday"]).not_to have_key("collection_id")
         expect(payload["intraday"]["files"].length).to eq(2)
       end
     end

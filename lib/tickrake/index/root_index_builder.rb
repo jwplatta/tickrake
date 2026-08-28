@@ -78,7 +78,6 @@ module Tickrake
         end
 
         {
-          "collection_id" => first.fetch("collection_id"),
           "sample_date" => first.fetch("sample_date"),
           "sampled_at" => first.fetch("sampled_at"),
           "status" => "complete",

@@ -222,35 +222,34 @@ module Tickrake
       synchronize_db do
         db.execute(
           <<~SQL,
-            WITH latest AS (
-              SELECT collection_id
+            SELECT
+              f.provider_name,
+              f.ticker AS root,
+              f.collection_id,
+              date(f.last_observed_at) AS sample_date,
+              f.last_observed_at AS sampled_at,
+              f.expiration_date,
+              f.path,
+              f.row_count,
+              f.file_size,
+              f.updated_at
+            FROM file_metadata_cache f
+            INNER JOIN (
+              SELECT expiration_date, MAX(last_observed_at) AS latest_observed_at
               FROM file_metadata_cache
               WHERE dataset_type = 'options'
                 AND provider_name = ?
                 AND ticker = ?
-                AND collection_id IS NOT NULL
                 AND date(last_observed_at) = date('now')
-              GROUP BY collection_id
-              ORDER BY MAX(last_observed_at) DESC
-              LIMIT 1
-            )
-            SELECT
-              provider_name,
-              ticker AS root,
-              collection_id,
-              date(last_observed_at) AS sample_date,
-              last_observed_at AS sampled_at,
-              expiration_date,
-              path,
-              row_count,
-              file_size,
-              updated_at
-            FROM file_metadata_cache
-            WHERE dataset_type = 'options'
-              AND provider_name = ?
-              AND ticker = ?
-              AND collection_id = (SELECT collection_id FROM latest)
-            ORDER BY expiration_date
+              GROUP BY expiration_date
+            ) latest
+              ON f.expiration_date = latest.expiration_date
+             AND f.last_observed_at = latest.latest_observed_at
+            WHERE f.dataset_type = 'options'
+              AND f.provider_name = ?
+              AND f.ticker = ?
+              AND date(f.last_observed_at) = date('now')
+            ORDER BY f.expiration_date
           SQL
           [provider_name, root, provider_name, root]
         )
