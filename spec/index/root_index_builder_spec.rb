@@ -127,34 +127,74 @@ RSpec.describe Tickrake::Index::RootIndexBuilder do
       end
     end
 
-    it "builds the intraday section from the latest collection" do
+    it "builds the intraday section with one file per expiration date" do
       Dir.mktmpdir do |dir|
         tracker = make_tracker(dir)
         today = Time.now.utc
         today_str = today.strftime("%Y-%m-%d")
-        sampled_at = today.iso8601
+        exp1 = today_str
+        exp2 = (today + 86_400 * 7).strftime("%Y-%m-%d")
         collection_id = "options-#{today.strftime("%Y%m%dT%H%M%SZ")}"
+        sampled_at = today.iso8601
 
         upsert_raw(tracker,
           provider: "schwab", root: "SPXW",
-          path: "#{dir}/schwab/#{today_str.gsub("-", "/")}/SPXW_exp#{today_str}_sample_a.csv",
-          expiration_date: today_str, collection_id: collection_id, sampled_at: sampled_at)
+          path: "#{dir}/SPXW_exp#{exp1}_coll1.csv",
+          expiration_date: exp1, collection_id: collection_id, sampled_at: sampled_at)
         upsert_raw(tracker,
           provider: "schwab", root: "SPXW",
-          path: "#{dir}/schwab/#{today_str.gsub("-", "/")}/SPXW_exp#{today_str}_sample_b.csv",
-          expiration_date: today_str, collection_id: collection_id, sampled_at: sampled_at)
+          path: "#{dir}/SPXW_exp#{exp2}_coll1.csv",
+          expiration_date: exp2, collection_id: collection_id, sampled_at: sampled_at)
 
         builder = described_class.new(tracker: tracker, options_dir: dir)
         result = builder.build(provider: "schwab", root: "SPXW")
 
         intraday = result["intraday"]
         expect(intraday).not_to be_nil
-        expect(intraday["collection_id"]).to eq(collection_id)
+        expect(intraday).not_to have_key("collection_id")
         expect(intraday["sample_date"]).to eq(today_str)
         expect(intraday["status"]).to eq("complete")
         expect(intraday["files"].length).to eq(2)
-        expect(intraday["files"].first["expiration_date"]).to eq(today_str)
+        expect(intraday["files"].map { |f| f["expiration_date"] }).to contain_exactly(exp1, exp2)
         expect(intraday["files"].first["uri"]).to start_with("file://")
+      end
+    end
+
+    it "merges intraday files from multiple collections, picking latest per expiration" do
+      Dir.mktmpdir do |dir|
+        tracker = make_tracker(dir)
+        today = Time.now.utc
+        today_str = today.strftime("%Y-%m-%d")
+        exp_0dte = today_str
+        exp_7dte = (today + 86_400 * 7).strftime("%Y-%m-%d")
+        exp_15dte = (today + 86_400 * 15).strftime("%Y-%m-%d")
+
+        t1 = (today - 600).utc.iso8601
+        t2 = today.utc.iso8601
+
+        # job 1 ran first: 0DTE + 7DTE
+        coll1 = "options-#{(today - 600).strftime("%Y%m%dT%H%M%SZ")}"
+        upsert_raw(tracker, provider: "schwab", root: "SPXW",
+          path: "#{dir}/SPXW_exp#{exp_0dte}_coll1.csv",
+          expiration_date: exp_0dte, collection_id: coll1, sampled_at: t1)
+        upsert_raw(tracker, provider: "schwab", root: "SPXW",
+          path: "#{dir}/SPXW_exp#{exp_7dte}_coll1.csv",
+          expiration_date: exp_7dte, collection_id: coll1, sampled_at: t1)
+
+        # job 2 ran later: 15DTE only
+        coll2 = "options-#{today.strftime("%Y%m%dT%H%M%SZ")}"
+        upsert_raw(tracker, provider: "schwab", root: "SPXW",
+          path: "#{dir}/SPXW_exp#{exp_15dte}_coll2.csv",
+          expiration_date: exp_15dte, collection_id: coll2, sampled_at: t2)
+
+        builder = described_class.new(tracker: tracker, options_dir: dir)
+        result = builder.build(provider: "schwab", root: "SPXW")
+
+        intraday = result["intraday"]
+        expect(intraday).not_to be_nil
+        expect(intraday["files"].length).to eq(3)
+        exps = intraday["files"].map { |f| f["expiration_date"] }
+        expect(exps).to contain_exactly(exp_0dte, exp_7dte, exp_15dte)
       end
     end
 
