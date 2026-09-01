@@ -303,7 +303,7 @@ module Tickrake
     end
 
     def client
-      @client ||= @runtime.client_factory.build
+      @runtime.client_factory.build
     end
 
     def upsert_file_metadata(job:, path:, row_count:, sampled_at:, collection_id: nil)
