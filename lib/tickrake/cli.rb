@@ -345,24 +345,11 @@ module Tickrake
     end
 
     def run_scheduler(runtime, job, from_config_start:)
-      case job.type
-      when "options"
-        Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: job).run
-      when "candles"
-        Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: job, from_config_start: from_config_start).run
-      when "maintenance"
-        Tickrake::MaintenanceSchedulerRunner.new(runtime, scheduled_job: job).run
-      else
-        raise Tickrake::Error, "Unknown job type `#{job.type}`."
-      end
+      Tickrake::JobRunner.run(runtime, job, from_config_start: from_config_start, restart: false)
     end
 
     def run_supervisor(runtime, job, from_config_start:)
-      Tickrake::SchedulerSupervisor.new(
-        runtime,
-        scheduled_job: job,
-        from_config_start: from_config_start
-      ).run
+      Tickrake::JobRunner.run(runtime, job, from_config_start: from_config_start, restart: true)
     end
 
     def start_command(argv, config_path)
@@ -372,7 +359,8 @@ module Tickrake
         config_path: config_path,
         provider_name: options[:provider],
         from_config_start: options[:from_config_start],
-        restart: options[:restart]
+        restart: options[:restart],
+        detach: options[:detach]
       )
       0
     end
@@ -396,13 +384,16 @@ module Tickrake
     end
 
     def parse_job_control_options!(argv, restart_default:)
-      options = { job: nil, provider: nil, from_config_start: false, restart: restart_default }
+      options = { job: nil, provider: nil, from_config_start: false, restart: restart_default, detach: false }
       parser = OptionParser.new do |opts|
         opts.on("--job NAME", "Configured job name or all") { |value| options[:job] = value }
         opts.on("--provider NAME", "Use the named provider from config") { |value| options[:provider] = value }
         opts.on("--from-config-start", "For candles jobs, backfill from configured start_date") { options[:from_config_start] = true }
-        opts.on("--restart", "Restart the background scheduler automatically if it exits unexpectedly") do
+        opts.on("--restart", "Restart the scheduler automatically if it exits unexpectedly") do
           options[:restart] = true
+        end
+        opts.on("--detach", "Run job as a detached background process (default: runs in foreground)") do
+          options[:detach] = true
         end
       end
       parser.order!(argv)

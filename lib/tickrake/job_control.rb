@@ -8,9 +8,10 @@ module Tickrake
       @stdout = stdout
     end
 
-    def start(target:, config_path:, provider_name: nil, from_config_start: false, restart: false)
+    def start(target:, config_path:, provider_name: nil, from_config_start: false, restart: false, detach: false)
+      starter = detach ? @starter : Tickrake::ForegroundProcess.new(stdout: @stdout)
       resolve_job_targets(target, config_path: config_path).each do |job_name|
-        @starter.start(
+        starter.start(
           job_name: job_name,
           config_path: config_path,
           provider_name: provider_name,
@@ -26,11 +27,13 @@ module Tickrake
       end
     end
 
-    def restart(target:, config_path: Tickrake::PathSupport.config_path, provider_name: nil, from_config_start: nil, restart: nil)
+    def restart(target:, config_path: Tickrake::PathSupport.config_path, provider_name: nil, from_config_start: nil, restart: nil, detach: nil)
       resolve_job_targets(target, config_path: config_path).each do |job_name|
         metadata = @registry.read(job_name) || {}
         stop_one(job_name, timeout_seconds: nil, waiting_message: restart_waiting_message(job_name))
-        @starter.start(
+        effective_detach = restart_detach(detach, metadata)
+        starter = effective_detach ? @starter : Tickrake::ForegroundProcess.new(stdout: @stdout)
+        starter.start(
           job_name: job_name,
           config_path: restart_config_path(config_path, metadata),
           provider_name: restart_provider_name(provider_name, metadata),
@@ -110,6 +113,12 @@ module Tickrake
       return restart unless restart.nil?
 
       metadata[:restart] == true
+    end
+
+    def restart_detach(detach, metadata)
+      return detach unless detach.nil?
+
+      metadata[:detach] == true
     end
   end
 end

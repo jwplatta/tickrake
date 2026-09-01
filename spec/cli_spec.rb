@@ -411,7 +411,7 @@ RSpec.describe Tickrake::CLI do
     expect(stdout.string).to include("Completed one-off options scrape.")
   end
 
-  it "starts a configured background job by name" do
+  it "starts a configured job in the foreground by default" do
     stdout = StringIO.new
     stderr = StringIO.new
     controller = instance_double(Tickrake::JobControl, start: true)
@@ -422,10 +422,31 @@ RSpec.describe Tickrake::CLI do
       config_path: Tickrake::PathSupport.config_path,
       provider_name: "schwab_live",
       from_config_start: false,
-      restart: true
+      restart: true,
+      detach: false
     )
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["start", "--job", "index_options", "--provider", "schwab_live", "--restart"])
+
+    expect(exit_code).to eq(0)
+  end
+
+  it "starts a configured job as a detached background process with --detach" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+    controller = instance_double(Tickrake::JobControl, start: true)
+
+    allow(Tickrake::JobControl).to receive(:new).with(stdout: stdout).and_return(controller)
+    allow(controller).to receive(:start).with(
+      target: "index_options",
+      config_path: Tickrake::PathSupport.config_path,
+      provider_name: nil,
+      from_config_start: false,
+      restart: false,
+      detach: true
+    )
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["start", "--job", "index_options", "--detach"])
 
     expect(exit_code).to eq(0)
   end

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Tickrake::JobControl do
-  it "preserves stored restart policy when restarting a job without an explicit override" do
+  it "preserves stored restart and detach policy when restarting a job without explicit overrides" do
     registry = instance_double(Tickrake::JobRegistry)
     starter = instance_double(Tickrake::BackgroundProcess)
     stdout = StringIO.new
@@ -11,7 +11,8 @@ RSpec.describe Tickrake::JobControl do
       config_path: "/tmp/custom.yml",
       provider_name: "schwab_live",
       from_config_start: true,
-      restart: true
+      restart: true,
+      detach: true
     )
     allow(registry).to receive(:status).with("index_options").and_return(name: "index_options", state: "stopped")
     allow(starter).to receive(:start)
@@ -30,7 +31,7 @@ RSpec.describe Tickrake::JobControl do
     )
   end
 
-  it "starts all scheduled jobs without starting manual jobs" do
+  it "starts all scheduled jobs as detached background processes when detach: true" do
     registry = instance_double(Tickrake::JobRegistry)
     starter = instance_double(Tickrake::BackgroundProcess)
     stdout = StringIO.new
@@ -43,7 +44,7 @@ RSpec.describe Tickrake::JobControl do
     )
     allow(starter).to receive(:start)
 
-    controller.start(target: "all", config_path: "/tmp/tickrake.yml")
+    controller.start(target: "all", config_path: "/tmp/tickrake.yml", detach: true)
 
     expect(starter).to have_received(:start).with(
       job_name: "index_options",
@@ -53,6 +54,32 @@ RSpec.describe Tickrake::JobControl do
       restart: false
     )
     expect(starter).not_to have_received(:start).with(hash_including(job_name: "manual_options"))
+  end
+
+  it "starts a job in the foreground when detach is false" do
+    registry = instance_double(Tickrake::JobRegistry)
+    starter = instance_spy(Tickrake::BackgroundProcess)
+    foreground = instance_double(Tickrake::ForegroundProcess)
+    stdout = StringIO.new
+    controller = described_class.new(registry: registry, starter: starter, stdout: stdout)
+    scheduled_job = instance_double(Tickrake::ScheduledJobConfig, name: "index_options", scheduled?: true, manual?: false)
+
+    allow(Tickrake::ConfigLoader).to receive(:load).with("/tmp/tickrake.yml").and_return(
+      instance_double(Tickrake::Config, jobs: [scheduled_job], job: scheduled_job)
+    )
+    allow(Tickrake::ForegroundProcess).to receive(:new).with(stdout: stdout).and_return(foreground)
+    allow(foreground).to receive(:start)
+
+    controller.start(target: "index_options", config_path: "/tmp/tickrake.yml", detach: false)
+
+    expect(foreground).to have_received(:start).with(
+      job_name: "index_options",
+      config_path: "/tmp/tickrake.yml",
+      provider_name: nil,
+      from_config_start: false,
+      restart: false
+    )
+    expect(starter).not_to have_received(:start)
   end
 
   it "rejects explicit background control for manual jobs" do

@@ -29,7 +29,8 @@ RSpec.describe Tickrake::BackgroundProcess do
         config_path: "/tmp/tickrake.yml",
         provider_name: "ib_paper",
         from_config_start: true,
-        restart: true
+        restart: true,
+        detach: true
       )
     )
   end

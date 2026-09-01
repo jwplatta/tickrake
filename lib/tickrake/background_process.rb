@@ -45,6 +45,7 @@ module Tickrake
         provider_name: provider_name,
         from_config_start: from_config_start,
         restart: restart,
+        detach: true,
         log_path: log_path
       )
 
