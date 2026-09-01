@@ -36,7 +36,9 @@ sequenceDiagram
 
 ### Starting a Job
 
-`tickrake start --job NAME` invokes `JobControl#start`, which delegates to `BackgroundProcess#start`. The background process spawns a detached child with either `--supervisor` (when `--restart` is set, the default for `tickrake start`) or `--scheduler`. The PID and metadata are written to `JobRegistry` (a JSON file per job name under `~/.tickrake/`).
+`tickrake start --job NAME` invokes `JobControl#start`. By default the job runs in the **foreground** — `ForegroundProcess` loads the config, builds a `Runtime`, and delegates to `JobRunner.run`, which selects the appropriate runner class based on job type. The call blocks until the job exits, making it the right choice for Docker containers where PID 1 must stay alive.
+
+Passing `--detach` switches to background mode: `BackgroundProcess` spawns a detached child process and writes its PID and metadata to `JobRegistry` (a JSON file per job under `~/.tickrake/jobs/`). Use this when running jobs on a Mac or Linux host where the terminal needs to return to the prompt.
 
 `tickrake start --job all` starts every non-manual scheduled job defined in config.
 

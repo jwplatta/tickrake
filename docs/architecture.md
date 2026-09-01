@@ -14,7 +14,9 @@ graph TB
     subgraph Control ["Process Control"]
         jc[JobControl]
         bp[BackgroundProcess]
+        fp[ForegroundProcess]
         jr[JobRegistry]
+        jrun[JobRunner]
     end
 
     subgraph Config ["Configuration"]
@@ -75,7 +77,9 @@ graph TB
     cli --> jc
     cli --> runtime
     jc --> bp
+    jc --> fp
     jc --> jr
+    fp --> jrun
     bp --> sup
     sup --> omr
     sup --> msr
@@ -131,7 +135,9 @@ graph TB
 
 `Tickrake::CLI` (`lib/tickrake/cli.rb`) is the entry point for every user-facing command. It parses `argv`, loads config, builds a `Runtime`, and dispatches to the appropriate job or command.
 
-`JobControl` and `BackgroundProcess` handle `start`, `stop`, and `restart`. When a job starts, `BackgroundProcess` calls `Process.spawn` with the tickrake executable and either `--scheduler` (for a plain scheduler loop) or `--supervisor` (for a self-restarting loop). The spawned process is detached and its PID is written to `JobRegistry` — a small JSON file under `~/.tickrake/` used to track running processes.
+`JobControl` handles `start`, `stop`, and `restart`. By default `tickrake start --job X` runs the job in the foreground via `ForegroundProcess`, which blocks until the job exits — making it suitable as a Docker container command. Passing `--detach` switches to `BackgroundProcess`, which calls `Process.spawn` to launch a detached child process and writes its PID to `JobRegistry` (a JSON file per job under `~/.tickrake/jobs/`).
+
+`JobRunner` is a shared module that centralizes runner dispatch. Both `ForegroundProcess` and the internal `--scheduler`/`--supervisor` paths in the CLI delegate to `JobRunner.run`, which selects the appropriate runner class based on job type and whether supervisor restart behavior is requested.
 
 ### Scheduler Layer
 
