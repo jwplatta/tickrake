@@ -110,7 +110,7 @@ RSpec.describe "schedulers" do
     result = runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
 
     expect(result).to eq(true)
-    expect(sleeper).to have_received(:sleep).with(config.retry_delay_seconds)
+    expect(sleeper).to have_received(:sleep).at_least(:once)
     expect(logger).to have_received(:error).with(/iteration failed/)
   end
 
@@ -237,7 +237,7 @@ RSpec.describe "schedulers" do
     result = runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
 
     expect(result).to eq(true)
-    expect(sleeper).to have_received(:sleep).with(config.retry_delay_seconds)
+    expect(sleeper).to have_received(:sleep).at_least(:once)
     expect(logger).to have_received(:error).with(/iteration failed/)
   end
 
@@ -252,7 +252,7 @@ RSpec.describe "schedulers" do
     result = runner.run_iteration(Time.new(2026, 4, 6, 16, 5, 0, "-05:00"))
 
     expect(result).to eq(true)
-    expect(sleeper).to have_received(:sleep).with(config.retry_delay_seconds)
+    expect(sleeper).to have_received(:sleep).at_least(:once)
     expect(logger).to have_received(:error).with(/iteration failed/)
   end
 
@@ -279,7 +279,7 @@ RSpec.describe "schedulers" do
     result = runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
 
     expect(result).to eq(true)
-    expect(sleeper).to have_received(:sleep).with(config.retry_delay_seconds)
+    expect(sleeper).to have_received(:sleep).at_least(:once)
     expect(logger).to have_received(:error).with(/iteration failed/)
   end
 end

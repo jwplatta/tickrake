@@ -26,7 +26,7 @@ module Tickrake
             end
             break if @shutdown_requested
 
-            @sleeper.sleep(sleep_seconds(now))
+            interruptible_sleep(sleep_seconds(now))
           end
         end
         @runtime.logger.info("Stopped options scheduler job #{@scheduled_job.name}.")

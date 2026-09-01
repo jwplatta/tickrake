@@ -19,6 +19,15 @@ module Tickrake
       @consecutive_failures = 0
     end
 
+    def interruptible_sleep(seconds)
+      remaining = seconds.to_f
+      while remaining > 0 && !@shutdown_requested
+        chunk = [remaining, 1].min
+        @sleeper.sleep(chunk)
+        remaining -= chunk
+      end
+    end
+
     def execute_iteration_with_resilience(now)
       return false unless due?(now)
 
@@ -33,7 +42,7 @@ module Tickrake
       else
         log_iteration_result_failure(now, result)
         record_consecutive_failure(now, reason: "degraded run result")
-        @sleeper.sleep(@runtime.config.retry_delay_seconds) unless @shutdown_requested
+        interruptible_sleep(@runtime.config.retry_delay_seconds)
       end
       true
     rescue Tickrake::SchedulerRestartRequired
@@ -41,7 +50,7 @@ module Tickrake
     rescue StandardError => e
       log_iteration_failure(now, e)
       record_consecutive_failure(now, reason: "raised exception")
-      @sleeper.sleep(@runtime.config.retry_delay_seconds) unless @shutdown_requested
+      interruptible_sleep(@runtime.config.retry_delay_seconds)
       true
     end
 
