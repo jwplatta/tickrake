@@ -90,6 +90,7 @@ module Tickrake
     def install_signal_handlers
       %w[TERM INT].each do |signal|
         Signal.trap(signal) do
+          next if @shutdown_requested
           @shutdown_requested = true
           if @child_pid
             Process.kill(signal, @child_pid) rescue Errno::ESRCH
