@@ -96,7 +96,7 @@ module Tickrake
       %w[TERM INT].each do |signal|
         Signal.trap(signal) do
           @shutdown_requested = true
-          @runtime.logger.info("Received #{signal}, stopping maintenance scheduler #{@scheduled_job.name} after current iteration.")
+          Thread.new { @runtime.logger.info("Received #{signal}, stopping maintenance scheduler #{@scheduled_job.name} after current iteration.") }
         end
       end
     end

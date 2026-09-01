@@ -5,7 +5,7 @@ module Tickrake
     module_function
 
     def home_dir
-      expand_path("~/.tickrake")
+      expand_path(ENV.fetch("TICKRAKE_HOME", "~/.tickrake"))
     end
 
     def config_path
