@@ -91,14 +91,7 @@ module Tickrake
       %w[TERM INT].each do |signal|
         Signal.trap(signal) do
           @shutdown_requested = true
-          if @child_pid
-            Process.kill(signal, @child_pid)
-            @runtime.logger.info("Received #{signal}, forwarding to scheduler #{@scheduled_job.name} (pid #{@child_pid}).")
-          else
-            @runtime.logger.info("Received #{signal}, stopping supervisor for #{@scheduled_job.name}.")
-          end
-        rescue Errno::ESRCH
-          nil
+          Process.kill(signal, @child_pid) rescue Errno::ESRCH if @child_pid
         end
       end
     end

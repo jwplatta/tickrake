@@ -26,7 +26,7 @@ module Tickrake
             end
             break if @shutdown_requested
 
-            @sleeper.sleep(sleep_seconds(now))
+            interruptible_sleep(sleep_seconds(now))
           end
         end
         @runtime.logger.info("Stopped options scheduler job #{@scheduled_job.name}.")
@@ -89,7 +89,6 @@ module Tickrake
       %w[TERM INT].each do |signal|
         Signal.trap(signal) do
           @shutdown_requested = true
-          @runtime.logger.info("Received #{signal}, stopping options scheduler #{@scheduled_job.name} after current iteration.")
         end
       end
     end

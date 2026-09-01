@@ -416,7 +416,6 @@ RSpec.describe Tickrake::ConfigLoader do
             - symbol: SPY
           futures_symbols:
             - symbol: /ES
-              provider: schwab
       YAML
 
       File.write(path, <<~YAML)
@@ -478,7 +477,6 @@ RSpec.describe Tickrake::ConfigLoader do
       expect(config.job("index_options").universe.map { |entry| [entry.symbol, entry.option_root] }).to eq([["$SPX", "SPXW"], ["SPY", nil]])
       candle_entry = config.job("eod_candles").universe.first
       expect(candle_entry.symbol).to eq("/ES")
-      expect(candle_entry.provider).to eq("schwab")
       expect(candle_entry.start_date).to eq(Date.new(2020, 1, 1))
       expect(candle_entry.frequencies).to eq(%w[day 1min])
       expect(config.job("postclose_option_maintenance").tasks.first.universe).to eq("trading_symbols")
@@ -551,7 +549,7 @@ RSpec.describe Tickrake::ConfigLoader do
         schedule:
           index_options:
             type: options
-            provider: ibkr-paper
+            provider: schwab
             interval_seconds: 300
             windows:
               - days: [mon]
@@ -561,7 +559,6 @@ RSpec.describe Tickrake::ConfigLoader do
             universe:
               - symbol: $SPX
                 option_root: SPXW
-                provider: schwab
           stock_options:
             type: options
             interval_seconds: 1800
@@ -600,14 +597,14 @@ RSpec.describe Tickrake::ConfigLoader do
       config = described_class.load(path)
 
       expect(config.jobs.map(&:name)).to eq(%w[index_options stock_options eod_candles intraday_candles])
-      expect(config.job("index_options").provider).to eq("ibkr-paper")
-      expect(config.job("index_options").universe.first.provider).to eq("schwab")
+      expect(config.job("index_options").provider).to eq("schwab")
       expect(config.job("stock_options").dte_buckets).to eq([30])
       expect(config.job("eod_candles").run_at).to eq([16, 5])
       expect(config.job("intraday_candles").interval_seconds).to eq(120)
       expect(config.job("intraday_candles").windows.first.days).to eq(["mon"])
       expect(config.provider_name_for_entry(config.job("index_options").universe.first, scheduled_job: config.job("index_options"))).to eq("schwab")
       expect(config.provider_name_for_entry(config.job("stock_options").universe.first, scheduled_job: config.job("stock_options"))).to eq("ibkr-paper")
+
       expect(config.provider_name_for_entry(config.job("eod_candles").universe.first, scheduled_job: config.job("eod_candles"))).to eq("ibkr-paper")
       expect(config.provider_name_for_entry(config.job("intraday_candles").universe.first, scheduled_job: config.job("intraday_candles"))).to eq("ibkr-paper")
     end
