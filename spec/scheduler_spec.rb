@@ -197,24 +197,21 @@ RSpec.describe "schedulers" do
   end
 
   it "defers overlapping schwab scheduled iterations behind a provider-scoped lock" do
-    Dir.mktmpdir do |dir|
-      allow(Tickrake::PathSupport).to receive(:home_dir).and_return(dir)
-      overlapping_job = instance_double(Tickrake::OptionsJob)
-      runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
-      runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
+    overlapping_job = instance_double(Tickrake::OptionsJob)
+    runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
+    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
 
-      runner.instance_variable_set(:@job, overlapping_job)
-      allow(overlapping_job).to receive(:run)
+    runner.instance_variable_set(:@job, overlapping_job)
+    allow(overlapping_job).to receive(:run)
 
-      Tickrake::Lockfile.new("tickrake-provider-schwab-scheduled").synchronize do
-        result = runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
+    Tickrake::Lockfile.new("tickrake-provider-schwab-scheduled").synchronize do
+      result = runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
 
-        expect(result).to eq(true)
-      end
-
-      expect(overlapping_job).not_to have_received(:run)
-      expect(logger).to have_received(:info).with(/waiting for provider schwab scheduled iteration lock/)
+      expect(result).to eq(true)
     end
+
+    expect(overlapping_job).not_to have_received(:run)
+    expect(logger).to have_received(:info).with(/waiting for provider schwab scheduled iteration lock/)
   end
 
   it "does not serialize scheduled iterations for providers without the setting enabled" do

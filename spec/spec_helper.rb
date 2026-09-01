@@ -8,6 +8,15 @@ RSpec.configure do |config|
   config.expect_with :rspec do |expectations|
     expectations.syntax = :expect
   end
+
+  config.before(:each) do
+    @_tickrake_tmpdir = Dir.mktmpdir
+    allow(Tickrake::PathSupport).to receive(:home_dir).and_return(@_tickrake_tmpdir)
+  end
+
+  config.after(:each) do
+    FileUtils.rm_rf(@_tickrake_tmpdir) if @_tickrake_tmpdir
+  end
 end
 
 module TrackerSpecAutoMigrate
