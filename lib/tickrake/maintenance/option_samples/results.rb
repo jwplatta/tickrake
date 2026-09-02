@@ -28,6 +28,10 @@ module Tickrake
         def successful?
           success
         end
+
+        def skipped?
+          success && Array(artifacts_written).empty?
+        end
       end
 
       SourceCleanupResult = Struct.new(

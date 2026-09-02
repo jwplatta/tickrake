@@ -230,6 +230,30 @@ RSpec.describe "option sample maintenance" do
     end
   end
 
+  it "skips archive when compact finds no raw snapshots" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir, with_archive: true)
+      Tickrake::Tracker.migrate!(config.sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      archive_service = stub_archive_service
+
+      job = build_maintenance_job(config, tracker, tasks: [compact_task(delete_sources: true), archive_task])
+
+      allow_any_instance_of(Tickrake::Maintenance::OptionSamples::ArtifactArchiver).to receive(:archive_service_for)
+        .and_return(archive_service)
+
+      # No raw snapshots exist for this date — compact will be skipped
+      result = job.run(now: Time.utc(2026, 8, 29, 21, 0, 0))
+
+      expect(result).to be_successful
+      expect(result.artifacts_written).to eq([])
+      expect(result.step_results.count).to eq(1)
+      expect(result.step_results.first.action).to eq("compact")
+      expect(result.step_results.first.success).to eq(true)
+      expect(archive_service).not_to have_received(:upload)
+    end
+  end
+
   it "treats a no-source compaction date as a clean skip" do
     Dir.mktmpdir do |dir|
       config = build_config(dir, with_archive: false)
