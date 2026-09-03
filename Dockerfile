@@ -5,6 +5,7 @@ RUN apt-get update -qq && \
       build-essential \
       git \
       libsqlite3-dev \
+      libssl-dev \
       curl \
       unzip \
     && rm -rf /var/lib/apt/lists/*
