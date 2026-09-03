@@ -7,15 +7,23 @@ RUN apt-get update -qq && \
       libsqlite3-dev \
       libssl-dev \
       curl \
+      unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install DuckDB headers and shared library (required to build the duckdb gem)
+ARG DUCKDB_VERSION=1.5.4
+RUN curl -fsSL "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-linux-arm64.zip" -o /tmp/libduckdb.zip \
+    && unzip /tmp/libduckdb.zip -d /tmp/libduckdb \
+    && cp /tmp/libduckdb/duckdb.h /usr/local/include/ \
+    && cp /tmp/libduckdb/libduckdb.so /usr/local/lib/ \
+    && ldconfig \
+    && rm -rf /tmp/libduckdb /tmp/libduckdb.zip
 
 WORKDIR /app
 
 COPY . .
 
-# Use precompiled native gems (avoids building duckdb from source)
-RUN bundle config set --local force_ruby_platform false && \
-    bundle install
+RUN bundle install
 
 RUN chmod +x bin/docker-entrypoint.sh
 
