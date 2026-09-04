@@ -61,10 +61,9 @@ RSpec.describe "schedulers" do
         )
       ]
     )
-    runner = Tickrake::MaintenanceSchedulerRunner.new(runtime, scheduled_job: maintenance_job)
-
     before = Time.new(2026, 4, 6, 17, 59, 0, "-05:00")
     after = Time.new(2026, 4, 6, 18, 0, 0, "-05:00")
+    runner = Tickrake::MaintenanceSchedulerRunner.new(runtime, scheduled_job: maintenance_job, start_time: before)
 
     expect(runner.due?(before)).to eq(false)
     expect(runner.due?(after)).to eq(true)
