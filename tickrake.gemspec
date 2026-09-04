@@ -24,12 +24,11 @@ Gem::Specification.new do |spec|
       %w[CONTRIBUTING.md LICENSE.txt README.md]
   end
   spec.bindir = "exe"
-  spec.executables = ["tickrake", "tickrake_mcp"]
+  spec.executables = ["tickrake"]
   spec.require_paths = ["lib"]
 
   spec.add_dependency "schwab_rb", ">= 0.9.2", "< 1.0"
   spec.add_dependency "ib-api", "~> 972.5"
-  spec.add_dependency "mcp", ">= 0.1", "< 1.0"
   spec.add_dependency "duckdb"
   spec.add_dependency "parquet"
   spec.add_dependency "ruby-progressbar", "~> 1.13"

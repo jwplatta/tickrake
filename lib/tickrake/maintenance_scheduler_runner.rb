@@ -4,13 +4,13 @@ module Tickrake
   class MaintenanceSchedulerRunner
     include ScheduledRunnerSupport
 
-    def initialize(runtime, scheduled_job:, sleeper: Kernel)
+    def initialize(runtime, scheduled_job:, sleeper: Kernel, start_time: nil)
       @runtime = runtime
       @scheduled_job = scheduled_job
       @sleeper = sleeper
       @job = MaintenanceJob.new(runtime, scheduled_job: scheduled_job)
       @last_run_at = nil
-      @last_run_on = nil
+      @last_run_on = past_run_time_today?(start_time || Time.now) ? (start_time || Time.now).to_date : nil
       @shutdown_requested = false
       initialize_scheduled_runner_support
     end
@@ -76,13 +76,15 @@ module Tickrake
 
       current_minutes = (time.hour * 60) + time.min
       target_minutes = (@scheduled_job.run_at[0] * 60) + @scheduled_job.run_at[1]
+      current_minutes >= target_minutes
+    end
 
-      # Don't fire on first start if we're already past the run time today
-      if @last_run_on.nil? && current_minutes >= target_minutes
-        @last_run_on = time.to_date
-        return false
-      end
+    def past_run_time_today?(time)
+      return false unless @scheduled_job.daily_schedule?
+      return false unless @scheduled_job.days.include?(time.strftime("%a").downcase[0, 3])
 
+      current_minutes = (time.hour * 60) + time.min
+      target_minutes = (@scheduled_job.run_at[0] * 60) + @scheduled_job.run_at[1]
       current_minutes >= target_minutes
     end
 

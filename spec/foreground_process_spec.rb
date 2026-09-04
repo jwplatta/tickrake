@@ -12,7 +12,8 @@ RSpec.describe Tickrake::ForegroundProcess do
     allow(Tickrake::Runtime).to receive(:new).with(
       config: config,
       provider_name: nil,
-      config_path: "/tmp/tickrake.yml"
+      config_path: "/tmp/tickrake.yml",
+      log_path: anything
     ).and_return(runtime)
     allow(Tickrake::JobRunner).to receive(:run)
     allow(Tickrake::JobRegistry).to receive(:new)
