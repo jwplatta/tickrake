@@ -92,7 +92,6 @@ tickrake run --type options --provider schwab --ticker '$SPX' --expiration-date 
 tickrake query --provider schwab
 tickrake query --type candles --provider ibkr-paper --ticker SPY
 tickrake query --type options --provider schwab --ticker '$SPX' --format json
-tickrake storage-stats
 tickrake archive-compacted-option-samples --provider schwab --symbol SPXW --sample-date 2025-12-18 --dry-run
 tickrake archive-compacted-option-samples --provider schwab --symbol SPXW --sample-date 2025-12-18
 ```
@@ -477,27 +476,6 @@ Text output is grouped by provider, dataset type, and ticker. Candle summaries i
 frequency, row count, available timestamp range, and file path. Option summaries list
 each matching snapshot with its root symbol, expiration date, sample datetime, and file
 path.
-
-## Storage Stats
-
-Use `tickrake storage-stats` for a capacity view of what is currently on disk.
-
-It reports:
-
-- total stored data files and total bytes across history plus options
-- per-dataset totals for `history` and `options`
-- per-provider file counts and bytes
-- average file size plus oldest and newest file timestamps
-- largest files in each dataset root
-- SQLite metadata DB size
-- combined log-file footprint
-
-Example:
-
-```bash
-tickrake storage-stats
-tickrake storage-stats --config /mnt/tickrake/tickrake.yml
-```
 
 ## Metadata Sync
 

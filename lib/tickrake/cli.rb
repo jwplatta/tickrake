@@ -50,9 +50,7 @@ module Tickrake
       when "import"
         config = Tickrake::ConfigLoader.load(config_path)
         import_command(argv, config, common_options)
-      when "storage-stats"
-        config = Tickrake::ConfigLoader.load(config_path)
-        storage_stats_command(argv, config)
+
       when "query"
         config = Tickrake::ConfigLoader.load(config_path)
         query_command(argv, config)
@@ -658,13 +656,6 @@ module Tickrake
       0
     end
 
-    def storage_stats_command(argv, config)
-      raise OptionParser::InvalidOption, argv.first if argv.any?
-
-      tracker = Tickrake::Tracker.new(config.sqlite_path)
-      @stdout.puts(Tickrake::Storage::StatsReport.new(config, tracker: tracker).render)
-      0
-    end
 
     def parse_query_options!(argv)
       options = {
@@ -830,7 +821,7 @@ module Tickrake
           tickrake restart --job JOB_NAME|all [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml]
           tickrake status [--config path/to/tickrake.yml]
           tickrake query [--type candles|options|compacted-options|members] [--provider NAME] [--ticker SYMBOL] [--index CODE] [--as-of YYYY-MM-DD] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--exp-date YYYY-MM-DD] [--limit N] [--ascending true|false] [--format text|json] [--config path/to/tickrake.yml]
-          tickrake storage-stats [--config path/to/tickrake.yml]
+
           tickrake publish-index --provider NAME --type options|candles [--upload] [--config path/to/tickrake.yml]
           tickrake logs [TARGET] [--tail N]
       TEXT
