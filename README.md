@@ -70,30 +70,17 @@ tickrake init
 tickrake validate-config
 tickrake migrate
 tickrake sync-metadata
-tickrake start --job index_options
-tickrake start --job eod_candles
-tickrake restart --job index_options
-tickrake restart --job eod_candles
-tickrake restart --job all
+tickrake start --job JOB_NAME
+tickrake restart --job JOB_NAME|all [--provider NAME] [--from-config-start]
+tickrake stop --job JOB_NAME|all
 tickrake status
-tickrake stop --job index_options
-tickrake stop --job eod_candles
-tickrake stop --job all
-tickrake logs cli
-tickrake logs index_options --tail 100
-tickrake logs eod_candles --tail 100
-tickrake run --job index_options
-tickrake run --job eod_candles
-tickrake run --job eod_candles --from-config-start
-tickrake run --job manual_candles
-tickrake run --job index_options --verbose
-tickrake run --type candles --provider ibkr-paper --ticker SPY --start-date 2026-04-01 --end-date 2026-04-11 --frequency minute
-tickrake run --type options --provider schwab --ticker '$SPX' --expiration-date 2026-04-11 --option-root SPXW
-tickrake query --provider schwab
-tickrake query --type candles --provider ibkr-paper --ticker SPY
-tickrake query --type options --provider schwab --ticker '$SPX' --format json
-tickrake archive-compacted-option-samples --provider schwab --symbol SPXW --sample-date 2025-12-18 --dry-run
-tickrake archive-compacted-option-samples --provider schwab --symbol SPXW --sample-date 2025-12-18
+tickrake logs JOB_NAME|cli [--tail N]
+tickrake run --job JOB_NAME [--verbose] [--from-config-start]
+tickrake run --type candles --provider NAME --ticker SYMBOL --start-date YYYY-MM-DD --end-date YYYY-MM-DD --frequency FREQ
+tickrake run --type options --provider NAME --ticker SYMBOL --expiration-date YYYY-MM-DD [--option-root ROOT]
+tickrake query [--type candles|options] [--provider NAME] [--ticker SYMBOL] [--format text|json]
+tickrake publish-index --provider NAME --type options [--upload]
+tickrake archive-compacted-option-samples --provider NAME --symbol ROOT --sample-date YYYY-MM-DD [--dry-run]
 ```
 
 ## Ruby Data Loading API
