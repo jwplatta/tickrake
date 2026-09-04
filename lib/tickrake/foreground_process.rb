@@ -12,7 +12,8 @@ module Tickrake
       runtime = Tickrake::Runtime.new(
         config: config,
         provider_name: provider_name,
-        config_path: config_path
+        config_path: config_path,
+        log_path: Tickrake::PathSupport.named_log_path(job_name)
       )
       @stdout.puts("Starting #{job_name} in foreground.")
       Tickrake::JobRunner.run(runtime, job, from_config_start: from_config_start, restart: restart)
