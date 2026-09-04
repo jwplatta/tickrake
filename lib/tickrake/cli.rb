@@ -68,6 +68,9 @@ module Tickrake
       when "run"
         config = Tickrake::ConfigLoader.load(config_path)
         run_command(argv, config, common_options)
+      when "publish-index"
+        config = Tickrake::ConfigLoader.load(config_path)
+        publish_index_command(argv, config)
       else
         @stderr.puts(usage)
         1
@@ -613,6 +616,45 @@ module Tickrake
         ascending: options[:ascending],
         format: options[:format]
       )
+      0
+    end
+
+    def publish_index_command(argv, config)
+      options = { provider: nil, type: nil, upload: false }
+      parser = OptionParser.new do |opts|
+        opts.on("--provider NAME", "Provider name (e.g. schwab)") { |v| options[:provider] = v }
+        opts.on("--type TYPE", "Data type: options or candles") { |v| options[:type] = v }
+        opts.on("--upload", "Upload published index files to S3") { options[:upload] = true }
+      end
+      parser.order!(argv)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+      raise Tickrake::Error, "--provider is required" unless options[:provider]
+      raise Tickrake::Error, "--type is required" unless options[:type]
+      raise Tickrake::Error, "Index publishing for candles is not yet implemented." if options[:type] == "candles"
+      raise Tickrake::Error, "Unknown type `#{options[:type]}`. Valid types: options" unless options[:type] == "options"
+
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      roots = tracker.known_roots(provider_name: options[:provider])
+      raise Tickrake::Error, "No known roots for provider `#{options[:provider]}`." if roots.empty?
+
+      s3_archive = if options[:upload]
+        archive_config = config.s3_archive
+        raise Tickrake::Error, "No s3_archive configured." unless archive_config
+        Tickrake::Storage::S3Archive.new(config, archive_config: archive_config)
+      end
+
+      publisher = Tickrake::Index::Publisher.new(
+        tracker: tracker,
+        options_dir: config.options_dir,
+        logger: nil,
+        s3_archive: s3_archive
+      )
+
+      roots.each do |root|
+        publisher.publish(provider: options[:provider], root: root)
+        @stdout.puts("Published index for #{options[:provider]}/#{root}")
+      end
+      @stdout.puts("Published tickers index for #{options[:provider]}")
       0
     end
 
