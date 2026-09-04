@@ -831,6 +831,7 @@ module Tickrake
           tickrake status [--config path/to/tickrake.yml]
           tickrake query [--type candles|options|compacted-options|members] [--provider NAME] [--ticker SYMBOL] [--index CODE] [--as-of YYYY-MM-DD] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--exp-date YYYY-MM-DD] [--limit N] [--ascending true|false] [--format text|json] [--config path/to/tickrake.yml]
           tickrake storage-stats [--config path/to/tickrake.yml]
+          tickrake publish-index --provider NAME --type options|candles [--upload] [--config path/to/tickrake.yml]
           tickrake logs [TARGET] [--tail N]
       TEXT
     end
