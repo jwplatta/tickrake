@@ -97,77 +97,6 @@ tickrake archive-compacted-option-samples --provider schwab --symbol SPXW --samp
 tickrake archive-compacted-option-samples --provider schwab --symbol SPXW --sample-date 2025-12-18
 ```
 
-## MCP Server
-
-`tickrake` now includes a simple stdio MCP server so MCP clients such as Claude can inspect
-the local Tickrake installation without shelling out to the CLI.
-
-Start it with:
-
-```bash
-bundle exec exe/tickrake_mcp
-```
-
-The initial MCP tool surface is intentionally small and mostly read-only:
-
-- `help_tool`
-- `validate_config_tool`
-- `status_tool`
-- `search_datasets_tool`
-- `storage_stats_tool`
-- `logs_tool`
-- `start_job_tool`
-- `stop_job_tool`
-- `restart_job_tool`
-
-These tools map to the same underlying library code used by the CLI for config loading,
-job inspection, dataset discovery, storage summaries, log access, and scheduler lifecycle
-management. `search_datasets_tool` returns dataset metadata only; it does not return raw
-market data rows.
-
-Typical workflow:
-
-1. Start the server with `bundle exec exe/tickrake_mcp`.
-2. Call `validate_config_tool` to confirm the active config and storage paths.
-3. Use `search_datasets_tool` to discover candle files or option snapshots.
-4. Use `status_tool`, `logs_tool`, `start_job_tool`, `stop_job_tool`, and `restart_job_tool` to manage the schedulers.
-
-Example MCP calls:
-
-```json
-{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"validate_config_tool","arguments":{}}}
-```
-
-```json
-{"jsonrpc":"2.0","id":"2","method":"tools/call","params":{"name":"search_datasets_tool","arguments":{"type":"candles","provider":"ibkr-paper","ticker":"SPX","frequency":"all"}}}
-```
-
-```json
-{"jsonrpc":"2.0","id":"3","method":"tools/call","params":{"name":"search_datasets_tool","arguments":{"type":"options","provider":"schwab","ticker":"SPXW"}}}
-```
-
-```json
-{"jsonrpc":"2.0","id":"4","method":"tools/call","params":{"name":"status_tool","arguments":{}}}
-```
-
-```json
-{"jsonrpc":"2.0","id":"5","method":"tools/call","params":{"name":"logs_tool","arguments":{"target":"options"}}}
-```
-
-Example Claude Desktop MCP entry:
-
-```json
-{
-  "mcpServers": {
-    "tickrake": {
-      "command": "bundle",
-      "args": ["exec", "exe/tickrake_mcp"],
-      "cwd": "/Users/jplatta/repos/tickrake"
-    }
-  }
-}
-```
-
 ## Ruby Data Loading API
 
 Use `Tickrake::DataLoader` when application code needs to read stored Tickrake data
@@ -307,7 +236,8 @@ providers:
   schwab:
     adapter: schwab
     settings:
-      serialize_scheduled_jobs: true
+      rate_limit_max_requests: 120
+      rate_limit_interval_seconds: 60
       restart_after_consecutive_failures: 3
       restart_cooldown_seconds: 30
   ibkr-paper:
@@ -318,16 +248,10 @@ providers:
       client_id: 1001
 ```
 
-Provider `settings` also carry scheduler resilience controls. For Schwab, the defaults
-are:
+Provider `settings` carry rate limiting and scheduler resilience controls. For Schwab:
 
-- `serialize_scheduled_jobs: true`
-- `restart_after_consecutive_failures: 3`
-- `restart_cooldown_seconds: 30`
-
-With those defaults, overlapping Schwab-backed scheduled jobs defer behind a provider
-lock under `~/.tickrake/`, and the scheduler exits non-zero after three consecutive
-failed or degraded Schwab iterations so `tickrake start --restart` can recycle it.
+- `rate_limit_max_requests` and `rate_limit_interval_seconds` configure a SQLite-backed token bucket rate limiter that coordinates API call throughput across all containers sharing the same SQLite database.
+- `restart_after_consecutive_failures: 3` and `restart_cooldown_seconds: 30` cause the scheduler to exit non-zero after repeated failures so `tickrake start --restart` can recycle it.
 
 Jobs can set a provider default, and universe entries can still override that per symbol:
 
@@ -337,7 +261,8 @@ providers:
   schwab:
     adapter: schwab
     settings:
-      serialize_scheduled_jobs: true
+      rate_limit_max_requests: 120
+      rate_limit_interval_seconds: 60
       restart_after_consecutive_failures: 3
       restart_cooldown_seconds: 30
   ibkr-paper:
