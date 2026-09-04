@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added `collection_id` to `fetch_runs` and `file_metadata_cache` (migration 008) so all fetches from one `OptionsJob` iteration are grouped by a single stamped identifier (e.g. `options-20260823T154210Z`). (#61)
+- Added index builder infrastructure: `RootIndexBuilder`, `TickersIndexBuilder`, `Publisher`, `AtomicJsonWriter`, `WriteLock`, and `UriBuilder` for generating and safely writing per-root `ROOT.json` and provider-level `tickers.json` index files. (#62)
+- Added historical index publishing: `MaintenanceJob` now calls `Publisher#publish` after each successful archive step, writing updated `ROOT.json` and `tickers.json` locally and uploading both to S3. (#63)
+- Added intraday index publishing: `OptionsJob` now calls `IntradayPublisher#publish` after each scheduler iteration, writing an updated `ROOT.json` with the current-day intraday section when all expected expirations for a root were successfully fetched. (#64)
 - Added a massive options importer for bulk options collection.
 - Added support for manual configured jobs and importer progress reporting.
 - Added `Tickrake::DataLoader` as a public cache-backed Ruby API for loading stored candle and option data.
@@ -19,10 +23,16 @@ All notable changes to this project will be documented in this file.
 - Added `tickrake validate-option-compaction` to verify a compacted daily options CSV against its source snapshot files before cleanup.
 - Added `tickrake delete-compacted-option-samples` for validated raw-snapshot cleanup, with `--dry-run` and source metadata-row removal.
 - Added optional `storage.s3_archive` config plus `tickrake archive-compacted-option-samples` to mirror compacted option artifacts into S3 before raw snapshot cleanup.
-- Added provider-level scheduled-job resilience settings so Schwab schedulers can serialize runs and auto-restart after repeated failures.
+- Added provider-level scheduled-job resilience settings so Schwab schedulers can auto-restart after repeated failures.
+- Added SQLite-backed token bucket rate limiter (`SqliteRateLimiter`) consuming one token per Schwab API call, coordinated across containers via WAL-mode SQLite. Rate limit capacity and refill rate are fully configured via `rate_limit_max_requests` and `rate_limit_interval_seconds` on the provider definition.
 - Added reusable maintenance universes loaded from config or separate YAML files so one maintenance job can target many option roots.
 
+### Removed
+- Removed `serialize_scheduled_jobs` provider setting and flock-based provider iteration lock (`with_provider_iteration_locks`), which did not work across Docker containers on macOS Docker Desktop. Replaced by the SQLite rate limiter.
+
 ### Fixed
+- Fixed intraday index to show the most recent file per expiration date across multiple job iterations in the same day, rather than listing all files from the most recent collection. (#65)
+- Fixed `ClientFactory#build` to construct a new Schwab client on every call so that refreshed OAuth tokens are always picked up, rather than reusing a stale client instance across scheduler iterations. (#66)
 - Fixed IBKR provider hangs on early-date fetches and improved symbol period resolution.
 - Stabilized metadata writes during massive imports.
 - Fixed option queries to stay on SQLite metadata lookups for large caches instead of falling back to filesystem discovery.

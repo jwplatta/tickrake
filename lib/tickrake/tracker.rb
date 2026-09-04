@@ -42,7 +42,8 @@ module Tickrake
         Tickrake::DB::Migrations::AddOptionTickerTimeIndex,
         Tickrake::DB::Migrations::CreateMarketIndexTables,
         Tickrake::DB::Migrations::AddArtifactMetadataToFileCache,
-        Tickrake::DB::Migrations::AddCollectionId
+        Tickrake::DB::Migrations::AddCollectionId,
+        Tickrake::DB::Migrations::CreateApiRateLimits
       ].freeze
     end
 
