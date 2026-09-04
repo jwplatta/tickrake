@@ -57,11 +57,14 @@ module Tickrake
   SchedulerWindow = Struct.new(:days, :start_time, :end_time, keyword_init: true)
   OptionSymbol = Struct.new(:symbol, :option_root, :provider, keyword_init: true)
   ProviderDefinition = Struct.new(:name, :adapter, :settings, :symbol_map, keyword_init: true) do
-    def serialize_scheduled_jobs?
-      configured = settings.fetch("serialize_scheduled_jobs", nil)
-      return configured if configured == true || configured == false
+    def rate_limit_max_requests
+      configured = settings.fetch("rate_limit_max_requests", nil)
+      Integer(configured) if configured
+    end
 
-      adapter == "schwab"
+    def rate_limit_interval_seconds
+      configured = settings.fetch("rate_limit_interval_seconds", nil)
+      Integer(configured) if configured
     end
 
     def restart_after_consecutive_failures

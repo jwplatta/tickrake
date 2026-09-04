@@ -37,6 +37,7 @@ module Tickrake
 
       selected_universe.flat_map do |entry|
         provider_name = provider_name_for(entry)
+        rate_limiter_for(provider_name_for(entry))&.consume!
         expiration_chain = fetch_expiration_chain(client, entry.symbol)
 
         buckets.filter_map do |bucket|
@@ -209,6 +210,7 @@ module Tickrake
     end
 
     def write_option_chain(client:, provider_name:, symbol:, expiration_date:, timestamp:, root:)
+      rate_limiter_for(provider_name)&.consume!
       chain = Timeout.timeout(@runtime.config.option_fetch_timeout_seconds) do
         client.get_option_chain(
           self.class.option_chain_api_symbol(symbol),
@@ -286,6 +288,24 @@ module Tickrake
 
     def option_sample_writer
       @option_sample_writer ||= Storage::OptionSampleWriter.new
+    end
+
+    def rate_limiter_for(provider_name)
+      @rate_limiters ||= {}
+      return @rate_limiters[provider_name] if @rate_limiters.key?(provider_name)
+
+      provider_def = @runtime.config.provider_definition(provider_name)
+      max_req = provider_def.rate_limit_max_requests
+      interval = provider_def.rate_limit_interval_seconds
+
+      @rate_limiters[provider_name] = if max_req && interval
+        Tickrake::DB::SqliteRateLimiter.new(
+          @runtime.config,
+          provider: provider_name,
+          capacity: max_req,
+          refill_rate: max_req.to_f / interval
+        )
+      end
     end
 
     def provider_name_for(entry)

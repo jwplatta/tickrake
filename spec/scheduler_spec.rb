@@ -195,50 +195,6 @@ RSpec.describe "schedulers" do
     expect(logger).to have_received(:warn).with(/consecutive_failures=1\/3/).twice
   end
 
-  it "defers overlapping schwab scheduled iterations behind a provider-scoped lock" do
-    overlapping_job = instance_double(Tickrake::OptionsJob)
-    runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
-    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
-
-    runner.instance_variable_set(:@job, overlapping_job)
-    allow(overlapping_job).to receive(:run)
-
-    Tickrake::Lockfile.new("tickrake-provider-schwab-scheduled").synchronize do
-      result = runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
-
-      expect(result).to eq(true)
-    end
-
-    expect(overlapping_job).not_to have_received(:run)
-    expect(logger).to have_received(:info).with(/waiting for provider schwab scheduled iteration lock/)
-  end
-
-  it "does not serialize scheduled iterations for providers without the setting enabled" do
-    failing_job = instance_double(Tickrake::CandlesJob)
-    runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
-    scheduled_job = Tickrake::ScheduledJobConfig.new(
-      name: "intraday_candles",
-      type: "candles",
-      provider: "ibkr-paper",
-      interval_seconds: 120,
-      windows: [Tickrake::SchedulerWindow.new(days: %w[mon tue wed thu fri], start_time: [8, 30], end_time: [15, 0])],
-      run_at: nil,
-      days: [],
-      lookback_days: 7,
-      dte_buckets: [],
-      universe: config.job("eod_candles").universe
-    )
-    runner = Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: scheduled_job, sleeper: sleeper)
-
-    runner.instance_variable_set(:@job, failing_job)
-    allow(failing_job).to receive(:run).and_raise(StandardError, "boom")
-
-    result = runner.run_iteration(Time.new(2026, 4, 6, 9, 0, 0, "-05:00"))
-
-    expect(result).to eq(true)
-    expect(sleeper).to have_received(:sleep).at_least(:once)
-    expect(logger).to have_received(:error).with(/iteration failed/)
-  end
 
   it "keeps the candles scheduler alive after an iteration failure and applies backoff" do
     failing_job = instance_double(Tickrake::CandlesJob)

@@ -5,7 +5,6 @@ providers:
   schwab:
     adapter: schwab
     settings:
-      serialize_scheduled_jobs: true
       restart_after_consecutive_failures: 3
       restart_cooldown_seconds: 30
     symbol_map:
