@@ -10,7 +10,8 @@ module Tickrake
       @sleeper = sleeper
       @job = MaintenanceJob.new(runtime, scheduled_job: scheduled_job)
       @last_run_at = nil
-      @last_run_on = past_run_time_today?(start_time || Time.now) ? (start_time || Time.now).to_date : nil
+      local_start = local_time(start_time || Time.now)
+      @last_run_on = past_run_time_today?(local_start) ? local_start.to_date : nil
       @shutdown_requested = false
       initialize_scheduled_runner_support
     end
@@ -86,6 +87,17 @@ module Tickrake
       current_minutes = (time.hour * 60) + time.min
       target_minutes = (@scheduled_job.run_at[0] * 60) + @scheduled_job.run_at[1]
       current_minutes >= target_minutes
+    end
+
+    def local_time(time)
+      tz = @runtime.config.timezone
+      return time unless tz
+
+      previous = ENV["TZ"]
+      ENV["TZ"] = tz
+      local = Time.at(time.to_i).localtime
+      ENV["TZ"] = previous
+      local
     end
 
     def in_window?(time)
