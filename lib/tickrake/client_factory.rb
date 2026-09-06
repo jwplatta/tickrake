@@ -9,12 +9,9 @@ module Tickrake
     def build
       api_key = ENV.fetch("SCHWAB_API_KEY")
       app_secret = ENV.fetch("SCHWAB_APP_SECRET")
-      token_path = ENV["SCHWAB_TOKEN_PATH"] || ENV["TOKEN_PATH"] || SchwabRb::Constants::DEFAULT_TOKEN_PATH
-      client = SchwabRb::Auth.init_client_token_file(
-        api_key,
-        app_secret,
-        Tickrake::PathSupport.expand_path(token_path)
-      )
+      db_path = ENV["SCHWAB_DATABASE_PATH"] || SchwabRb.configuration.database_path
+      database = SchwabRb::Storage::Database.new(db_path)
+      client = SchwabRb::Auth.init_client_from_database(api_key, app_secret, database: database)
       client.refresh!
       client
     rescue KeyError => e
