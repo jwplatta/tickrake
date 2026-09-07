@@ -292,13 +292,17 @@ module Tickrake
       normalized_paths = Array(paths).map { |path| Tickrake::PathSupport.expand_path(path) }.uniq
       return 0 if normalized_paths.empty?
 
-      placeholders = (["?"] * normalized_paths.length).join(", ")
-      synchronize_db do
-        with_transaction do
-          db.execute("DELETE FROM file_metadata_cache WHERE path IN (#{placeholders})", normalized_paths)
+      total_deleted = 0
+      normalized_paths.each_slice(500) do |batch|
+        placeholders = (["?"] * batch.length).join(", ")
+        synchronize_db do
+          with_transaction do
+            db.execute("DELETE FROM file_metadata_cache WHERE path IN (#{placeholders})", batch)
+          end
+          total_deleted += db.changes
         end
-        db.changes
       end
+      total_deleted
     end
 
     def upsert_tickers(rows)
