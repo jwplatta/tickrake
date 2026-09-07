@@ -15,7 +15,7 @@ require_relative "dsl/job_builder"
 
 module Tickrake
   def self.config
-    @config ||= Tickrake::ConfigLoader.load(Tickrake::PathSupport.config_path)
+    @config ||= Tickrake::ConfigLoader.load(dsl_config_path)
   end
 
   def self.job(name, &block)
@@ -26,8 +26,13 @@ module Tickrake
       config: config,
       provider_name: job_config.provider,
       log_path: Tickrake::PathSupport.named_log_path(name),
-      config_path: Tickrake::PathSupport.config_path
+      config_path: dsl_config_path
     )
     Tickrake::JobRunner.run(runtime, job_config, from_config_start: false, restart: false)
   end
+
+  def self.dsl_config_path
+    ENV["TICKRAKE_CONFIG"] || Tickrake::PathSupport.config_path
+  end
+  private_class_method :dsl_config_path
 end
