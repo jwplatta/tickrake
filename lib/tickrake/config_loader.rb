@@ -75,7 +75,6 @@ module Tickrake
       end
 
       config.provider_definition(config.default_provider_name)
-      raise ConfigError, "At least one scheduled or import job is required." if config.jobs.empty? && config.import_jobs.empty?
 
       config.jobs.each do |job|
         raise ConfigError, "Unknown job type `#{job.type}` for `#{job.name}`." unless VALID_JOB_TYPES.include?(job.type)
