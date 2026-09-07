@@ -69,6 +69,9 @@ module Tickrake
       when "publish-index"
         config = Tickrake::ConfigLoader.load(config_path)
         publish_index_command(argv, config)
+      when "prune-orphaned"
+        config = Tickrake::ConfigLoader.load(config_path)
+        prune_orphaned_command(argv, config)
       else
         @stderr.puts(usage)
         1
@@ -803,6 +806,27 @@ module Tickrake
       0
     end
 
+    def prune_orphaned_command(argv, config)
+      dry_run = argv.include?("--dry-run")
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      rows = tracker.file_metadata_rows
+      orphaned = rows.map { |r| r["path"] }.select { |p| !File.exist?(p) }
+
+      if orphaned.empty?
+        @stdout.puts("No orphaned metadata entries found.")
+        return 0
+      end
+
+      if dry_run
+        @stdout.puts("Would delete #{orphaned.length} orphaned metadata entries:")
+        orphaned.each { |p| @stdout.puts("  #{p}") }
+      else
+        deleted = tracker.delete_file_metadata_paths(orphaned)
+        @stdout.puts("Deleted #{deleted} orphaned metadata entries.")
+      end
+      0
+    end
+
     def usage
       <<~TEXT
         Usage:
@@ -823,6 +847,7 @@ module Tickrake
           tickrake query [--type candles|options|compacted-options|members] [--provider NAME] [--ticker SYMBOL] [--index CODE] [--as-of YYYY-MM-DD] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--exp-date YYYY-MM-DD] [--limit N] [--ascending true|false] [--format text|json] [--config path/to/tickrake.yml]
 
           tickrake publish-index --provider NAME --type options|candles [--upload] [--config path/to/tickrake.yml]
+          tickrake prune-orphaned [--dry-run] [--config path/to/tickrake.yml]
           tickrake logs [TARGET] [--tail N]
       TEXT
     end

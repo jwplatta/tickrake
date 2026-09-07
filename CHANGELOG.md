@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added `tickrake prune-orphaned` command to remove `file_metadata_cache` rows whose files no longer exist on disk. Supports `--dry-run` to preview removals without deleting.
+
+### Fixed
+- Fixed `ScheduledRunResult#successful?` to treat zero-task runs (`success_count=0, failure_count=0`) as successful instead of degraded. This prevents holiday or off-hours iterations from triggering the consecutive failure counter when no option expirations are available.
+
+### Added
 - Added `collection_id` to `fetch_runs` and `file_metadata_cache` (migration 008) so all fetches from one `OptionsJob` iteration are grouped by a single stamped identifier (e.g. `options-20260823T154210Z`). (#61)
 - Added index builder infrastructure: `RootIndexBuilder`, `TickersIndexBuilder`, `Publisher`, `AtomicJsonWriter`, `WriteLock`, and `UriBuilder` for generating and safely writing per-root `ROOT.json` and provider-level `tickers.json` index files. (#62)
 - Added historical index publishing: `MaintenanceJob` now calls `Publisher#publish` after each successful archive step, writing updated `ROOT.json` and `tickers.json` locally and uploading both to S3. (#63)
