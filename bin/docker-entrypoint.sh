@@ -9,6 +9,15 @@ if [ ! -f "$CONFIG" ]; then
   exit 1
 fi
 
+# DSL job file mode: run a Ruby DSL job script in the foreground.
+if [ -n "$TICKRAKE_JOB_FILE" ]; then
+  if [ ! -f "$TICKRAKE_JOB_FILE" ]; then
+    echo "Job file not found: $TICKRAKE_JOB_FILE"
+    exit 1
+  fi
+  exec bundle exec ruby "$TICKRAKE_JOB_FILE"
+fi
+
 # Single-job mode: run one job in the foreground (Docker-native — let the
 # container runtime handle restarts via restart: unless-stopped).
 if [ -n "$TICKRAKE_JOB" ]; then
