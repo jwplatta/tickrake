@@ -4,6 +4,8 @@ module Tickrake
   module DSL
     class ScheduleBuilder
       WEEKDAYS = %w[mon tue wed thu fri].freeze
+      WEEKENDS = %w[sat sun].freeze
+      ALL_DAYS  = (WEEKDAYS + WEEKENDS).freeze
 
       def initialize
         @interval_seconds = nil
@@ -27,6 +29,26 @@ module Tickrake
           from = parse_clock(kwargs.fetch(:from))
           to   = parse_clock(kwargs.fetch(:to))
           @windows << Tickrake::SchedulerWindow.new(days: WEEKDAYS.dup, start_time: from, end_time: to)
+        end
+      end
+
+      def weekends(**kwargs)
+        if kwargs.empty?
+          @days = WEEKENDS.dup
+        else
+          from = parse_clock(kwargs.fetch(:from))
+          to   = parse_clock(kwargs.fetch(:to))
+          @windows << Tickrake::SchedulerWindow.new(days: WEEKENDS.dup, start_time: from, end_time: to)
+        end
+      end
+
+      def every_day(**kwargs)
+        if kwargs.empty?
+          @days = ALL_DAYS.dup
+        else
+          from = parse_clock(kwargs.fetch(:from))
+          to   = parse_clock(kwargs.fetch(:to))
+          @windows << Tickrake::SchedulerWindow.new(days: ALL_DAYS.dup, start_time: from, end_time: to)
         end
       end
 

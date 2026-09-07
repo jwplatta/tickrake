@@ -60,6 +60,43 @@ RSpec.describe Tickrake::DSL::ScheduleBuilder do
     end
   end
 
+  describe "#weekends" do
+    context "with no arguments" do
+      it "sets days to Sat-Sun" do
+        builder.weekends
+        expect(builder.build![:days]).to eq(%w[sat sun])
+      end
+    end
+
+    context "with from: and to: kwargs" do
+      it "adds a SchedulerWindow for Sat-Sun" do
+        builder.weekends(from: "09:00", to: "14:00")
+        window = builder.build![:windows].first
+        expect(window.days).to eq(%w[sat sun])
+        expect(window.start_time).to eq([9, 0])
+      end
+    end
+  end
+
+  describe "#every_day" do
+    context "with no arguments" do
+      it "sets days to all 7 days" do
+        builder.every_day
+        expect(builder.build![:days]).to eq(%w[mon tue wed thu fri sat sun])
+      end
+    end
+
+    context "with from: and to: kwargs" do
+      it "adds a SchedulerWindow for all 7 days" do
+        builder.every_day(from: "08:30", to: "16:00")
+        window = builder.build![:windows].first
+        expect(window.days).to eq(%w[mon tue wed thu fri sat sun])
+        expect(window.start_time).to eq([8, 30])
+        expect(window.end_time).to eq([16, 0])
+      end
+    end
+  end
+
   describe "#days" do
     it "adds a SchedulerWindow with custom days" do
       builder.days(%w[mon wed fri], from: "09:00", to: "15:00")
