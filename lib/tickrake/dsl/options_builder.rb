@@ -5,7 +5,6 @@ module Tickrake
     class OptionsBuilder
       def initialize
         @dte_buckets = []
-        @settings = {}
       end
 
       def dte(*args)
@@ -16,16 +15,8 @@ module Tickrake
                        end
       end
 
-      def strikes(range)
-        @settings[:strikes] = range
-      end
-
-      def include_weeklies(value)
-        @settings[:include_weeklies] = value
-      end
-
       def build!
-        { dte_buckets: @dte_buckets, settings: @settings }
+        { dte_buckets: @dte_buckets }
       end
     end
   end

@@ -8,6 +8,7 @@ module Tickrake
         @provider = nil
         @type = nil
         @universe_name = nil
+        @universe_builder = nil
         @inline_symbols = []
         @lookback_days = nil
         @schedule_builder = nil
@@ -24,8 +25,13 @@ module Tickrake
         @type = t.to_s
       end
 
-      def universe(name)
-        @universe_name = name.to_s
+      def universe(name = nil, &block)
+        if block
+          @universe_builder = UniverseBuilder.new
+          @universe_builder.instance_eval(&block)
+        else
+          @universe_name = name.to_s
+        end
       end
 
       def symbols(*args)
@@ -74,19 +80,18 @@ module Tickrake
       private
 
       def build_options_job!(config, schedule)
-        raise Tickrake::Error, "options job `#{@name}` requires universe" if @universe_name.nil?
+        has_universe = @universe_name || @universe_builder
+        raise Tickrake::Error, "options job `#{@name}` requires universe" unless has_universe
         raise Tickrake::Error, "options job `#{@name}` requires an options block" if @options_builder.nil?
 
-        entries = config.universe(@universe_name).entries
-        universe = entries.flat_map do |entry|
-          roots = [*Array(entry.option_roots).map(&:to_s)]
-          roots << entry.option_root.to_s unless entry.option_root.to_s.empty?
-          roots = roots.reject(&:empty?).uniq
-          roots = [nil] if roots.empty?
-          roots.map { |root| Tickrake::OptionSymbol.new(symbol: entry.symbol, option_root: root, provider: nil) }
-        end
+        entries = if @universe_builder
+                    @universe_builder.entries
+                  else
+                    config.universe(@universe_name).entries
+                  end
 
-        opts = @options_builder.build!
+        universe = expand_option_entries(entries)
+        opts     = @options_builder.build!
 
         Tickrake::ScheduledJobConfig.new(
           name: @name,
@@ -101,7 +106,7 @@ module Tickrake
           universe: universe,
           tasks: [],
           task: nil,
-          settings: opts[:settings],
+          settings: {},
           manual: false
         )
       end
@@ -167,6 +172,16 @@ module Tickrake
           settings: {},
           manual: false
         )
+      end
+
+      def expand_option_entries(entries)
+        entries.flat_map do |entry|
+          roots = [*Array(entry.option_roots).map(&:to_s)]
+          roots << entry.option_root.to_s unless entry.option_root.to_s.empty?
+          roots = roots.reject(&:empty?).uniq
+          roots = [nil] if roots.empty?
+          roots.map { |root| Tickrake::OptionSymbol.new(symbol: entry.symbol, option_root: root, provider: nil) }
+        end
       end
     end
   end
