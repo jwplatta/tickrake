@@ -18,10 +18,10 @@ gem install tickrake
 
 Tickrake requires:
 - Ruby 3.1+
-- `schwab_rb >= 0.9.2`
+- `schwab_rb >= 1.0.3`
 - `ib-api ~> 972.5` for IBKR candle collection
 - exported Schwab credentials in the shell environment
-- a valid Schwab token file at `~/.schwab_rb/token.json`
+- a valid Schwab token in `~/.schwab_rb/schwab.db` (managed by `schwab_rb`)
 
 Required environment variables:
 - `SCHWAB_API_KEY`
@@ -81,6 +81,7 @@ tickrake run --type options --provider NAME --ticker SYMBOL --expiration-date YY
 tickrake query [--type candles|options] [--provider NAME] [--ticker SYMBOL] [--format text|json]
 tickrake publish-index --provider NAME --type options [--upload]
 tickrake archive-compacted-option-samples --provider NAME --symbol ROOT --sample-date YYYY-MM-DD [--dry-run]
+tickrake prune-orphaned [--dry-run]
 ```
 
 ## Ruby Data Loading API
