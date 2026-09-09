@@ -8,8 +8,9 @@ module Tickrake
 
         @connection = SQLite3::Database.new(path).tap do |d|
           d.results_as_hash = true
-          d.busy_timeout(5_000)
+          d.busy_timeout(30_000)
           d.execute("PRAGMA journal_mode = WAL")
+          d.execute("PRAGMA wal_autocheckpoint = 0")
         end
       end
     end
