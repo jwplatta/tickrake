@@ -4,7 +4,7 @@ require "monitor"
 
 module Tickrake
   class Tracker
-    SQLITE_BUSY_TIMEOUT_MS = 10_000
+    SQLITE_BUSY_TIMEOUT_MS = 30_000
 
     FILE_METADATA_COLUMNS = %w[
       path
@@ -60,6 +60,12 @@ module Tickrake
 
         @db.close
         @db = nil
+      end
+    end
+
+    def checkpoint!
+      synchronize_db do
+        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
       end
     end
 
@@ -444,6 +450,7 @@ module Tickrake
       @db ||= SQLite3::Database.new(@path).tap do |database|
         database.busy_timeout(SQLITE_BUSY_TIMEOUT_MS)
         database.execute("PRAGMA journal_mode = WAL")
+        database.execute("PRAGMA wal_autocheckpoint = 0")
         database.results_as_hash = true
       end
     end

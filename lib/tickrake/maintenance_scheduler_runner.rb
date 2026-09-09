@@ -62,6 +62,7 @@ module Tickrake
     def mark_iteration_success(now)
       @last_run_at = now
       @last_run_on = now.to_date
+      @runtime.tracker.checkpoint!
     end
 
     def due_for_interval_schedule?(time)
