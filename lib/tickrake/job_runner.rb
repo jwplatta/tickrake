@@ -17,6 +17,8 @@ module Tickrake
           Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: job, from_config_start: from_config_start).run
         when "maintenance"
           Tickrake::MaintenanceSchedulerRunner.new(runtime, scheduled_job: job).run
+        when "order_book"
+          Tickrake::OrderBookRunner.new(runtime, scheduled_job: job).run
         else
           raise Tickrake::Error, "Unknown job type `#{job.type}`."
         end

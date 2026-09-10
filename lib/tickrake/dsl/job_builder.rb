@@ -15,6 +15,7 @@ module Tickrake
         @options_builder = nil
         @candles_builder = nil
         @maintenance_builder = nil
+        @order_book_builder = nil
       end
 
       def provider(name)
@@ -62,6 +63,11 @@ module Tickrake
         @maintenance_builder.instance_eval(&block)
       end
 
+      def order_book(&block)
+        @order_book_builder = OrderBookBuilder.new
+        @order_book_builder.instance_eval(&block)
+      end
+
       def build!(config)
         raise Tickrake::Error, "job `#{@name}` requires type" if @type.nil?
         raise Tickrake::Error, "job `#{@name}` requires provider" if @provider.nil?
@@ -73,6 +79,7 @@ module Tickrake
         when "options"     then build_options_job!(config, schedule)
         when "candles"     then build_candles_job!(config, schedule)
         when "maintenance" then build_maintenance_job!(schedule)
+        when "order_book"  then build_order_book_job!(schedule)
         else raise Tickrake::Error, "job `#{@name}` has unknown type: #{@type.inspect}"
         end
       end
@@ -170,6 +177,29 @@ module Tickrake
           tasks: @maintenance_builder.build!,
           task: nil,
           settings: {},
+          manual: false
+        )
+      end
+
+      def build_order_book_job!(schedule)
+        raise Tickrake::Error, "order_book job `#{@name}` requires an order_book block" if @order_book_builder.nil?
+
+        order_book_config = @order_book_builder.build!(job_name: @name, inline_symbols: @inline_symbols)
+
+        Tickrake::ScheduledJobConfig.new(
+          name: @name,
+          type: "order_book",
+          provider: @provider,
+          interval_seconds: schedule[:interval_seconds],
+          windows: schedule[:windows],
+          run_at: schedule[:run_at],
+          days: schedule[:days],
+          lookback_days: nil,
+          dte_buckets: [],
+          universe: @inline_symbols,
+          tasks: [],
+          task: nil,
+          settings: order_book_config,
           manual: false
         )
       end
