@@ -43,6 +43,25 @@ module Tickrake
         )
       end
 
+      def order_book_path(provider:, symbol:, flush_start:)
+        timestamp_str = flush_start.utc.strftime("%H%M%S")
+        File.join(
+          order_book_dir(provider, flush_start),
+          "#{sanitize_symbol(symbol)}_#{timestamp_str}Z.parquet"
+        )
+      end
+
+      def order_book_dir(provider, date)
+        File.join(
+          @config.data_dir,
+          "order_book",
+          provider.to_s,
+          date.utc.strftime("%Y"),
+          date.utc.strftime("%m"),
+          date.utc.strftime("%d")
+        )
+      end
+
       def option_samples_dir(provider:, sample_date:)
         File.join(
           provider_options_dir(provider),

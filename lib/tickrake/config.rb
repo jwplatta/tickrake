@@ -54,6 +54,30 @@ module Tickrake
     keyword_init: true
   )
 
+  OrderBookContractsConfig = Struct.new(
+    :underlying,
+    :atm_strikes,
+    :front_n,
+    :re_resolve_interval_minutes,
+    keyword_init: true
+  )
+
+  OrderBookConfig = Struct.new(
+    :services,
+    :flush_interval_seconds,
+    :retention_days,
+    :contracts,
+    keyword_init: true
+  ) do
+    def options_book?
+      services.include?("OPTIONS_BOOK")
+    end
+
+    def re_resolve_interval_seconds
+      (contracts&.re_resolve_interval_minutes || 30) * 60
+    end
+  end
+
   SchedulerWindow = Struct.new(:days, :start_time, :end_time, keyword_init: true)
   OptionSymbol = Struct.new(:symbol, :option_root, :provider, keyword_init: true)
   ProviderDefinition = Struct.new(:name, :adapter, :settings, :symbol_map, keyword_init: true) do
@@ -119,6 +143,10 @@ module Tickrake
 
     def maintenance?
       type == "maintenance"
+    end
+
+    def order_book?
+      type == "order_book"
     end
 
     def interval_schedule?
