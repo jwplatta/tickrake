@@ -11,7 +11,7 @@ RSpec.describe "duckdb option compaction parity" do
       default_provider_name: "schwab",
       option_root_tickers: { "SPXW" => "SPX" },
       option_snapshot_filename_timezone: "utc",
-      archives: {},
+      datastores: {},
       data_dir: File.join(dir, "data"),
       history_dir: File.join(dir, "data", "history"),
       options_dir: File.join(dir, "data", "options"),

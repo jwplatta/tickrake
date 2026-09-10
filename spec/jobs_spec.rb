@@ -15,7 +15,7 @@ RSpec.describe "job execution" do
       default_provider_name: config.default_provider_name,
       option_root_tickers: config.option_root_tickers,
       option_snapshot_filename_timezone: config.option_snapshot_filename_timezone,
-      archives: config.archives,
+      datastores: config.datastores,
       universes: config.universes,
       data_dir: config.data_dir,
       history_dir: config.history_dir,
@@ -95,6 +95,67 @@ RSpec.describe "job execution" do
       else
         job
       end
+    end
+  end
+
+  it "writes .meta.json sidecar after a successful option fetch instead of writing to file_metadata_cache" do
+    Dir.mktmpdir do |dir|
+      custom = config_with(
+        config,
+        options_dir: dir,
+        pending_metadata_dir: File.join(dir, "pending_metadata"),
+        options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")],
+        dte_buckets: [0]
+      )
+      client = instance_double("client")
+      expiration_entry = Struct.new(:expiration_date, :days_to_expiration, :option_roots) do
+        def date_object = Date.iso8601(expiration_date)
+      end
+      option = Struct.new(
+        :put_call, :symbol, :description, :strike, :expiration_date, :mark, :bid, :bid_size, :ask, :ask_size,
+        :last, :last_size, :open_interest, :total_volume, :delta, :gamma, :theta, :vega, :rho, :volatility,
+        :theoretical_volatility, :theoretical_option_value, :intrinsic_value, :extrinsic_value, :option_root,
+        keyword_init: true
+      )
+      expiration_chain = instance_double(
+        "SchwabRb::DataObjects::OptionExpirationChain",
+        expiration_list: [expiration_entry.new("2026-04-06", 0, "SPXW")]
+      )
+      allow(client).to receive(:get_option_expiration_chain).and_return(expiration_chain)
+      allow(client).to receive(:get_option_chain).and_return(
+        instance_double(
+          "SchwabRb::DataObjects::OptionChain",
+          underlying_price: 5100.5,
+          call_opts: [
+            option.new(
+              put_call: "CALL", symbol: "SPXW  260406C05100000", description: "SPXW call",
+              strike: 5100.0, expiration_date: Date.new(2026, 4, 6), mark: 12.5,
+              bid: 12.0, bid_size: 10, ask: 13.0, ask_size: 12, last: 12.4, last_size: 3,
+              open_interest: 100, total_volume: 50, delta: 0.5, gamma: 0.1, theta: -0.2,
+              vega: 0.3, rho: 0.05, volatility: 0.22, theoretical_volatility: 0.21,
+              theoretical_option_value: 12.3, intrinsic_value: 1.0, extrinsic_value: 11.3,
+              option_root: "SPXW"
+            )
+          ],
+          put_opts: []
+        )
+      )
+      client_factory = instance_double(Tickrake::ClientFactory, build: client)
+      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, client_factory: client_factory, logger: logger)
+
+      Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
+
+      sidecars = Dir.glob(File.join(dir, "pending_metadata", "*.meta.json"))
+      expect(sidecars.length).to eq(1)
+      sidecar = JSON.parse(File.read(sidecars.first))
+      expect(sidecar["dataset_type"]).to eq("options")
+      expect(sidecar["ticker"]).to eq("SPXW")
+      expect(sidecar["provider_name"]).to eq("schwab")
+      expect(sidecar["expiration_date"]).to eq("2026-04-06")
+      expect(sidecar["row_count"]).to eq(1)
+
+      # file_metadata_cache must NOT be written by the scrape job
+      expect(tracker.file_metadata_rows).to be_empty
     end
   end
 
