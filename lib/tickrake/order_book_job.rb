@@ -21,12 +21,7 @@ module Tickrake
 
       db_path = Tickrake::PathSupport.expand_path(runtime.config.sqlite_path)
       FileUtils.mkdir_p(File.dirname(db_path))
-      @db = SQLite3::Database.new(db_path).tap do |d|
-        d.busy_timeout(30_000)
-        d.execute("PRAGMA journal_mode = WAL")
-        d.execute("PRAGMA wal_autocheckpoint = 0")
-        d.results_as_hash = true
-      end
+      @db = Tickrake::DB.connection(db_path)
 
       @storage_paths = Tickrake::Storage::Paths.new(runtime.config)
       @parquet_writer = Tickrake::Storage::OrderBookParquetWriter.new
@@ -80,12 +75,7 @@ module Tickrake
     end
 
     def close
-      @db_lock.synchronize do
-        return unless @db
-
-        @db.close
-        @db = nil
-      end
+      # DB connection is managed by Tickrake::DB singleton; nothing to close here.
     end
 
     private
