@@ -16,6 +16,7 @@ module Tickrake
         @candles_builder = nil
         @maintenance_builder = nil
         @order_book_builder = nil
+        @level_one_builder = nil
       end
 
       def provider(name)
@@ -68,19 +69,25 @@ module Tickrake
         @order_book_builder.instance_eval(&block)
       end
 
+      def level_one(&block)
+        @level_one_builder = LevelOneBuilder.new
+        @level_one_builder.instance_eval(&block)
+      end
+
       def build!(config)
-        raise Tickrake::Error, "job `#{@name}` requires type" if @type.nil?
         raise Tickrake::Error, "job `#{@name}` requires provider" if @provider.nil?
         raise Tickrake::Error, "job `#{@name}` requires a schedule block" if @schedule_builder.nil?
 
         schedule = @schedule_builder.build!
+        inferred_type = infer_type
 
-        case @type
+        case inferred_type
         when "options"     then build_options_job!(config, schedule)
         when "candles"     then build_candles_job!(config, schedule)
         when "maintenance" then build_maintenance_job!(schedule)
         when "order_book"  then build_order_book_job!(schedule)
-        else raise Tickrake::Error, "job `#{@name}` has unknown type: #{@type.inspect}"
+        when "level_one"   then build_level_one_job!(schedule)
+        else raise Tickrake::Error, "job `#{@name}` has unknown type: #{inferred_type.inspect}"
         end
       end
 
@@ -177,6 +184,46 @@ module Tickrake
           tasks: @maintenance_builder.build!,
           task: nil,
           settings: {},
+          manual: false
+        )
+      end
+
+      def infer_type
+        return @type if @type
+
+        builders = {
+          "options"     => @options_builder,
+          "candles"     => @candles_builder,
+          "maintenance" => @maintenance_builder,
+          "order_book"  => @order_book_builder,
+          "level_one"   => @level_one_builder
+        }
+        present = builders.select { |_, b| !b.nil? }
+        raise Tickrake::Error, "job `#{@name}` requires a typed block (e.g. `level_one do`, `candles do`)" if present.empty?
+        raise Tickrake::Error, "job `#{@name}` has multiple typed blocks: #{present.keys.join(", ")}" if present.size > 1
+
+        present.keys.first
+      end
+
+      def build_level_one_job!(schedule)
+        raise Tickrake::Error, "level_one job `#{@name}` requires a level_one block" if @level_one_builder.nil?
+
+        level_one_config = @level_one_builder.build!(job_name: @name, inline_symbols: @inline_symbols)
+
+        Tickrake::ScheduledJobConfig.new(
+          name: @name,
+          type: "level_one",
+          provider: @provider,
+          interval_seconds: schedule[:interval_seconds],
+          windows: schedule[:windows],
+          run_at: schedule[:run_at],
+          days: schedule[:days],
+          lookback_days: nil,
+          dte_buckets: [],
+          universe: @inline_symbols,
+          tasks: [],
+          task: nil,
+          settings: level_one_config,
           manual: false
         )
       end

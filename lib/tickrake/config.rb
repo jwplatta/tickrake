@@ -78,6 +78,13 @@ module Tickrake
     end
   end
 
+  LevelOneConfig = Struct.new(
+    :services,
+    :flush_interval_seconds,
+    :retention_days,
+    keyword_init: true
+  )
+
   SchedulerWindow = Struct.new(:days, :start_time, :end_time, keyword_init: true)
   OptionSymbol = Struct.new(:symbol, :option_root, :provider, keyword_init: true)
   ProviderDefinition = Struct.new(:name, :adapter, :settings, :symbol_map, keyword_init: true) do
@@ -147,6 +154,10 @@ module Tickrake
 
     def order_book?
       type == "order_book"
+    end
+
+    def level_one?
+      type == "level_one"
     end
 
     def interval_schedule?
