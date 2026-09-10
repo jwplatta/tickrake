@@ -24,6 +24,7 @@ module Tickrake
       @db = Tickrake::DB.connection(db_path)
 
       @storage_paths = Tickrake::Storage::Paths.new(runtime.config)
+      @provider_definition = runtime.config.provider_definition(@provider)
       @parquet_writer = Tickrake::Storage::OrderBookParquetWriter.new
       @s3_archive = runtime.config.s3_archive
     end
@@ -158,7 +159,7 @@ module Tickrake
 
       flushed_ids = []
       by_symbol.each do |symbol, symbol_rows|
-        path = @storage_paths.order_book_path(provider: @provider, symbol: symbol, flush_start: flush_start)
+        path = @storage_paths.order_book_path(provider: @provider, symbol: symbol, flush_start: flush_start, provider_definition: @provider_definition)
         begin
           @parquet_writer.write(path, rows: symbol_rows)
           upload_to_s3(path) if @s3_archive
