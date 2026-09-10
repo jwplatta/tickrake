@@ -43,6 +43,25 @@ module Tickrake
         )
       end
 
+      def level_one_path(provider:, symbol:, flush_start:)
+        timestamp_str = flush_start.utc.strftime("%H%M%S")
+        File.join(
+          level_one_dir(provider, flush_start),
+          "#{sanitize_symbol(symbol)}_#{timestamp_str}Z.parquet"
+        )
+      end
+
+      def level_one_dir(provider, date)
+        File.join(
+          @config.data_dir,
+          "level_one",
+          provider.to_s,
+          date.utc.strftime("%Y"),
+          date.utc.strftime("%m"),
+          date.utc.strftime("%d")
+        )
+      end
+
       def order_book_path(provider:, symbol:, flush_start:)
         timestamp_str = flush_start.utc.strftime("%H%M%S")
         File.join(

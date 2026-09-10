@@ -12,6 +12,7 @@ require_relative "dsl/candles_builder"
 require_relative "dsl/maintenance_builder"
 require_relative "dsl/order_book_contracts_builder"
 require_relative "dsl/order_book_builder"
+require_relative "dsl/level_one_builder"
 require_relative "dsl/universe_builder"
 require_relative "dsl/job_builder"
 

@@ -93,15 +93,14 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       expect(sym.option_root).to eq("SPXW")
     end
 
-    it "raises without type" do
-      expect do
-        build("bad") do
-          provider :schwab
-          universe "stock_universe"
-          schedule { every 10.minutes; weekdays from: "08:30", to: "15:05" }
-          options  { dte 0..30 }
-        end
-      end.to raise_error(Tickrake::Error, /requires type/)
+    it "infers type from the options block without an explicit type call" do
+      job = build("inferred_options") do
+        provider :schwab
+        universe "stock_universe"
+        schedule { every 10.minutes; weekdays from: "08:30", to: "15:05" }
+        options  { dte 0..30 }
+      end
+      expect(job.type).to eq("options")
     end
 
     it "raises without provider" do
@@ -237,6 +236,117 @@ RSpec.describe Tickrake::DSL::JobBuilder do
           candles { frequencies %w[day]; start_date "2026-06-01" }
         end
       end.to raise_error(Tickrake::Error, /requires symbols or universe/)
+    end
+  end
+
+  describe "order_book job" do
+    subject(:job) do
+      build("test_order_book") do
+        provider :schwab
+        symbols "SPY", "QQQ"
+        schedule { weekdays from: "08:30", to: "15:00" }
+        order_book do
+          services [:nyse_book, :nasdaq_book]
+          flush_interval 60
+          retention_days 30
+        end
+      end
+    end
+
+    it "infers type as order_book" do
+      expect(job.type).to eq("order_book")
+    end
+
+    it "stores OrderBookConfig in settings" do
+      expect(job.settings).to be_a(Tickrake::OrderBookConfig)
+      expect(job.settings.services).to eq(%w[NYSE_BOOK NASDAQ_BOOK])
+      expect(job.settings.flush_interval_seconds).to eq(60)
+    end
+
+    it "sets universe from inline symbols" do
+      expect(job.universe).to eq(%w[SPY QQQ])
+    end
+
+    it "raises when mixing equity and options_book services" do
+      expect do
+        build("bad") do
+          provider :schwab
+          symbols "SPY"
+          schedule { weekdays from: "08:30", to: "15:00" }
+          order_book { services [:nyse_book, :options_book] }
+        end
+      end.to raise_error(Tickrake::Error, /cannot mix/)
+    end
+
+    it "raises when options_book is used without a contracts block" do
+      expect do
+        build("bad") do
+          provider :schwab
+          schedule { weekdays from: "08:30", to: "15:00" }
+          order_book { services [:options_book] }
+        end
+      end.to raise_error(Tickrake::Error, /requires a contracts block/)
+    end
+  end
+
+  describe "level_one job" do
+    subject(:job) do
+      build("test_level_one") do
+        provider :schwab
+        symbols "/ES"
+        schedule { every_day from: "17:00", to: "16:00" }
+        level_one do
+          services [:level_one_futures]
+          flush_interval 300
+          retention_days 30
+        end
+      end
+    end
+
+    it "infers type as level_one" do
+      expect(job.type).to eq("level_one")
+    end
+
+    it "stores LevelOneConfig in settings" do
+      expect(job.settings).to be_a(Tickrake::LevelOneConfig)
+      expect(job.settings.services).to eq(%w[LEVELONE_FUTURES])
+      expect(job.settings.flush_interval_seconds).to eq(300)
+    end
+
+    it "sets universe from inline symbols" do
+      expect(job.universe).to eq(["/ES"])
+    end
+
+    it "raises with an unknown service" do
+      expect do
+        build("bad") do
+          provider :schwab
+          symbols "/ES"
+          schedule { every_day from: "17:00", to: "16:00" }
+          level_one { services [:nyse_book] }
+        end
+      end.to raise_error(Tickrake::Error, /Unknown level_one services/)
+    end
+
+    it "raises without symbols" do
+      expect do
+        build("bad") do
+          provider :schwab
+          schedule { every_day from: "17:00", to: "16:00" }
+          level_one { services [:level_one_futures] }
+        end
+      end.to raise_error(Tickrake::Error, /requires symbols/)
+    end
+  end
+
+  describe "type inference" do
+    it "raises when no typed block is present" do
+      expect do
+        build("bad") do
+          provider :schwab
+          schedule { weekdays from: "08:30", to: "15:00" }
+        end
+      end.to raise_error(Tickrake::Error, /requires a typed block/)
     end
   end
 
