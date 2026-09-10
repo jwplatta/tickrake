@@ -13,7 +13,7 @@ RSpec.describe "option sample maintenance" do
       default_provider_name: "schwab",
       option_root_tickers: { "SPXW" => "SPX" },
       option_snapshot_filename_timezone: "utc",
-      archives: with_archive ? { "s3_archive" => Tickrake::S3ArchiveConfig.new(bucket: "tickrake", region: "us-east-1", prefix: "", storage_class: "GLACIER_IR") } : {},
+      datastores: with_archive ? { "s3_archive" => Tickrake::DatastoreConfig.new(name: "s3_archive", type: "s3", bucket: "tickrake", region: "us-east-1", prefix: "", storage_class: "GLACIER_IR") } : {},
       data_dir: File.join(dir, "data"),
       history_dir: File.join(dir, "data", "history"),
       options_dir: File.join(dir, "data", "options"),

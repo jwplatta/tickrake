@@ -16,7 +16,9 @@ module Tickrake
       return if sidecar_paths.empty?
 
       attrs_list = sidecar_paths.map do |path|
-        JSON.parse(File.read(path)).transform_keys(&:to_sym)
+        attrs = JSON.parse(File.read(path)).transform_keys(&:to_sym)
+        attrs[:updated_at] = Time.iso8601(attrs[:updated_at]) if attrs[:updated_at].is_a?(String)
+        attrs
       end
 
       @runtime.tracker.bulk_upsert_file_metadata(attrs_list)

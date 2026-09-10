@@ -11,12 +11,13 @@ RSpec.describe Tickrake::Storage::S3Archive do
       default_provider_name: "schwab",
       option_root_tickers: { "SPXW" => "SPX" },
       option_snapshot_filename_timezone: "utc",
-      s3_archive: Tickrake::S3ArchiveConfig.new(
-        bucket: "tickrake",
-        region: "us-east-1",
-        prefix: prefix,
-        storage_class: storage_class
-      ),
+      datastores: {
+        "s3_archive" => Tickrake::DatastoreConfig.new(
+          name: "s3_archive", type: "s3",
+          bucket: "tickrake", region: "us-east-1",
+          prefix: prefix, storage_class: storage_class
+        )
+      },
       data_dir: File.join(dir, "data"),
       history_dir: File.join(dir, "data", "history"),
       options_dir: File.join(dir, "data", "options"),

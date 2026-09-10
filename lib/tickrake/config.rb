@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 module Tickrake
+  # Legacy alias — kept for backwards compatibility with existing specs and internal callers.
+  # New code should use DatastoreConfig directly.
   DatastoreConfig = Struct.new(
     :name, :type, :bucket, :region, :prefix, :storage_class,
     :endpoint, :access_key_id, :secret_access_key, :force_path_style,
@@ -14,6 +16,8 @@ module Tickrake
       [normalized_prefix, normalized_relative_path].join("/")
     end
   end
+
+  S3ArchiveConfig = DatastoreConfig
 
   UniverseEntry = Struct.new(
     :symbol,

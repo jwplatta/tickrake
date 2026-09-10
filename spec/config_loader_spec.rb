@@ -36,7 +36,7 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.s3_archive.storage_class).to eq("GLACIER_IR")
   end
 
-  it "loads storage.s3_archive with defaults" do
+  it "loads datastores.s3_archive with defaults" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.yml")
       File.write(path, <<~YAML)
@@ -44,8 +44,9 @@ RSpec.describe Tickrake::ConfigLoader do
         providers:
           schwab:
             adapter: schwab
-        storage:
+        datastores:
           s3_archive:
+            type: s3
             bucket: tickrake
         schedule:
           index_options:
@@ -65,11 +66,11 @@ RSpec.describe Tickrake::ConfigLoader do
       expect(config.s3_archive.bucket).to eq("tickrake")
       expect(config.s3_archive.region).to be_nil
       expect(config.s3_archive.prefix).to eq("")
-      expect(config.s3_archive.storage_class).to eq("GLACIER_IR")
+      expect(config.s3_archive.storage_class).to eq("STANDARD_IA")
     end
   end
 
-  it "loads storage.s3_archive with explicit values" do
+  it "loads datastores.s3_archive with explicit values" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.yml")
       File.write(path, <<~YAML)
@@ -77,8 +78,9 @@ RSpec.describe Tickrake::ConfigLoader do
         providers:
           schwab:
             adapter: schwab
-        storage:
+        datastores:
           s3_archive:
+            type: s3
             bucket: tickrake
             region: us-east-1
             prefix: archive/daily
@@ -105,7 +107,7 @@ RSpec.describe Tickrake::ConfigLoader do
     end
   end
 
-  it "rejects storage.s3_archive without a bucket" do
+  it "rejects datastores.s3_archive without a bucket" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.yml")
       File.write(path, <<~YAML)
@@ -113,8 +115,9 @@ RSpec.describe Tickrake::ConfigLoader do
         providers:
           schwab:
             adapter: schwab
-        storage:
+        datastores:
           s3_archive:
+            type: s3
             bucket:
         schedule:
           index_options:
@@ -129,11 +132,11 @@ RSpec.describe Tickrake::ConfigLoader do
               - symbol: SPY
       YAML
 
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /storage\.s3_archive\.bucket is required/)
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /datastore `s3_archive` bucket is required/)
     end
   end
 
-  it "rejects invalid storage.s3_archive.storage_class values" do
+  it "rejects invalid datastores.s3_archive.storage_class values" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.yml")
       File.write(path, <<~YAML)
@@ -141,8 +144,9 @@ RSpec.describe Tickrake::ConfigLoader do
         providers:
           schwab:
             adapter: schwab
-        storage:
+        datastores:
           s3_archive:
+            type: s3
             bucket: tickrake
             storage_class: frozen
         schedule:
@@ -158,7 +162,7 @@ RSpec.describe Tickrake::ConfigLoader do
               - symbol: SPY
       YAML
 
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Invalid storage\.s3_archive\.storage_class/)
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /datastore `s3_archive` has invalid storage_class/)
     end
   end
 
@@ -385,8 +389,9 @@ RSpec.describe Tickrake::ConfigLoader do
                   artifacts: [csv]
                   retain_local:
                     csv: false
-        storage:
+        datastores:
           s3_archive:
+            type: s3
             bucket: tickrake
       YAML
 
@@ -425,8 +430,9 @@ RSpec.describe Tickrake::ConfigLoader do
             adapter: ibkr
         universes:
           file: universes.yml
-        storage:
+        datastores:
           s3_archive:
+            type: s3
             bucket: tickrake
         schedule:
           index_options:

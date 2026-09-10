@@ -400,4 +400,80 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       end.to raise_error(Tickrake::Error, /requires a maintenance block/)
     end
   end
+
+  describe "metadata_sync job" do
+    def build_metadata_sync(name, &block)
+      builder = described_class.new(name)
+      builder.instance_eval(&block)
+      builder.build!(config)
+    end
+
+    it "builds a metadata_sync job without requiring a provider" do
+      job = build_metadata_sync("metadata_sync") do
+        schedule do
+          every 30.seconds
+          weekdays from: "08:00", to: "16:00"
+        end
+        metadata_sync { batch_size 200 }
+      end
+
+      expect(job.type).to eq("metadata_sync")
+      expect(job.provider).to be_nil
+      expect(job.interval_seconds).to eq(30)
+      expect(job.settings.fetch("batch_size")).to eq(200)
+    end
+
+    it "defaults batch_size to 500" do
+      job = build_metadata_sync("metadata_sync") do
+        schedule do
+          every 30.seconds
+          weekdays from: "08:00", to: "16:00"
+        end
+        metadata_sync {}
+      end
+
+      expect(job.settings.fetch("batch_size")).to eq(500)
+    end
+
+    it "raises without a metadata_sync block" do
+      expect do
+        build_metadata_sync("bad") do
+          schedule { every 30.seconds; weekdays from: "08:00", to: "16:00" }
+          type :metadata_sync
+        end
+      end.to raise_error(Tickrake::Error, /requires a metadata_sync block/)
+    end
+  end
+
+  describe "intraday_publish job" do
+    def build_intraday_publish(name, &block)
+      builder = described_class.new(name)
+      builder.instance_eval(&block)
+      builder.build!(config)
+    end
+
+    it "builds an intraday_publish job without requiring a provider" do
+      job = build_intraday_publish("intraday_publisher") do
+        schedule do
+          every 60.seconds
+          weekdays from: "08:30", to: "15:30"
+        end
+        intraday_publish { datastore :minio_intraday }
+      end
+
+      expect(job.type).to eq("intraday_publish")
+      expect(job.provider).to be_nil
+      expect(job.interval_seconds).to eq(60)
+      expect(job.settings.fetch("datastore_name")).to eq("minio_intraday")
+    end
+
+    it "raises without a datastore" do
+      expect do
+        build_intraday_publish("bad") do
+          schedule { every 60.seconds; weekdays from: "08:30", to: "15:30" }
+          intraday_publish {}
+        end
+      end.to raise_error(Tickrake::Error, /requires datastore/)
+    end
+  end
 end

@@ -36,7 +36,10 @@ storage:
   data_dir: ~/.tickrake/data
   history_dir: ~/.tickrake/data/history
   options_dir: ~/.tickrake/data/options
+
+datastores:
   s3_archive:
+    type: s3
     bucket: tickrake
     region: us-east-1
     prefix:
