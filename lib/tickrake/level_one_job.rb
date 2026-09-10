@@ -102,6 +102,7 @@ module Tickrake
           next unless symbol
 
           fields = extract_fields(entry, service)
+          next if fields[:bid].nil? && fields[:ask].nil? && fields[:last].nil?
 
           @db.execute(
             <<~SQL,
