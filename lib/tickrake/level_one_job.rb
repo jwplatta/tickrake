@@ -50,9 +50,10 @@ module Tickrake
       stream = SchwabRb::Stream::Client.new(client)
       symbols = @scheduled_job.universe
 
-      @level_one_config.services.each do |service|
-        stream.on(service.downcase.to_sym, symbols: symbols, fields: :all) do |event|
-          handle_event(event, service: service)
+      @level_one_config.services.each do |service_sym|
+        service_str = SchwabRb::Stream::Services::SYMBOL_TO_SERVICE.fetch(service_sym)
+        stream.on(service_sym, symbols: symbols, fields: :all) do |event|
+          handle_event(event, service: service_str)
         end
       end
 
@@ -225,7 +226,8 @@ module Tickrake
 
     def register_session
       now_ms = (Time.now.to_f * 1000).to_i
-      parameters = { services: @level_one_config.services, symbols: @scheduled_job.universe }
+      service_strings = @level_one_config.services.map { |s| SchwabRb::Stream::Services::SYMBOL_TO_SERVICE.fetch(s) }
+      parameters = { services: service_strings, symbols: @scheduled_job.universe }
       @db_lock.synchronize do
         @db.execute("DELETE FROM job_sessions WHERE job_name = ?", [@job_name])
         @db.execute(

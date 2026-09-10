@@ -18,8 +18,8 @@ RSpec.describe Tickrake::DSL::LevelOneBuilder do
       end
     end
 
-    it "normalizes DSL symbol to Schwab constant" do
-      expect(config.services).to eq(%w[LEVELONE_FUTURES])
+    it "stores services as DSL symbols for stream.on" do
+      expect(config.services).to eq([:level_one_futures])
     end
 
     it "sets flush_interval_seconds" do
@@ -36,7 +36,7 @@ RSpec.describe Tickrake::DSL::LevelOneBuilder do
       config = build(inline_symbols: ["SPY"]) do
         services [:level_one_equities, :level_one_options]
       end
-      expect(config.services).to eq(%w[LEVELONE_EQUITIES LEVELONE_OPTIONS])
+      expect(config.services).to eq(%i[level_one_equities level_one_options])
     end
   end
 
@@ -67,7 +67,7 @@ RSpec.describe Tickrake::DSL::LevelOneBuilder do
 
     it "raises with an unknown service" do
       expect do
-        build { services [:nyse_book] }
+        build { services [:not_a_real_service] }
       end.to raise_error(Tickrake::Error, /Unknown level_one services/)
     end
   end

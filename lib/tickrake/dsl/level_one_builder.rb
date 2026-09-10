@@ -12,14 +12,11 @@ module Tickrake
       ].freeze
 
       def services(list)
-        normalized = Array(list).map do |s|
-          # Accept both DSL symbols (:level_one_futures) and string constants ("LEVELONE_FUTURES")
-          SchwabRb::Stream::Services::SYMBOL_TO_SERVICE.fetch(s.to_sym) { s.to_s.upcase }
-        end
-        unknown = normalized - VALID_SERVICES
+        symbols = Array(list).map(&:to_sym)
+        unknown = symbols.reject { |s| SchwabRb::Stream::Services::SYMBOL_TO_SERVICE.key?(s) }
         raise Tickrake::Error, "Unknown level_one services: #{unknown.join(", ")}" unless unknown.empty?
 
-        @services = normalized
+        @services = symbols
       end
 
       def flush_interval(seconds)

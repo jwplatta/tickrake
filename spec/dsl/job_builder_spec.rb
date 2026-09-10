@@ -309,7 +309,7 @@ RSpec.describe Tickrake::DSL::JobBuilder do
 
     it "stores LevelOneConfig in settings" do
       expect(job.settings).to be_a(Tickrake::LevelOneConfig)
-      expect(job.settings.services).to eq(%w[LEVELONE_FUTURES])
+      expect(job.settings.services).to eq(%i[level_one_futures])
       expect(job.settings.flush_interval_seconds).to eq(300)
     end
 
@@ -323,7 +323,7 @@ RSpec.describe Tickrake::DSL::JobBuilder do
           provider :schwab
           symbols "/ES"
           schedule { every_day from: "17:00", to: "16:00" }
-          level_one { services [:nyse_book] }
+          level_one { services [:not_a_real_service] }
         end
       end.to raise_error(Tickrake::Error, /Unknown level_one services/)
     end
