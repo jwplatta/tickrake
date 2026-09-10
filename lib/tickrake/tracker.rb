@@ -297,6 +297,20 @@ module Tickrake
       end
     end
 
+    def intraday_active_roots
+      synchronize_db do
+        db.execute(
+          <<~SQL
+            SELECT DISTINCT provider_name, ticker AS root
+            FROM file_metadata_cache
+            WHERE dataset_type = 'options'
+              AND date(last_observed_at) = date('now')
+            ORDER BY provider_name, ticker
+          SQL
+        ).map { |row| { provider_name: row.fetch("provider_name"), root: row.fetch("root") } }
+      end
+    end
+
     def delete_file_metadata_paths(paths)
       normalized_paths = Array(paths).map { |path| Tickrake::PathSupport.expand_path(path) }.uniq
       return 0 if normalized_paths.empty?

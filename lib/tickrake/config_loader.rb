@@ -12,7 +12,8 @@ module Tickrake
     VALID_MAINTENANCE_SUBJECTS = %w[option_samples].freeze
     VALID_ARCHIVE_DESTINATIONS = %w[s3_archive].freeze
     VALID_ARCHIVE_ARTIFACTS = %w[csv parquet].freeze
-    VALID_S3_STORAGE_CLASSES = %w[STANDARD GLACIER GLACIER_IR].freeze
+    VALID_S3_STORAGE_CLASSES = %w[STANDARD STANDARD_IA GLACIER GLACIER_IR].freeze
+    VALID_DATASTORE_TYPES = %w[s3 s3_compatible].freeze
 
     def self.load(path)
       new(path).load
@@ -31,10 +32,12 @@ module Tickrake
       options_config = data.fetch("options", {})
       option_root_tickers = load_option_root_tickers(options_config)
       option_snapshot_filename_timezone = load_option_snapshot_filename_timezone(options_config)
-      data_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "data_dir", "~/.tickrake/data"))
-      history_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "history_dir", File.join(data_dir, "history")))
-      options_dir = Tickrake::PathSupport.expand_path(dig(data, "storage", "options_dir", File.join(data_dir, "options")))
-      archives = load_archives(data.fetch("storage", {}))
+      storage = data.fetch("storage", {})
+      data_dir = Tickrake::PathSupport.expand_path(dig(storage, "data_dir", "~/.tickrake/data"))
+      history_dir = Tickrake::PathSupport.expand_path(dig(storage, "history_dir", File.join(data_dir, "history")))
+      options_dir = Tickrake::PathSupport.expand_path(dig(storage, "options_dir", File.join(data_dir, "options")))
+      pending_metadata_dir = Tickrake::PathSupport.expand_path(dig(storage, "pending_metadata_dir", "~/.tickrake/pending_metadata"))
+      datastores = load_datastores(data.fetch("datastores", {}))
       universes = load_universes(data.fetch("universes", {}))
       @universes = universes
       runtime = data.fetch("runtime", {})
@@ -48,7 +51,8 @@ module Tickrake
         default_provider_name: default_provider_name,
         option_root_tickers: option_root_tickers,
         option_snapshot_filename_timezone: option_snapshot_filename_timezone,
-        archives: archives,
+        datastores: datastores,
+        pending_metadata_dir: pending_metadata_dir,
         universes: universes,
         data_dir: data_dir,
         history_dir: history_dir,
@@ -121,32 +125,45 @@ module Tickrake
       raise ConfigError, "Invalid options.snapshot_filename_timezone: #{raw_value}"
     end
 
-    def load_archives(raw_storage)
-      raise ConfigError, "storage must be a mapping." unless raw_storage.is_a?(Hash)
+    def load_datastores(raw_datastores)
+      raise ConfigError, "datastores must be a mapping." unless raw_datastores.is_a?(Hash)
+      return {} if raw_datastores.empty?
 
-      raw_s3_archive = raw_storage["s3_archive"]
-      return {} if raw_s3_archive.nil?
+      raw_datastores.each_with_object({}) do |(name, raw_ds), result|
+        raise ConfigError, "datastore `#{name}` must be a mapping." unless raw_ds.is_a?(Hash)
 
-      raise ConfigError, "storage.s3_archive must be a mapping." unless raw_s3_archive.is_a?(Hash)
+        type = raw_ds.fetch("type", "").to_s.strip
+        raise ConfigError, "datastore `#{name}` type is required (s3 or s3_compatible)." if type.empty?
+        raise ConfigError, "datastore `#{name}` has unsupported type: #{type}" unless VALID_DATASTORE_TYPES.include?(type)
 
-      bucket = raw_s3_archive.fetch("bucket", "").to_s.strip
-      raise ConfigError, "storage.s3_archive.bucket is required." if bucket.empty?
+        bucket = raw_ds.fetch("bucket", "").to_s.strip
+        raise ConfigError, "datastore `#{name}` bucket is required." if bucket.empty?
 
-      region = raw_s3_archive.fetch("region", nil)&.to_s&.strip
-      prefix = raw_s3_archive.fetch("prefix", "").to_s
-      storage_class = raw_s3_archive.fetch("storage_class", "GLACIER_IR").to_s.strip.upcase
-      unless VALID_S3_STORAGE_CLASSES.include?(storage_class)
-        raise ConfigError, "Invalid storage.s3_archive.storage_class: #{storage_class}"
-      end
+        if type == "s3_compatible"
+          endpoint = raw_ds.fetch("endpoint", "").to_s.strip
+          raise ConfigError, "datastore `#{name}` endpoint is required for s3_compatible type." if endpoint.empty?
+        end
 
-      {
-        "s3_archive" => S3ArchiveConfig.new(
+        region = raw_ds.fetch("region", nil)&.to_s&.strip
+        prefix = raw_ds.fetch("prefix", "").to_s
+        storage_class = raw_ds.fetch("storage_class", "STANDARD_IA").to_s.strip.upcase
+        unless VALID_S3_STORAGE_CLASSES.include?(storage_class)
+          raise ConfigError, "datastore `#{name}` has invalid storage_class: #{storage_class}"
+        end
+
+        result[name.to_s] = DatastoreConfig.new(
+          name: name.to_s,
+          type: type,
           bucket: bucket,
           region: region.nil? || region.empty? ? nil : region,
           prefix: prefix,
-          storage_class: storage_class
+          storage_class: storage_class,
+          endpoint: raw_ds["endpoint"]&.to_s&.strip,
+          access_key_id: raw_ds["access_key_id"]&.to_s,
+          secret_access_key: raw_ds["secret_access_key"]&.to_s,
+          force_path_style: !!raw_ds.fetch("force_path_style", false)
         )
-      }
+      end
     end
 
     def load_universes(raw_universes)

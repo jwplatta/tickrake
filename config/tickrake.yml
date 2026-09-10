@@ -1,0 +1,1845 @@
+timezone: America/Chicago
+sqlite_path: ~/.tickrake/tickrake.sqlite3
+
+default_provider: ibkr-paper
+providers:
+  tickrake:
+    adapter: ibkr
+    settings:
+      host: 127.0.0.1
+      port: 4002
+      client_id: 1001
+      historical_timeout_seconds: 120
+  massive:
+    adapter: massive
+    settings: {}
+  schwab:
+    adapter: schwab
+    settings:
+      rate_limit_max_requests: 120
+      rate_limit_interval_seconds: 60
+      restart_after_consecutive_failures: 3
+      restart_cooldown_seconds: 10
+    symbol_map:
+      /ES: ^ES
+      /NQ: ^NQ
+      /RTY: ^RTY
+      /YM: ^YM
+  ibkr-paper:
+    adapter: ibkr
+    settings:
+      host: 127.0.0.1
+      port: 4002
+      client_id: 1001
+      historical_timeout_seconds: 120
+  ibkr-live:
+    adapter: ibkr
+    settings:
+      host: 127.0.0.1
+      port: 4001
+      client_id: 1000
+      historical_timeout_seconds: 120
+
+options:
+  snapshot_filename_timezone: utc
+  root_tickers:
+    SPXW: SPX
+
+storage:
+  data_dir: ~/.tickrake/data
+
+datastores:
+  s3_archive:
+    type: s3
+    bucket: tickrake
+    region: us-east-1
+    storage_class: GLACIER_IR
+
+runtime:
+  max_workers: 4
+  retry_count: 3
+  retry_delay_seconds: 5
+  option_fetch_timeout_seconds: 60
+  candle_fetch_timeout_seconds: 1800
+
+universes:
+  file: universes.yml
+
+schedule:
+  compact_spxw:
+    type: maintenance
+    provider: schwab
+    run_at: "15:10"
+    days: [mon, tue, wed, thu, fri]
+    tasks:
+      - compact:
+          subject: option_samples
+          universe: spx_symbols
+          delete_sources: true
+      - archive:
+          subject: option_samples
+          universe: spx_symbols
+          destination: s3_archive
+          artifacts: [csv, parquet]
+          retain_local:
+            csv: false
+            parquet: true
+
+  compact_non_spxw_option_samples:
+    type: maintenance
+    provider: schwab
+    run_at: "15:20"
+    days: [mon, tue, wed, thu, fri]
+    tasks:
+      - compact:
+          subject: option_samples
+          universe: nightly_non_spxw_option_symbols
+          delete_sources: true
+      - archive:
+          subject: option_samples
+          universe: nightly_non_spxw_option_symbols
+          destination: s3_archive
+          artifacts: [csv, parquet]
+          retain_local:
+            csv: false
+            parquet: true
+
+  stock_options:
+    provider: schwab
+    type: options
+    interval_seconds: 1800
+    windows:
+      - days: [mon, tue, wed, thu, fri]
+        start: "08:30"
+        end: "15:05"
+    dte_buckets:
+      - 0DTE
+      - 1DTE
+      - 2DTE
+      - 3DTE
+      - 4DTE
+      - 5DTE
+      - 6DTE
+      - 7DTE
+      - 8DTE
+      - 9DTE
+      - 10DTE
+      - 11DTE
+      - 12DTE
+      - 13DTE
+      - 14DTE
+      - 15DTE
+      - 16DTE
+      - 17DTE
+      - 18DTE
+      - 19DTE
+      - 20DTE
+      - 21DTE
+      - 22DTE
+      - 23DTE
+      - 24DTE
+      - 25DTE
+      - 26DTE
+      - 27DTE
+      - 28DTE
+      - 29DTE
+      - 30DTE
+    universe: stock_option_symbols
+
+  etf_options:
+    provider: schwab
+    type: options
+    interval_seconds: 600 #every 10 min
+    windows:
+      - days: [mon, tue, wed, thu, fri]
+        start: "08:30"
+        end: "15:05"
+    dte_buckets:
+      - 0DTE
+      - 1DTE
+      - 2DTE
+      - 3DTE
+      - 4DTE
+      - 5DTE
+      - 6DTE
+      - 7DTE
+      - 8DTE
+      - 9DTE
+      - 10DTE
+      - 11DTE
+      - 12DTE
+      - 13DTE
+      - 14DTE
+      - 15DTE
+      - 16DTE
+      - 17DTE
+      - 18DTE
+      - 19DTE
+      - 20DTE
+      - 21DTE
+      - 22DTE
+      - 23DTE
+      - 24DTE
+      - 25DTE
+      - 26DTE
+      - 27DTE
+      - 28DTE
+      - 29DTE
+      - 30DTE
+    universe: etf_option_symbols
+
+  spx_options:
+    provider: schwab
+    type: options
+    interval_seconds: 60
+    windows:
+      - days: [mon, tue, wed, thu, fri]
+        start: "08:30"
+        end: "15:05"
+    dte_buckets:
+      - 0DTE
+      - 1DTE
+      - 2DTE
+      - 3DTE
+      - 4DTE
+      - 5DTE
+      - 6DTE
+      - 7DTE
+      - 8DTE
+      - 9DTE
+      - 10DTE
+      - 11DTE
+      - 12DTE
+      - 13DTE
+      - 14DTE
+      - 15DTE
+      - 16DTE
+      - 17DTE
+      - 18DTE
+      - 19DTE
+      - 20DTE
+      - 21DTE
+      - 22DTE
+      - 23DTE
+      - 24DTE
+      - 25DTE
+      - 26DTE
+      - 27DTE
+      - 28DTE
+      - 29DTE
+      - 30DTE
+      - 31DTE
+      - 32DTE
+      - 33DTE
+      - 34DTE
+      - 35DTE
+      - 36DTE
+      - 37DTE
+      - 38DTE
+      - 39DTE
+      - 40DTE
+      - 41DTE
+      - 42DTE
+      - 43DTE
+      - 44DTE
+      - 45DTE
+      - 46DTE
+      - 47DTE
+      - 48DTE
+      - 49DTE
+      - 50DTE
+      - 51DTE
+      - 52DTE
+      - 53DTE
+      - 54DTE
+      - 55DTE
+      - 56DTE
+      - 57DTE
+      - 58DTE
+      - 59DTE
+      - 60DTE
+    universe: spx_symbols
+
+  spx_min_candles:
+    provider: ibkr-paper
+    type: candles
+    interval_seconds: 120
+    windows:
+      - days: [mon, tue, wed, thu, fri]
+        start: "08:30"
+        end: "15:00"
+    lookback_days: 7
+    start_date: "2026-03-01"
+    frequencies: [30min, 5min, 1min]
+    universe: spx_symbols
+
+  eod_candles:
+    provider: ibkr-paper
+    type: candles
+    run_at: "15:05"
+    days: [mon, tue, wed, thu, fri]
+    lookback_days: 7
+    start_date: "2020-01-01"
+    frequencies: [day, 30min, 5min, 1min]
+    universe: eod_candle_symbols
+
+  sp500_day_candles:
+    type: candles
+    manual: true
+    provider: ibkr-paper
+    lookback_days: 7
+    frequencies: [day]
+    universe:
+      - symbol: MMM
+        start_date: "2018-01-01"
+      - symbol: AOS
+        start_date: "2018-01-01"
+      - symbol: ABT
+        start_date: "2018-01-01"
+      - symbol: ABBV
+        start_date: "2018-01-01"
+      - symbol: ACN
+        start_date: "2018-01-01"
+      - symbol: ADBE
+        start_date: "2018-01-01"
+      - symbol: AMD
+        start_date: "2018-01-01"
+      - symbol: AES
+        start_date: "2018-01-01"
+      - symbol: AFL
+        start_date: "2018-01-01"
+      - symbol: A
+        start_date: "2018-01-01"
+      - symbol: APD
+        start_date: "2018-01-01"
+      - symbol: ABNB
+        start_date: "2020-01-01"
+      - symbol: AKAM
+        start_date: "2018-01-01"
+      - symbol: ALB
+        start_date: "2018-01-01"
+      - symbol: ARE
+        start_date: "2018-01-01"
+      - symbol: ALGN
+        start_date: "2018-01-01"
+      - symbol: ALLE
+        start_date: "2018-01-01"
+      - symbol: LNT
+        start_date: "2018-01-01"
+      - symbol: ALL
+        start_date: "2018-01-01"
+      - symbol: GOOGL
+        start_date: "2018-01-01"
+      - symbol: GOOG
+        start_date: "2018-01-01"
+      - symbol: MO
+        start_date: "2018-01-01"
+      - symbol: AMZN
+        start_date: "2018-01-01"
+      - symbol: AMCR
+        start_date: "2019-01-01"
+      - symbol: AEE
+        start_date: "2018-01-01"
+      - symbol: AEP
+        start_date: "2018-01-01"
+      - symbol: AXP
+        start_date: "2018-01-01"
+      - symbol: AIG
+        start_date: "2018-01-01"
+      - symbol: AMT
+        start_date: "2018-01-01"
+      - symbol: AWK
+        start_date: "2018-01-01"
+      - symbol: AMP
+        start_date: "2018-01-01"
+      - symbol: AME
+        start_date: "2018-01-01"
+      - symbol: AMGN
+        start_date: "2018-01-01"
+      - symbol: APH
+        start_date: "2018-01-01"
+      - symbol: ADI
+        start_date: "2018-01-01"
+      - symbol: AON
+        start_date: "2018-01-01"
+      - symbol: APA
+        start_date: "2018-01-01"
+      - symbol: APO
+        start_date: "2018-01-01"
+      - symbol: AAPL
+        start_date: "2018-01-01"
+      - symbol: AMAT
+        start_date: "2018-01-01"
+      - symbol: APP
+        start_date: "2021-01-01"
+      - symbol: APTV
+        start_date: "2018-01-01"
+      - symbol: ACGL
+        start_date: "2018-01-01"
+      - symbol: ADM
+        start_date: "2018-01-01"
+      - symbol: ARES
+        start_date: "2018-01-01"
+      - symbol: ANET
+        start_date: "2018-01-01"
+      - symbol: AJG
+        start_date: "2018-01-01"
+      - symbol: AIZ
+        start_date: "2018-01-01"
+      - symbol: T
+        start_date: "2018-01-01"
+      - symbol: ATO
+        start_date: "2018-01-01"
+      - symbol: ADSK
+        start_date: "2018-01-01"
+      - symbol: ADP
+        start_date: "2018-01-01"
+      - symbol: AZO
+        start_date: "2018-01-01"
+      - symbol: AVB
+        start_date: "2018-01-01"
+      - symbol: AVY
+        start_date: "2018-01-01"
+      - symbol: AXON
+        start_date: "2018-01-01"
+      - symbol: BKR
+        start_date: "2018-01-01"
+      - symbol: BALL
+        start_date: "2018-01-01"
+      - symbol: BAC
+        start_date: "2018-01-01"
+      - symbol: BAX
+        start_date: "2018-01-01"
+      - symbol: BDX
+        start_date: "2018-01-01"
+      - symbol: BRK.B
+        start_date: "2018-01-01"
+      - symbol: BBY
+        start_date: "2018-01-01"
+      - symbol: TECH
+        start_date: "2018-01-01"
+      - symbol: BIIB
+        start_date: "2018-01-01"
+      - symbol: BLK
+        start_date: "2018-01-01"
+      - symbol: BX
+        start_date: "2018-01-01"
+      - symbol: XYZ
+        start_date: "2018-01-01"
+      - symbol: BK
+        start_date: "2018-01-01"
+      - symbol: BA
+        start_date: "2018-01-01"
+      - symbol: BKNG
+        start_date: "2018-01-01"
+      - symbol: BSX
+        start_date: "2018-01-01"
+      - symbol: BMY
+        start_date: "2018-01-01"
+      - symbol: AVGO
+        start_date: "2018-01-01"
+      - symbol: BR
+        start_date: "2018-01-01"
+      - symbol: BRO
+        start_date: "2018-01-01"
+      - symbol: BF.B
+        start_date: "2018-01-01"
+      - symbol: BLDR
+        start_date: "2018-01-01"
+      - symbol: BG
+        start_date: "2018-01-01"
+      - symbol: BXP
+        start_date: "2018-01-01"
+      - symbol: CHRW
+        start_date: "2018-01-01"
+      - symbol: CDNS
+        start_date: "2018-01-01"
+      - symbol: CPT
+        start_date: "2018-01-01"
+      - symbol: CPB
+        start_date: "2018-01-01"
+      - symbol: COF
+        start_date: "2018-01-01"
+      - symbol: CAH
+        start_date: "2018-01-01"
+      - symbol: CCL
+        start_date: "2018-01-01"
+      - symbol: CARR
+        start_date: "2020-01-01"
+      - symbol: CVNA
+        start_date: "2018-01-01"
+      - symbol: CASY
+        start_date: "2018-01-01"
+      - symbol: CAT
+        start_date: "2018-01-01"
+      - symbol: CBOE
+        start_date: "2018-01-01"
+      - symbol: CBRE
+        start_date: "2018-01-01"
+      - symbol: CDW
+        start_date: "2018-01-01"
+      - symbol: COR
+        start_date: "2018-01-01"
+      - symbol: CNC
+        start_date: "2018-01-01"
+      - symbol: CNP
+        start_date: "2018-01-01"
+      - symbol: CF
+        start_date: "2018-01-01"
+      - symbol: CRL
+        start_date: "2018-01-01"
+      - symbol: SCHW
+        start_date: "2018-01-01"
+      - symbol: CHTR
+        start_date: "2018-01-01"
+      - symbol: CVX
+        start_date: "2018-01-01"
+      - symbol: CMG
+        start_date: "2018-01-01"
+      - symbol: CB
+        start_date: "2018-01-01"
+      - symbol: CHD
+        start_date: "2018-01-01"
+      - symbol: CIEN
+        start_date: "2018-01-01"
+      - symbol: CI
+        start_date: "2018-01-01"
+      - symbol: CINF
+        start_date: "2018-01-01"
+      - symbol: CTAS
+        start_date: "2018-01-01"
+      - symbol: CSCO
+        start_date: "2018-01-01"
+      - symbol: C
+        start_date: "2018-01-01"
+      - symbol: CFG
+        start_date: "2018-01-01"
+      - symbol: CLX
+        start_date: "2018-01-01"
+      - symbol: CME
+        start_date: "2018-01-01"
+      - symbol: CMS
+        start_date: "2018-01-01"
+      - symbol: KO
+        start_date: "2018-01-01"
+      - symbol: CTSH
+        start_date: "2018-01-01"
+      - symbol: COHR
+        start_date: "2018-01-01"
+      - symbol: COIN
+        start_date: "2021-01-01"
+      - symbol: CL
+        start_date: "2018-01-01"
+      - symbol: CMCSA
+        start_date: "2018-01-01"
+      - symbol: FIX
+        start_date: "2018-01-01"
+      - symbol: CAG
+        start_date: "2018-01-01"
+      - symbol: COP
+        start_date: "2018-01-01"
+      - symbol: ED
+        start_date: "2018-01-01"
+      - symbol: STZ
+        start_date: "2018-01-01"
+      - symbol: CEG
+        start_date: "2022-01-01"
+      - symbol: COO
+        start_date: "2018-01-01"
+      - symbol: CPRT
+        start_date: "2018-01-01"
+      - symbol: GLW
+        start_date: "2018-01-01"
+      - symbol: CPAY
+        start_date: "2018-01-01"
+      - symbol: CTVA
+        start_date: "2018-01-01"
+      - symbol: CSGP
+        start_date: "2018-01-01"
+      - symbol: COST
+        start_date: "2018-01-01"
+      - symbol: CTRA
+        start_date: "2018-01-01"
+      - symbol: CRH
+        start_date: "2018-01-01"
+      - symbol: CRWD
+        start_date: "2018-01-01"
+      - symbol: CCI
+        start_date: "2018-01-01"
+      - symbol: CSX
+        start_date: "2018-01-01"
+      - symbol: CMI
+        start_date: "2018-01-01"
+      - symbol: CVS
+        start_date: "2018-01-01"
+      - symbol: DHR
+        start_date: "2018-01-01"
+      - symbol: DRI
+        start_date: "2018-01-01"
+      - symbol: DDOG
+        start_date: "2018-01-01"
+      - symbol: DVA
+        start_date: "2018-01-01"
+      - symbol: DECK
+        start_date: "2018-01-01"
+      - symbol: DE
+        start_date: "2018-01-01"
+      - symbol: DELL
+        start_date: "2018-01-01"
+      - symbol: DAL
+        start_date: "2018-01-01"
+      - symbol: DVN
+        start_date: "2018-01-01"
+      - symbol: DXCM
+        start_date: "2018-01-01"
+      - symbol: FANG
+        start_date: "2018-01-01"
+      - symbol: DLR
+        start_date: "2018-01-01"
+      - symbol: DG
+        start_date: "2018-01-01"
+      - symbol: DLTR
+        start_date: "2018-01-01"
+      - symbol: D
+        start_date: "2018-01-01"
+      - symbol: DPZ
+        start_date: "2018-01-01"
+      - symbol: DASH
+        start_date: "2020-01-01"
+      - symbol: DOV
+        start_date: "2018-01-01"
+      - symbol: DOW
+        start_date: "2018-01-01"
+      - symbol: DHI
+        start_date: "2018-01-01"
+      - symbol: DTE
+        start_date: "2018-01-01"
+      - symbol: DUK
+        start_date: "2018-01-01"
+      - symbol: DD
+        start_date: "2018-01-01"
+      - symbol: ETN
+        start_date: "2018-01-01"
+      - symbol: EBAY
+        start_date: "2018-01-01"
+      - symbol: SATS
+        start_date: "2018-01-01"
+      - symbol: ECL
+        start_date: "2018-01-01"
+      - symbol: EIX
+        start_date: "2018-01-01"
+      - symbol: EW
+        start_date: "2018-01-01"
+      - symbol: EA
+        start_date: "2018-01-01"
+      - symbol: ELV
+        start_date: "2018-01-01"
+      - symbol: EME
+        start_date: "2018-01-01"
+      - symbol: EMR
+        start_date: "2018-01-01"
+      - symbol: ETR
+        start_date: "2018-01-01"
+      - symbol: EOG
+        start_date: "2018-01-01"
+      - symbol: EPAM
+        start_date: "2018-01-01"
+      - symbol: EQT
+        start_date: "2018-01-01"
+      - symbol: EFX
+        start_date: "2018-01-01"
+      - symbol: EQIX
+        start_date: "2018-01-01"
+      - symbol: EQR
+        start_date: "2018-01-01"
+      - symbol: ERIE
+        start_date: "2018-01-01"
+      - symbol: ESS
+        start_date: "2018-01-01"
+      - symbol: EL
+        start_date: "2018-01-01"
+      - symbol: EG
+        start_date: "2018-01-01"
+      - symbol: EVRG
+        start_date: "2018-01-01"
+      - symbol: ES
+        start_date: "2018-01-01"
+      - symbol: EXC
+        start_date: "2018-01-01"
+      - symbol: EXE
+        start_date: "2021-01-01"
+      - symbol: EXPE
+        start_date: "2018-01-01"
+      - symbol: EXPD
+        start_date: "2018-01-01"
+      - symbol: EXR
+        start_date: "2018-01-01"
+      - symbol: XOM
+        start_date: "2018-01-01"
+      - symbol: FFIV
+        start_date: "2018-01-01"
+      - symbol: FDS
+        start_date: "2018-01-01"
+      - symbol: FICO
+        start_date: "2018-01-01"
+      - symbol: FAST
+        start_date: "2018-01-01"
+      - symbol: FRT
+        start_date: "2018-01-01"
+      - symbol: FDX
+        start_date: "2018-01-01"
+      - symbol: FIS
+        start_date: "2018-01-01"
+      - symbol: FITB
+        start_date: "2018-01-01"
+      - symbol: FSLR
+        start_date: "2018-01-01"
+      - symbol: FE
+        start_date: "2018-01-01"
+      - symbol: FISV
+        start_date: "2018-01-01"
+      - symbol: F
+        start_date: "2018-01-01"
+      - symbol: FTNT
+        start_date: "2018-01-01"
+      - symbol: FTV
+        start_date: "2018-01-01"
+      - symbol: FOXA
+        start_date: "2018-01-01"
+      - symbol: FOX
+        start_date: "2018-01-01"
+      - symbol: BEN
+        start_date: "2018-01-01"
+      - symbol: FCX
+        start_date: "2018-01-01"
+      - symbol: GRMN
+        start_date: "2018-01-01"
+      - symbol: IT
+        start_date: "2018-01-01"
+      - symbol: GE
+        start_date: "2018-01-01"
+      - symbol: GEHC
+        start_date: "2022-01-01"
+      - symbol: GEV
+        start_date: "2024-01-01"
+      - symbol: GEN
+        start_date: "2018-01-01"
+      - symbol: GNRC
+        start_date: "2018-01-01"
+      - symbol: GD
+        start_date: "2018-01-01"
+      - symbol: GIS
+        start_date: "2018-01-01"
+      - symbol: GM
+        start_date: "2018-01-01"
+      - symbol: GPC
+        start_date: "2018-01-01"
+      - symbol: GILD
+        start_date: "2018-01-01"
+      - symbol: GPN
+        start_date: "2018-01-01"
+      - symbol: GL
+        start_date: "2018-01-01"
+      - symbol: GDDY
+        start_date: "2018-01-01"
+      - symbol: GS
+        start_date: "2018-01-01"
+      - symbol: HAL
+        start_date: "2018-01-01"
+      - symbol: HIG
+        start_date: "2018-01-01"
+      - symbol: HAS
+        start_date: "2018-01-01"
+      - symbol: HCA
+        start_date: "2018-01-01"
+      - symbol: DOC
+        start_date: "2018-01-01"
+      - symbol: HSIC
+        start_date: "2018-01-01"
+      - symbol: HSY
+        start_date: "2018-01-01"
+      - symbol: HPE
+        start_date: "2018-01-01"
+      - symbol: HLT
+        start_date: "2018-01-01"
+      - symbol: HD
+        start_date: "2018-01-01"
+      - symbol: HON
+        start_date: "2018-01-01"
+      - symbol: HRL
+        start_date: "2018-01-01"
+      - symbol: HST
+        start_date: "2018-01-01"
+      - symbol: HWM
+        start_date: "2018-01-01"
+      - symbol: HPQ
+        start_date: "2018-01-01"
+      - symbol: HUBB
+        start_date: "2018-01-01"
+      - symbol: HUM
+        start_date: "2018-01-01"
+      - symbol: HBAN
+        start_date: "2018-01-01"
+      - symbol: HII
+        start_date: "2018-01-01"
+      - symbol: IBM
+        start_date: "2018-01-01"
+      - symbol: IEX
+        start_date: "2018-01-01"
+      - symbol: IDXX
+        start_date: "2018-01-01"
+      - symbol: ITW
+        start_date: "2018-01-01"
+      - symbol: INCY
+        start_date: "2018-01-01"
+      - symbol: IR
+        start_date: "2018-01-01"
+      - symbol: PODD
+        start_date: "2018-01-01"
+      - symbol: INTC
+        start_date: "2018-01-01"
+      - symbol: IBKR
+        start_date: "2018-01-01"
+      - symbol: ICE
+        start_date: "2018-01-01"
+      - symbol: IFF
+        start_date: "2018-01-01"
+      - symbol: IP
+        start_date: "2018-01-01"
+      - symbol: INTU
+        start_date: "2018-01-01"
+      - symbol: ISRG
+        start_date: "2018-01-01"
+      - symbol: IVZ
+        start_date: "2018-01-01"
+      - symbol: INVH
+        start_date: "2018-01-01"
+      - symbol: IQV
+        start_date: "2018-01-01"
+      - symbol: IRM
+        start_date: "2018-01-01"
+      - symbol: JBHT
+        start_date: "2018-01-01"
+      - symbol: JBL
+        start_date: "2018-01-01"
+      - symbol: JKHY
+        start_date: "2018-01-01"
+      - symbol: J
+        start_date: "2018-01-01"
+      - symbol: JNJ
+        start_date: "2018-01-01"
+      - symbol: JCI
+        start_date: "2018-01-01"
+      - symbol: JPM
+        start_date: "2018-01-01"
+      - symbol: KVUE
+        start_date: "2018-01-01"
+      - symbol: KDP
+        start_date: "2018-01-01"
+      - symbol: KEY
+        start_date: "2018-01-01"
+      - symbol: KEYS
+        start_date: "2018-01-01"
+      - symbol: KMB
+        start_date: "2018-01-01"
+      - symbol: KIM
+        start_date: "2018-01-01"
+      - symbol: KMI
+        start_date: "2018-01-01"
+      - symbol: KKR
+        start_date: "2018-01-01"
+      - symbol: KLAC
+        start_date: "2018-01-01"
+      - symbol: KHC
+        start_date: "2018-01-01"
+      - symbol: KR
+        start_date: "2018-01-01"
+      - symbol: LHX
+        start_date: "2018-01-01"
+      - symbol: LH
+        start_date: "2018-01-01"
+      - symbol: LRCX
+        start_date: "2018-01-01"
+      - symbol: LVS
+        start_date: "2018-01-01"
+      - symbol: LDOS
+        start_date: "2018-01-01"
+      - symbol: LEN
+        start_date: "2018-01-01"
+      - symbol: LII
+        start_date: "2018-01-01"
+      - symbol: LLY
+        start_date: "2018-01-01"
+      - symbol: LIN
+        start_date: "2018-01-01"
+      - symbol: LYV
+        start_date: "2018-01-01"
+      - symbol: LMT
+        start_date: "2018-01-01"
+      - symbol: L
+        start_date: "2018-01-01"
+      - symbol: LOW
+        start_date: "2018-01-01"
+      - symbol: LULU
+        start_date: "2018-01-01"
+      - symbol: LITE
+        start_date: "2018-01-01"
+      - symbol: LYB
+        start_date: "2018-01-01"
+      - symbol: MTB
+        start_date: "2018-01-01"
+      - symbol: MPC
+        start_date: "2018-01-01"
+      - symbol: MAR
+        start_date: "2018-01-01"
+      - symbol: MRSH
+        start_date: "2018-01-01"
+      - symbol: MLM
+        start_date: "2018-01-01"
+      - symbol: MAS
+        start_date: "2018-01-01"
+      - symbol: MA
+        start_date: "2018-01-01"
+      - symbol: MKC
+        start_date: "2018-01-01"
+      - symbol: MCD
+        start_date: "2018-01-01"
+      - symbol: MCK
+        start_date: "2018-01-01"
+      - symbol: MDT
+        start_date: "2018-01-01"
+      - symbol: MRK
+        start_date: "2018-01-01"
+      - symbol: META
+        start_date: "2018-01-01"
+      - symbol: MET
+        start_date: "2018-01-01"
+      - symbol: MTD
+        start_date: "2018-01-01"
+      - symbol: MGM
+        start_date: "2018-01-01"
+      - symbol: MCHP
+        start_date: "2018-01-01"
+      - symbol: MU
+        start_date: "2018-01-01"
+      - symbol: MSFT
+        start_date: "2018-01-01"
+      - symbol: MAA
+        start_date: "2018-01-01"
+      - symbol: MRNA
+        start_date: "2018-01-01"
+      - symbol: TAP
+        start_date: "2018-01-01"
+      - symbol: MDLZ
+        start_date: "2018-01-01"
+      - symbol: MPWR
+        start_date: "2018-01-01"
+      - symbol: MNST
+        start_date: "2018-01-01"
+      - symbol: MCO
+        start_date: "2018-01-01"
+      - symbol: MS
+        start_date: "2018-01-01"
+      - symbol: MOS
+        start_date: "2018-01-01"
+      - symbol: MSI
+        start_date: "2018-01-01"
+      - symbol: MSCI
+        start_date: "2018-01-01"
+      - symbol: NDAQ
+        start_date: "2018-01-01"
+      - symbol: NTAP
+        start_date: "2018-01-01"
+      - symbol: NFLX
+        start_date: "2018-01-01"
+      - symbol: NEM
+        start_date: "2018-01-01"
+      - symbol: NWSA
+        start_date: "2018-01-01"
+      - symbol: NWS
+        start_date: "2018-01-01"
+      - symbol: NEE
+        start_date: "2018-01-01"
+      - symbol: NKE
+        start_date: "2018-01-01"
+      - symbol: NI
+        start_date: "2018-01-01"
+      - symbol: NDSN
+        start_date: "2018-01-01"
+      - symbol: NSC
+        start_date: "2018-01-01"
+      - symbol: NTRS
+        start_date: "2018-01-01"
+      - symbol: NOC
+        start_date: "2018-01-01"
+      - symbol: NCLH
+        start_date: "2018-01-01"
+      - symbol: NRG
+        start_date: "2018-01-01"
+      - symbol: NUE
+        start_date: "2018-01-01"
+      - symbol: NVDA
+        start_date: "2018-01-01"
+      - symbol: NVR
+        start_date: "2018-01-01"
+      - symbol: NXPI
+        start_date: "2018-01-01"
+      - symbol: ORLY
+        start_date: "2018-01-01"
+      - symbol: OXY
+        start_date: "2018-01-01"
+      - symbol: ODFL
+        start_date: "2018-01-01"
+      - symbol: OMC
+        start_date: "2018-01-01"
+      - symbol: ON
+        start_date: "2018-01-01"
+      - symbol: OKE
+        start_date: "2018-01-01"
+      - symbol: ORCL
+        start_date: "2018-01-01"
+      - symbol: OTIS
+        start_date: "2020-01-01"
+      - symbol: PCAR
+        start_date: "2018-01-01"
+      - symbol: PKG
+        start_date: "2018-01-01"
+      - symbol: PLTR
+        start_date: "2020-01-01"
+      - symbol: PANW
+        start_date: "2018-01-01"
+      - symbol: PSKY
+        start_date: "2018-01-01"
+      - symbol: PH
+        start_date: "2018-01-01"
+      - symbol: PAYX
+        start_date: "2018-01-01"
+      - symbol: PYPL
+        start_date: "2018-01-01"
+      - symbol: PNR
+        start_date: "2018-01-01"
+      - symbol: PEP
+        start_date: "2018-01-01"
+      - symbol: PFE
+        start_date: "2018-01-01"
+      - symbol: PCG
+        start_date: "2018-01-01"
+      - symbol: PM
+        start_date: "2018-01-01"
+      - symbol: PSX
+        start_date: "2018-01-01"
+      - symbol: PNW
+        start_date: "2018-01-01"
+      - symbol: PNC
+        start_date: "2018-01-01"
+      - symbol: POOL
+        start_date: "2018-01-01"
+      - symbol: PPG
+        start_date: "2018-01-01"
+      - symbol: PPL
+        start_date: "2018-01-01"
+      - symbol: PFG
+        start_date: "2018-01-01"
+      - symbol: PG
+        start_date: "2018-01-01"
+      - symbol: PGR
+        start_date: "2018-01-01"
+      - symbol: PLD
+        start_date: "2018-01-01"
+      - symbol: PRU
+        start_date: "2018-01-01"
+      - symbol: PEG
+        start_date: "2018-01-01"
+      - symbol: PTC
+        start_date: "2018-01-01"
+      - symbol: PSA
+        start_date: "2018-01-01"
+      - symbol: PHM
+        start_date: "2018-01-01"
+      - symbol: PWR
+        start_date: "2018-01-01"
+      - symbol: QCOM
+        start_date: "2018-01-01"
+      - symbol: DGX
+        start_date: "2018-01-01"
+      - symbol: Q
+        start_date: "2025-01-01"
+      - symbol: RL
+        start_date: "2018-01-01"
+      - symbol: RJF
+        start_date: "2018-01-01"
+      - symbol: RTX
+        start_date: "2018-01-01"
+      - symbol: O
+        start_date: "2018-01-01"
+      - symbol: REG
+        start_date: "2018-01-01"
+      - symbol: REGN
+        start_date: "2018-01-01"
+      - symbol: RF
+        start_date: "2018-01-01"
+      - symbol: RSG
+        start_date: "2018-01-01"
+      - symbol: RMD
+        start_date: "2018-01-01"
+      - symbol: RVTY
+        start_date: "2018-01-01"
+      - symbol: HOOD
+        start_date: "2021-01-01"
+      - symbol: ROK
+        start_date: "2018-01-01"
+      - symbol: ROL
+        start_date: "2018-01-01"
+      - symbol: ROP
+        start_date: "2018-01-01"
+      - symbol: ROST
+        start_date: "2018-01-01"
+      - symbol: RCL
+        start_date: "2020-01-01"
+      - symbol: SPGI
+        start_date: "2018-01-01"
+      - symbol: CRM
+        start_date: "2018-01-01"
+      - symbol: SNDK
+        start_date: "2025-01-01"
+      - symbol: SBAC
+        start_date: "2018-01-01"
+      - symbol: SLB
+        start_date: "2018-01-01"
+      - symbol: STX
+        start_date: "2018-01-01"
+      - symbol: SRE
+        start_date: "2018-01-01"
+      - symbol: NOW
+        start_date: "2018-01-01"
+      - symbol: SHW
+        start_date: "2018-01-01"
+      - symbol: SPG
+        start_date: "2018-01-01"
+      - symbol: SWKS
+        start_date: "2018-01-01"
+      - symbol: SJM
+        start_date: "2018-01-01"
+      - symbol: SW
+        start_date: "2018-01-01"
+      - symbol: SNA
+        start_date: "2018-01-01"
+      - symbol: SOLV
+        start_date: "2024-01-01"
+      - symbol: SO
+        start_date: "2018-01-01"
+      - symbol: LUV
+        start_date: "2018-01-01"
+      - symbol: SWK
+        start_date: "2018-01-01"
+      - symbol: SBUX
+        start_date: "2018-01-01"
+      - symbol: STT
+        start_date: "2018-01-01"
+      - symbol: STLD
+        start_date: "2018-01-01"
+      - symbol: STE
+        start_date: "2018-01-01"
+      - symbol: SYK
+        start_date: "2018-01-01"
+      - symbol: SMCI
+        start_date: "2018-01-01"
+      - symbol: SYF
+        start_date: "2018-01-01"
+      - symbol: SNPS
+        start_date: "2018-01-01"
+      - symbol: SYY
+        start_date: "2018-01-01"
+      - symbol: TMUS
+        start_date: "2018-01-01"
+      - symbol: TROW
+        start_date: "2018-01-01"
+      - symbol: TTWO
+        start_date: "2018-01-01"
+      - symbol: TPR
+        start_date: "2018-01-01"
+      - symbol: TRGP
+        start_date: "2018-01-01"
+      - symbol: TGT
+        start_date: "2018-01-01"
+      - symbol: TEL
+        start_date: "2018-01-01"
+      - symbol: TDY
+        start_date: "2018-01-01"
+      - symbol: TER
+        start_date: "2018-01-01"
+      - symbol: TSLA
+        start_date: "2018-01-01"
+      - symbol: TXN
+        start_date: "2018-01-01"
+      - symbol: TPL
+        start_date: "2018-01-01"
+      - symbol: TXT
+        start_date: "2018-01-01"
+      - symbol: TMO
+        start_date: "2018-01-01"
+      - symbol: TJX
+        start_date: "2018-01-01"
+      - symbol: TKO
+        start_date: "2018-01-01"
+      - symbol: TTD
+        start_date: "2018-01-01"
+      - symbol: TSCO
+        start_date: "2018-01-01"
+      - symbol: TT
+        start_date: "2018-01-01"
+      - symbol: TDG
+        start_date: "2018-01-01"
+      - symbol: TRV
+        start_date: "2018-01-01"
+      - symbol: TRMB
+        start_date: "2018-01-01"
+      - symbol: TFC
+        start_date: "2018-01-01"
+      - symbol: TYL
+        start_date: "2018-01-01"
+      - symbol: TSN
+        start_date: "2018-01-01"
+      - symbol: USB
+        start_date: "2018-01-01"
+      - symbol: UBER
+        start_date: "2018-01-01"
+      - symbol: UDR
+        start_date: "2018-01-01"
+      - symbol: ULTA
+        start_date: "2018-01-01"
+      - symbol: UNP
+        start_date: "2018-01-01"
+      - symbol: UAL
+        start_date: "2019-01-01"
+      - symbol: UPS
+        start_date: "2018-01-01"
+      - symbol: URI
+        start_date: "2018-01-01"
+      - symbol: UNH
+        start_date: "2018-01-01"
+      - symbol: UHS
+        start_date: "2018-01-01"
+      - symbol: VLO
+        start_date: "2018-01-01"
+      - symbol: VTR
+        start_date: "2018-01-01"
+      - symbol: VLTO
+        start_date: "2023-01-01"
+      - symbol: VRSN
+        start_date: "2018-01-01"
+      - symbol: VRSK
+        start_date: "2018-01-01"
+      - symbol: VZ
+        start_date: "2018-01-01"
+      - symbol: VRTX
+        start_date: "2018-01-01"
+      - symbol: VRT
+        start_date: "2018-01-01"
+      - symbol: VTRS
+        start_date: "2018-01-01"
+      - symbol: VICI
+        start_date: "2018-01-01"
+      - symbol: V
+        start_date: "2018-01-01"
+      - symbol: VST
+        start_date: "2018-01-01"
+      - symbol: VMC
+        start_date: "2018-01-01"
+      - symbol: WRB
+        start_date: "2018-01-01"
+      - symbol: GWW
+        start_date: "2018-01-01"
+      - symbol: WAB
+        start_date: "2018-01-01"
+      - symbol: WMT
+        start_date: "2018-01-01"
+      - symbol: DIS
+        start_date: "2018-01-01"
+      - symbol: WBD
+        start_date: "2018-01-01"
+      - symbol: WM
+        start_date: "2018-01-01"
+      - symbol: WAT
+        start_date: "2018-01-01"
+      - symbol: WEC
+        start_date: "2018-01-01"
+      - symbol: WFC
+        start_date: "2018-01-01"
+      - symbol: WELL
+        start_date: "2018-01-01"
+      - symbol: WST
+        start_date: "2018-01-01"
+      - symbol: WDC
+        start_date: "2018-01-01"
+      - symbol: WY
+        start_date: "2018-01-01"
+      - symbol: WSM
+        start_date: "2018-01-01"
+      - symbol: WMB
+        start_date: "2018-01-01"
+      - symbol: WTW
+        start_date: "2018-01-01"
+      - symbol: WDAY
+        start_date: "2018-01-01"
+      - symbol: WYNN
+        start_date: "2018-01-01"
+      - symbol: XEL
+        start_date: "2018-01-01"
+      - symbol: XYL
+        start_date: "2018-01-01"
+      - symbol: YUM
+        start_date: "2018-01-01"
+      - symbol: ZBRA
+        start_date: "2018-01-01"
+      - symbol: ZBH
+        start_date: "2018-01-01"
+      - symbol: ZTS
+        start_date: "2018-01-01"
+
+  dashboard_candles:
+    provider: ibkr-paper
+    type: candles
+    interval_seconds: 600
+    lookback_days: 1
+    frequencies: [day, 30min, 5min, 1min]
+    windows:
+      - days: [mon, tue, wed, thu, fri]
+        start: "08:30"
+        end: "15:05"
+
+    universe:
+      - symbol: $SPX
+        start_date: "2026-01-01"
+      - symbol: SPY
+        start_date: "2026-01-01"
+      - symbol: $VIX
+        start_date: "2026-01-01"
+      - symbol: $VIX9D
+        start_date: "2026-01-01"
+      - symbol: $VIX1D
+        start_date: "2026-01-01"
+      - symbol: /ES
+        provider: schwab
+        start_date: "2026-01-01"
+
+imports:
+  spxw_massive_options:
+    type: options
+    provider: massive
+    ticker: SPX
+    option_root: SPXW
+    paths:
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/09/2023-09-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/09/2023-09-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/09/2023-09-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/09/2023-09-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/10/2023-10-31.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/11/2023-11-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2023/12/2023-12-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/01/2024-01-31.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/02/2024-02-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/03/2024-03-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/04/2024-04-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/05/2024-05-31.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/06/2024-06-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/07/2024-07-31.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/08/2024-08-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/09/2024-09-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/10/2024-10-31.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/11/2024-11-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2024/12/2024-12-31.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/01/2025-01-31.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/02/2025-02-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/03/2025-03-31.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/04/2025-04-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/05/2025-05-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/06/2025-06-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/07/2025-07-31.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-13.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-14.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-20.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-21.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-27.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-28.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/08/2025-08-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-04.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-05.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-10.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-11.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-12.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-15.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-16.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-17.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-18.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-19.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-22.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-23.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-24.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-25.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-26.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-29.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/09/2025-09-30.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/10/2025-10-01.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/10/2025-10-02.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/10/2025-10-03.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/10/2025-10-06.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/10/2025-10-07.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/10/2025-10-08.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/10/2025-10-09.csv'
+      - '/Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/10/2025-10-10.csv'

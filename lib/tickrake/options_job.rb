@@ -20,11 +20,9 @@ module Tickrake
       collection_id = "options-#{run_time.utc.strftime("%Y%m%dT%H%M%SZ")}"
       queue = build_queue(run_time.to_date)
       @runtime.logger.info("Resolved #{queue.length} option fetch tasks. collection_id=#{collection_id}")
-      expected_counts = expected_counts_by_root(queue)
       result = process_queue(queue, run_time, collection_id)
       @progress_reporter&.finish
       @runtime.logger.info("Completed options scrape at #{Time.now.utc.iso8601}")
-      publish_intraday(collection_id: collection_id, expected_counts: expected_counts) unless expected_counts.empty?
       result
     end
 
@@ -194,7 +192,7 @@ module Tickrake
         path = result.fetch(:path)
         @runtime.logger.info("Wrote option chain for #{job.fetch(:symbol)} to #{path}")
         @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
-        upsert_file_metadata(job: job, path: path, row_count: result.fetch(:row_count), sampled_at: run_time, collection_id: collection_id)
+        write_metadata_sidecar(job: job, path: path, row_count: result.fetch(:row_count), sampled_at: run_time, collection_id: collection_id)
         @progress_reporter&.advance(title: option_progress_title(job))
         :success
       rescue StandardError, Timeout::ExitException => e
@@ -326,42 +324,29 @@ module Tickrake
       @runtime.client_factory.build
     end
 
-    def upsert_file_metadata(job:, path:, row_count:, sampled_at:, collection_id: nil)
+    def write_metadata_sidecar(job:, path:, row_count:, sampled_at:, collection_id: nil)
       stat = File.stat(path)
       observed_at = sampled_at.utc.iso8601
       ticker = job[:option_root] || job.fetch(:symbol)
-      @runtime.tracker.upsert_file_metadata(
-        path: path,
-        dataset_type: "options",
-        provider_name: job.fetch(:provider_name),
-        ticker: ticker,
-        frequency: nil,
-        expiration_date: job.fetch(:expiration_date).iso8601,
-        row_count: row_count,
-        first_observed_at: observed_at,
-        last_observed_at: observed_at,
-        file_mtime: stat.mtime.to_i,
-        file_size: stat.size,
-        updated_at: Time.now,
-        collection_id: collection_id
-      )
-    end
-
-    def expected_counts_by_root(queue)
-      queue.group_by { |job| [job.fetch(:provider_name), job[:option_root] || job.fetch(:symbol)] }
-           .transform_values(&:length)
-    end
-
-    def publish_intraday(collection_id:, expected_counts:)
-      Tickrake::Index::IntradayPublisher.new(
-        tracker: @runtime.tracker,
-        options_dir: @runtime.config.options_dir,
-        logger: @runtime.logger
-      ).publish(collection_id: collection_id, expected_counts: expected_counts)
-    rescue StandardError => e
-      @runtime.logger.error(
-        "Intraday index publish failed collection_id=#{collection_id}: #{e.class}: #{e.message}"
-      )
+      sidecar = {
+        "path" => path,
+        "dataset_type" => "options",
+        "provider_name" => job.fetch(:provider_name),
+        "ticker" => ticker,
+        "frequency" => nil,
+        "expiration_date" => job.fetch(:expiration_date).iso8601,
+        "row_count" => row_count,
+        "first_observed_at" => observed_at,
+        "last_observed_at" => observed_at,
+        "file_mtime" => stat.mtime.to_i,
+        "file_size" => stat.size,
+        "updated_at" => Time.now.utc.iso8601,
+        "collection_id" => collection_id
+      }
+      pending_dir = @runtime.config.pending_metadata_dir
+      FileUtils.mkdir_p(pending_dir)
+      sidecar_path = File.join(pending_dir, "#{File.basename(path, ".*")}.meta.json")
+      File.write(sidecar_path, JSON.generate(sidecar))
     end
 
     def with_retries(label, on_retry: nil)

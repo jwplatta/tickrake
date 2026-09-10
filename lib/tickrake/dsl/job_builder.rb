@@ -17,6 +17,8 @@ module Tickrake
         @maintenance_builder = nil
         @order_book_builder = nil
         @level_one_builder = nil
+        @metadata_sync_builder = nil
+        @intraday_publish_builder = nil
       end
 
       def provider(name)
@@ -74,19 +76,32 @@ module Tickrake
         @level_one_builder.instance_eval(&block)
       end
 
+      def metadata_sync(&block)
+        @metadata_sync_builder = MetadataSyncBuilder.new
+        @metadata_sync_builder.instance_eval(&block) if block
+      end
+
+      def intraday_publish(&block)
+        @intraday_publish_builder = IntradayPublishBuilder.new
+        @intraday_publish_builder.instance_eval(&block) if block
+      end
+
       def build!(config)
-        raise Tickrake::Error, "job `#{@name}` requires provider" if @provider.nil?
+        inferred_type = infer_type
+        provider_optional = %w[metadata_sync intraday_publish].include?(inferred_type)
+        raise Tickrake::Error, "job `#{@name}` requires provider" if @provider.nil? && !provider_optional
         raise Tickrake::Error, "job `#{@name}` requires a schedule block" if @schedule_builder.nil?
 
         schedule = @schedule_builder.build!
-        inferred_type = infer_type
 
         case inferred_type
-        when "options"     then build_options_job!(config, schedule)
-        when "candles"     then build_candles_job!(config, schedule)
-        when "maintenance" then build_maintenance_job!(schedule)
-        when "order_book"  then build_order_book_job!(schedule)
-        when "level_one"   then build_level_one_job!(schedule)
+        when "options"         then build_options_job!(config, schedule)
+        when "candles"         then build_candles_job!(config, schedule)
+        when "maintenance"     then build_maintenance_job!(schedule)
+        when "order_book"      then build_order_book_job!(schedule)
+        when "level_one"       then build_level_one_job!(schedule)
+        when "metadata_sync"   then build_metadata_sync_job!(schedule)
+        when "intraday_publish" then build_intraday_publish_job!(schedule)
         else raise Tickrake::Error, "job `#{@name}` has unknown type: #{inferred_type.inspect}"
         end
       end
@@ -192,11 +207,13 @@ module Tickrake
         return @type if @type
 
         builders = {
-          "options"     => @options_builder,
-          "candles"     => @candles_builder,
-          "maintenance" => @maintenance_builder,
-          "order_book"  => @order_book_builder,
-          "level_one"   => @level_one_builder
+          "options"          => @options_builder,
+          "candles"          => @candles_builder,
+          "maintenance"      => @maintenance_builder,
+          "order_book"       => @order_book_builder,
+          "level_one"        => @level_one_builder,
+          "metadata_sync"    => @metadata_sync_builder,
+          "intraday_publish" => @intraday_publish_builder
         }
         present = builders.select { |_, b| !b.nil? }
         raise Tickrake::Error, "job `#{@name}` requires a typed block (e.g. `level_one do`, `candles do`)" if present.empty?
@@ -247,6 +264,48 @@ module Tickrake
           tasks: [],
           task: nil,
           settings: order_book_config,
+          manual: false
+        )
+      end
+
+      def build_metadata_sync_job!(schedule)
+        raise Tickrake::Error, "metadata_sync job `#{@name}` requires a metadata_sync block" if @metadata_sync_builder.nil?
+
+        Tickrake::ScheduledJobConfig.new(
+          name: @name,
+          type: "metadata_sync",
+          provider: nil,
+          interval_seconds: schedule[:interval_seconds],
+          windows: schedule[:windows],
+          run_at: schedule[:run_at],
+          days: schedule[:days],
+          lookback_days: nil,
+          dte_buckets: [],
+          universe: [],
+          tasks: [],
+          task: nil,
+          settings: @metadata_sync_builder.build!,
+          manual: false
+        )
+      end
+
+      def build_intraday_publish_job!(schedule)
+        raise Tickrake::Error, "intraday_publish job `#{@name}` requires an intraday_publish block" if @intraday_publish_builder.nil?
+
+        Tickrake::ScheduledJobConfig.new(
+          name: @name,
+          type: "intraday_publish",
+          provider: nil,
+          interval_seconds: schedule[:interval_seconds],
+          windows: schedule[:windows],
+          run_at: schedule[:run_at],
+          days: schedule[:days],
+          lookback_days: nil,
+          dte_buckets: [],
+          universe: [],
+          tasks: [],
+          task: nil,
+          settings: @intraday_publish_builder.build!,
           manual: false
         )
       end

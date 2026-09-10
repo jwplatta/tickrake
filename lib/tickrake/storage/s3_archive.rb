@@ -11,9 +11,9 @@ module Tickrake
         end
       end
 
-      def initialize(config, archive_config: config.s3_archive, s3_client: nil)
+      def initialize(config, archive_config: config.s3_archive, datastore_config: nil, s3_client: nil)
         @config = config
-        @archive_config = archive_config
+        @archive_config = datastore_config || archive_config
         raise Tickrake::Error, "S3 archive is not configured." unless @archive_config
 
         @s3_client = s3_client
@@ -41,6 +41,29 @@ module Tickrake
         end
 
         remote_object
+      end
+
+      def upload_content(key, content)
+        s3_client.put_object(
+          bucket: @archive_config.bucket,
+          key: key,
+          body: content,
+          storage_class: @archive_config.storage_class
+        )
+        RemoteObject.new(bucket: @archive_config.bucket, key: key, size: content.bytesize)
+      end
+
+      def upload_file(local_path, key:)
+        absolute_path = Tickrake::PathSupport.expand_path(local_path)
+        File.open(absolute_path, "rb") do |body|
+          s3_client.put_object(
+            bucket: @archive_config.bucket,
+            key: key,
+            body: body,
+            storage_class: @archive_config.storage_class
+          )
+        end
+        RemoteObject.new(bucket: @archive_config.bucket, key: key, size: File.size(absolute_path))
       end
 
       def verify(local_path)
@@ -71,6 +94,18 @@ module Tickrake
         @s3_client ||= begin
           options = {}
           options[:region] = @archive_config.region if @archive_config.region
+          if @archive_config.respond_to?(:endpoint) && @archive_config.endpoint
+            options[:endpoint] = @archive_config.endpoint
+          end
+          if @archive_config.respond_to?(:force_path_style) && @archive_config.force_path_style
+            options[:force_path_style] = true
+          end
+          if @archive_config.respond_to?(:access_key_id) && @archive_config.access_key_id
+            options[:credentials] = Aws::Credentials.new(
+              @archive_config.access_key_id,
+              @archive_config.secret_access_key
+            )
+          end
           Aws::S3::Client.new(**options)
         end
       end

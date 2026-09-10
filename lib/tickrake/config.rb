@@ -1,7 +1,11 @@
 # frozen_string_literal: true
 
 module Tickrake
-  S3ArchiveConfig = Struct.new(:bucket, :region, :prefix, :storage_class, keyword_init: true) do
+  DatastoreConfig = Struct.new(
+    :name, :type, :bucket, :region, :prefix, :storage_class,
+    :endpoint, :access_key_id, :secret_access_key, :force_path_style,
+    keyword_init: true
+  ) do
     def prefixed_key(relative_path)
       normalized_relative_path = relative_path.to_s.sub(%r{\A/+}, "")
       normalized_prefix = prefix.to_s.gsub(%r{\A/+|/+\z}, "")
@@ -181,7 +185,7 @@ module Tickrake
   class Config
     attr_reader :timezone, :sqlite_path, :providers, :default_provider_name, :data_dir, :history_dir, :options_dir, :max_workers,
                 :retry_count, :retry_delay_seconds, :option_fetch_timeout_seconds, :candle_fetch_timeout_seconds, :jobs, :import_jobs,
-                :option_root_tickers, :option_snapshot_filename_timezone, :archives, :universes
+                :option_root_tickers, :option_snapshot_filename_timezone, :datastores, :universes, :pending_metadata_dir
 
     def initialize(
       timezone:,
@@ -190,8 +194,8 @@ module Tickrake
       default_provider_name:,
       option_root_tickers:,
       option_snapshot_filename_timezone: "utc",
-      archives: nil,
-      s3_archive: nil,
+      datastores: {},
+      pending_metadata_dir: nil,
       universes: {},
       data_dir:,
       history_dir:,
@@ -210,7 +214,8 @@ module Tickrake
       @default_provider_name = default_provider_name
       @option_root_tickers = option_root_tickers
       @option_snapshot_filename_timezone = option_snapshot_filename_timezone
-      @archives = normalize_archives(archives: archives, s3_archive: s3_archive)
+      @datastores = datastores
+      @pending_metadata_dir = pending_metadata_dir || Tickrake::PathSupport.expand_path("~/.tickrake/pending_metadata")
       @universes = universes
       @data_dir = data_dir
       @history_dir = history_dir
@@ -310,6 +315,8 @@ module Tickrake
         explicit_providers = Array(job.tasks).filter_map(&:provider)
         fallback_provider = provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)
         (explicit_providers + [fallback_provider]).compact.uniq
+      when "metadata_sync", "intraday_publish"
+        []
       else
         [provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)].compact.uniq
       end
@@ -320,16 +327,19 @@ module Tickrake
       @option_root_tickers.fetch(normalized_root, normalized_root)
     end
 
-    def s3_archive
-      @archives["s3_archive"]
+    def archives
+      @datastores
     end
 
-    private
+    def s3_archive
+      @datastores["s3_archive"]
+    end
 
-    def normalize_archives(archives:, s3_archive:)
-      normalized = (archives || {}).dup
-      normalized["s3_archive"] ||= s3_archive if s3_archive
-      normalized
+    def datastore(name)
+      result = @datastores.fetch(name.to_s, nil)
+      raise ConfigError, "Unknown datastore `#{name}`." unless result
+
+      result
     end
   end
 end
