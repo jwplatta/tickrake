@@ -40,7 +40,7 @@ module Tickrake
       check_symbol_conflicts
 
       client = Tickrake::ClientFactory.new(@runtime.config).build
-      stream = client.stream
+      stream = SchwabRb::Stream::Client.new(client)
 
       if @order_book_config.options_book?
         resolver = Tickrake::OrderBook::ContractResolver.new(client, @order_book_config.contracts)

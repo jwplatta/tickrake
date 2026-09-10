@@ -47,7 +47,7 @@ module Tickrake
       register_session
 
       client = Tickrake::ClientFactory.new(@runtime.config).build
-      stream = client.stream
+      stream = SchwabRb::Stream::Client.new(client)
       symbols = @scheduled_job.universe
 
       @level_one_config.services.each do |service|
