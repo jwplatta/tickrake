@@ -39,7 +39,7 @@ module Tickrake
       register_session
       check_symbol_conflicts
 
-      client = Tickrake::ClientFactory.new(@runtime.config).build(@provider)
+      client = Tickrake::ClientFactory.new(@runtime.config).build
       stream = client.stream
 
       if @order_book_config.options_book?

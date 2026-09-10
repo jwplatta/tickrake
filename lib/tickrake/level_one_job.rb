@@ -46,7 +46,7 @@ module Tickrake
 
       register_session
 
-      client = Tickrake::ClientFactory.new(@runtime.config).build(@provider)
+      client = Tickrake::ClientFactory.new(@runtime.config).build
       stream = client.stream
       symbols = @scheduled_job.universe
 
