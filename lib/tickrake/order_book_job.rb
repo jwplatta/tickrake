@@ -25,7 +25,7 @@ module Tickrake
 
       @storage_paths = Tickrake::Storage::Paths.new(runtime.config)
       @parquet_writer = Tickrake::Storage::OrderBookParquetWriter.new
-      @s3_archive = runtime.config.archives&.first
+      @s3_archive = runtime.config.s3_archive
     end
 
     def run_session(window_start:)
@@ -293,7 +293,7 @@ module Tickrake
     end
 
     def upload_to_s3(local_path)
-      Tickrake::Storage::S3Archive.new(@s3_archive).upload(local_path)
+      Tickrake::Storage::S3Archive.new(@runtime.config, archive_config: @s3_archive).upload(local_path)
     rescue StandardError => e
       @runtime.logger.error("#{log_prefix} S3 upload failed for #{local_path}: #{e.message}")
     end
