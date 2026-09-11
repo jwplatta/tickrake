@@ -69,7 +69,7 @@ module Tickrake
 
     def checkpoint!
       synchronize_db do
-        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        db.execute("PRAGMA wal_checkpoint(PASSIVE)")
       end
     end
 
