@@ -80,12 +80,14 @@ module Tickrake
             flush_start: flush_start, provider_definition: provider_definition
           )
           @level_one_writer.write(path, rows: group)
+          @runtime.logger.info("events_ingestor: wrote #{path} (#{group.size} events)")
         when "order_book"
           path = @storage_paths.order_book_path(
             provider: provider, symbol: symbol,
             flush_start: flush_start, provider_definition: provider_definition
           )
           @order_book_writer.write(path, rows: group)
+          @runtime.logger.info("events_ingestor: wrote #{path} (#{group.size} events)")
         else
           @runtime.logger.warn("events_ingestor: unknown job_type `#{job_type}` — skipping group")
           next
