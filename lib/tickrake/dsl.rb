@@ -16,6 +16,7 @@ require_relative "dsl/level_one_builder"
 require_relative "dsl/universe_builder"
 require_relative "dsl/metadata_sync_builder"
 require_relative "dsl/intraday_publish_builder"
+require_relative "dsl/events_ingest_builder"
 require_relative "dsl/job_builder"
 
 module Tickrake

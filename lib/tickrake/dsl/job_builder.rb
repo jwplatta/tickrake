@@ -19,6 +19,7 @@ module Tickrake
         @level_one_builder = nil
         @metadata_sync_builder = nil
         @intraday_publish_builder = nil
+        @events_ingest_builder = nil
       end
 
       def provider(name)
@@ -86,9 +87,14 @@ module Tickrake
         @intraday_publish_builder.instance_eval(&block) if block
       end
 
+      def events_ingest(&block)
+        @events_ingest_builder = EventsIngestBuilder.new
+        @events_ingest_builder.instance_eval(&block) if block
+      end
+
       def build!(config)
         inferred_type = infer_type
-        provider_optional = %w[metadata_sync intraday_publish].include?(inferred_type)
+        provider_optional = %w[metadata_sync intraday_publish events_ingest].include?(inferred_type)
         raise Tickrake::Error, "job `#{@name}` requires provider" if @provider.nil? && !provider_optional
         raise Tickrake::Error, "job `#{@name}` requires a schedule block" if @schedule_builder.nil?
 
@@ -102,6 +108,7 @@ module Tickrake
         when "level_one"       then build_level_one_job!(schedule)
         when "metadata_sync"   then build_metadata_sync_job!(schedule)
         when "intraday_publish" then build_intraday_publish_job!(config, schedule)
+        when "events_ingest"    then build_events_ingest_job!(config, schedule)
         else raise Tickrake::Error, "job `#{@name}` has unknown type: #{inferred_type.inspect}"
         end
       end
@@ -221,7 +228,8 @@ module Tickrake
           "order_book"       => @order_book_builder,
           "level_one"        => @level_one_builder,
           "metadata_sync"    => @metadata_sync_builder,
-          "intraday_publish" => @intraday_publish_builder
+          "intraday_publish" => @intraday_publish_builder,
+          "events_ingest"    => @events_ingest_builder
         }
         present = builders.select { |_, b| !b.nil? }
         raise Tickrake::Error, "job `#{@name}` requires a typed block (e.g. `level_one do`, `candles do`)" if present.empty?
@@ -309,6 +317,29 @@ module Tickrake
         Tickrake::ScheduledJobConfig.new(
           name: @name,
           type: "intraday_publish",
+          provider: nil,
+          interval_seconds: schedule[:interval_seconds],
+          windows: schedule[:windows],
+          run_at: schedule[:run_at],
+          days: schedule[:days],
+          lookback_days: nil,
+          dte_buckets: [],
+          universe: [],
+          tasks: [],
+          task: nil,
+          settings: settings,
+          manual: false
+        )
+      end
+
+      def build_events_ingest_job!(config, schedule)
+        raise Tickrake::Error, "events_ingest job `#{@name}` requires an events_ingest block" if @events_ingest_builder.nil?
+
+        settings = @events_ingest_builder.build!(job_name: @name, config: config)
+
+        Tickrake::ScheduledJobConfig.new(
+          name: @name,
+          type: "events_ingest",
           provider: nil,
           interval_seconds: schedule[:interval_seconds],
           windows: schedule[:windows],

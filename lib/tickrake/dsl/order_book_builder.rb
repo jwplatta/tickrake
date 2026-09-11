@@ -15,12 +15,8 @@ module Tickrake
         @services = normalized
       end
 
-      def flush_interval(seconds)
-        @flush_interval_seconds = Integer(seconds)
-      end
-
-      def retention_days(days)
-        @retention_days = Integer(days)
+      def rotation_interval(seconds)
+        @rotation_interval_seconds = Integer(seconds)
       end
 
       def contracts(&block)
@@ -54,8 +50,7 @@ module Tickrake
 
         Tickrake::OrderBookConfig.new(
           services: services,
-          flush_interval_seconds: @flush_interval_seconds || 60,
-          retention_days: @retention_days || 30,
+          rotation_interval_seconds: @rotation_interval_seconds || 900,
           contracts: contracts
         )
       end
