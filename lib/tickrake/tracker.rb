@@ -46,7 +46,8 @@ module Tickrake
         Tickrake::DB::Migrations::CreateApiRateLimits,
         Tickrake::DB::Migrations::CreateJobSessions,
         Tickrake::DB::Migrations::CreateOrderBookEvents,
-        Tickrake::DB::Migrations::CreateLevelOneEvents
+        Tickrake::DB::Migrations::CreateLevelOneEvents,
+        Tickrake::DB::Migrations::DropStreamingEventTables
       ].freeze
     end
 
