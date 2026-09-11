@@ -66,6 +66,34 @@ module Tickrake
         RemoteObject.new(bucket: @archive_config.bucket, key: key, size: File.size(absolute_path))
       end
 
+      def list_keys(prefix:)
+        keys = []
+        continuation_token = nil
+        loop do
+          resp = s3_client.list_objects_v2(
+            bucket: @archive_config.bucket,
+            prefix: prefix,
+            continuation_token: continuation_token
+          )
+          keys.concat(resp.contents.map(&:key))
+          break unless resp.is_truncated
+
+          continuation_token = resp.next_continuation_token
+        end
+        keys
+      end
+
+      def delete_keys(keys)
+        return if keys.empty?
+
+        keys.each_slice(1000) do |batch|
+          s3_client.delete_objects(
+            bucket: @archive_config.bucket,
+            delete: { objects: batch.map { |k| { key: k } }, quiet: true }
+          )
+        end
+      end
+
       def verify(local_path)
         absolute_path = Tickrake::PathSupport.expand_path(local_path)
         remote_object = remote_object_for(absolute_path)

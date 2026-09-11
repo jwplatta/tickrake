@@ -22,17 +22,23 @@ module Tickrake
           rows = @runtime.tracker.intraday_index_rows(provider_name: provider_name, root: root)
           next if rows.empty?
 
+          uploaded_keys = []
           intraday_files = rows.map do |row|
-            csv_key = "intraday/#{provider_name}/#{root}/exp_#{row.fetch("expiration_date")}_latest.csv"
+            expiration = row.fetch("expiration_date")
+            csv_key = "intraday/#{provider_name}/options/#{root}_exp#{expiration}.csv"
             store.upload_file(row.fetch("path"), key: csv_key)
+            uploaded_keys << csv_key
             remote_uri = "s3://#{datastore_config.bucket}/#{csv_key}"
             {
-              "expiration_date" => row.fetch("expiration_date"),
+              "expiration_date" => expiration,
               "format" => "csv",
               "uri" => remote_uri,
               "row_count" => row.fetch("row_count")
             }
           end
+
+          stale_keys = store.list_keys(prefix: "intraday/#{provider_name}/options/#{root}_exp") - uploaded_keys
+          store.delete_keys(stale_keys) unless stale_keys.empty?
 
           first = rows.first
           intraday_index = {
@@ -52,9 +58,6 @@ module Tickrake
           store.upload_content(index_key, JSON.generate(intraday_index))
           published_count += 1
         end
-
-        tickers_index = Index::TickersIndexBuilder.new(tracker: @runtime.tracker).build(provider: provider_name)
-        store.upload_content("intraday/#{provider_name}/tickers.json", JSON.generate(tickers_index))
       end
 
       @runtime.logger.info("intraday_publisher: published #{published_count} root index(es)")
