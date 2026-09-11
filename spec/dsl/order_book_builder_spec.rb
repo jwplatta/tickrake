@@ -13,8 +13,7 @@ RSpec.describe Tickrake::DSL::OrderBookBuilder do
     subject(:config) do
       build do
         services [:nyse_book, :nasdaq_book]
-        flush_interval 60
-        retention_days 30
+        rotation_interval 600
       end
     end
 
@@ -22,12 +21,8 @@ RSpec.describe Tickrake::DSL::OrderBookBuilder do
       expect(config.services).to eq(%w[NYSE_BOOK NASDAQ_BOOK])
     end
 
-    it "sets flush_interval_seconds" do
-      expect(config.flush_interval_seconds).to eq(60)
-    end
-
-    it "sets retention_days" do
-      expect(config.retention_days).to eq(30)
+    it "sets rotation_interval_seconds" do
+      expect(config.rotation_interval_seconds).to eq(600)
     end
 
     it "returns false for options_book?" do
@@ -39,7 +34,7 @@ RSpec.describe Tickrake::DSL::OrderBookBuilder do
     subject(:config) do
       build(inline_symbols: []) do
         services [:options_book]
-        flush_interval 60
+        rotation_interval 600
         contracts do
           underlying "SPXW"
           atm_strikes 5
@@ -62,6 +57,15 @@ RSpec.describe Tickrake::DSL::OrderBookBuilder do
 
     it "converts re_resolve_interval to seconds" do
       expect(config.re_resolve_interval_seconds).to eq(1800)
+    end
+  end
+
+  describe "defaults" do
+    it "defaults rotation_interval_seconds to 900" do
+      config = build do
+        services [:nyse_book]
+      end
+      expect(config.rotation_interval_seconds).to eq(900)
     end
   end
 
@@ -92,7 +96,7 @@ RSpec.describe Tickrake::DSL::OrderBookBuilder do
 
     it "raises when no services are given" do
       expect do
-        build { flush_interval 60 }
+        build { rotation_interval 600 }
       end.to raise_error(Tickrake::Error, /requires at least one service/)
     end
   end

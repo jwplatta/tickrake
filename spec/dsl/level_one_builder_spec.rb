@@ -13,8 +13,7 @@ RSpec.describe Tickrake::DSL::LevelOneBuilder do
     subject(:config) do
       build do
         services [:level_one_futures]
-        flush_interval 300
-        retention_days 30
+        rotation_interval 300
       end
     end
 
@@ -22,12 +21,8 @@ RSpec.describe Tickrake::DSL::LevelOneBuilder do
       expect(config.services).to eq([:level_one_futures])
     end
 
-    it "sets flush_interval_seconds" do
-      expect(config.flush_interval_seconds).to eq(300)
-    end
-
-    it "sets retention_days" do
-      expect(config.retention_days).to eq(30)
+    it "sets rotation_interval_seconds" do
+      expect(config.rotation_interval_seconds).to eq(300)
     end
   end
 
@@ -41,21 +36,16 @@ RSpec.describe Tickrake::DSL::LevelOneBuilder do
   end
 
   describe "defaults" do
-    it "defaults flush_interval_seconds to 60" do
+    it "defaults rotation_interval_seconds to 900" do
       config = build { services [:level_one_futures] }
-      expect(config.flush_interval_seconds).to eq(60)
-    end
-
-    it "defaults retention_days to 30" do
-      config = build { services [:level_one_futures] }
-      expect(config.retention_days).to eq(30)
+      expect(config.rotation_interval_seconds).to eq(900)
     end
   end
 
   describe "validations" do
     it "raises with no services" do
       expect do
-        build { flush_interval 60 }
+        build { rotation_interval 300 }
       end.to raise_error(Tickrake::Error, /requires at least one service/)
     end
 

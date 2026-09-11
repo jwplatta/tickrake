@@ -25,6 +25,8 @@ module Tickrake
           Tickrake::MetadataSyncSchedulerRunner.new(runtime, scheduled_job: job).run
         when "intraday_publish"
           Tickrake::IntradayPublisherSchedulerRunner.new(runtime, scheduled_job: job).run
+        when "events_ingest"
+          Tickrake::EventsIngestorRunner.new(runtime, scheduled_job: job).run
         else
           raise Tickrake::Error, "Unknown job type `#{job.type}`."
         end

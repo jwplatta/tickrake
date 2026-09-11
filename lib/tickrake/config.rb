@@ -72,8 +72,7 @@ module Tickrake
 
   OrderBookConfig = Struct.new(
     :services,
-    :flush_interval_seconds,
-    :retention_days,
+    :rotation_interval_seconds,
     :contracts,
     keyword_init: true
   ) do
@@ -88,8 +87,7 @@ module Tickrake
 
   LevelOneConfig = Struct.new(
     :services,
-    :flush_interval_seconds,
-    :retention_days,
+    :rotation_interval_seconds,
     keyword_init: true
   )
 
@@ -189,7 +187,8 @@ module Tickrake
   class Config
     attr_reader :timezone, :sqlite_path, :providers, :default_provider_name, :data_dir, :history_dir, :options_dir, :max_workers,
                 :retry_count, :retry_delay_seconds, :option_fetch_timeout_seconds, :candle_fetch_timeout_seconds, :jobs, :import_jobs,
-                :option_root_tickers, :option_snapshot_filename_timezone, :datastores, :universes, :pending_metadata_dir
+                :option_root_tickers, :option_snapshot_filename_timezone, :datastores, :universes, :pending_metadata_dir,
+                :pending_events_dir
 
     def initialize(
       timezone:,
@@ -200,6 +199,7 @@ module Tickrake
       option_snapshot_filename_timezone: "utc",
       datastores: {},
       pending_metadata_dir: nil,
+      pending_events_dir: nil,
       universes: {},
       data_dir:,
       history_dir:,
@@ -220,6 +220,7 @@ module Tickrake
       @option_snapshot_filename_timezone = option_snapshot_filename_timezone
       @datastores = datastores
       @pending_metadata_dir = pending_metadata_dir || Tickrake::PathSupport.expand_path("~/.tickrake/pending_metadata")
+      @pending_events_dir = pending_events_dir || Tickrake::PathSupport.expand_path("~/.tickrake/pending_events")
       @universes = universes
       @data_dir = data_dir
       @history_dir = history_dir
@@ -319,7 +320,7 @@ module Tickrake
         explicit_providers = Array(job.tasks).filter_map(&:provider)
         fallback_provider = provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)
         (explicit_providers + [fallback_provider]).compact.uniq
-      when "metadata_sync", "intraday_publish"
+      when "metadata_sync", "intraday_publish", "events_ingest"
         []
       else
         [provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)].compact.uniq
