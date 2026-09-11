@@ -97,11 +97,11 @@ module Tickrake
         case inferred_type
         when "options"         then build_options_job!(config, schedule)
         when "candles"         then build_candles_job!(config, schedule)
-        when "maintenance"     then build_maintenance_job!(schedule)
+        when "maintenance"     then build_maintenance_job!(config, schedule)
         when "order_book"      then build_order_book_job!(schedule)
         when "level_one"       then build_level_one_job!(schedule)
         when "metadata_sync"   then build_metadata_sync_job!(schedule)
-        when "intraday_publish" then build_intraday_publish_job!(schedule)
+        when "intraday_publish" then build_intraday_publish_job!(config, schedule)
         else raise Tickrake::Error, "job `#{@name}` has unknown type: #{inferred_type.inspect}"
         end
       end
@@ -182,8 +182,16 @@ module Tickrake
         )
       end
 
-      def build_maintenance_job!(schedule)
+      def build_maintenance_job!(config, schedule)
         raise Tickrake::Error, "maintenance job `#{@name}` requires a maintenance block" if @maintenance_builder.nil?
+
+        tasks = @maintenance_builder.build!
+        tasks.each do |step|
+          next unless step.action == "archive"
+          unless config.datastores.key?(step.destination)
+            raise Tickrake::Error, "maintenance job `#{@name}` archive destination `#{step.destination}` is not configured"
+          end
+        end
 
         Tickrake::ScheduledJobConfig.new(
           name: @name,
@@ -196,7 +204,7 @@ module Tickrake
           lookback_days: nil,
           dte_buckets: [],
           universe: [],
-          tasks: @maintenance_builder.build!,
+          tasks: tasks,
           task: nil,
           settings: {},
           manual: false
@@ -289,8 +297,14 @@ module Tickrake
         )
       end
 
-      def build_intraday_publish_job!(schedule)
+      def build_intraday_publish_job!(config, schedule)
         raise Tickrake::Error, "intraday_publish job `#{@name}` requires an intraday_publish block" if @intraday_publish_builder.nil?
+
+        settings = @intraday_publish_builder.build!
+        datastore_name = settings["datastore_name"]
+        unless config.datastores.key?(datastore_name)
+          raise Tickrake::Error, "intraday_publish job `#{@name}` datastore `#{datastore_name}` is not configured"
+        end
 
         Tickrake::ScheduledJobConfig.new(
           name: @name,
@@ -305,7 +319,7 @@ module Tickrake
           universe: [],
           tasks: [],
           task: nil,
-          settings: @intraday_publish_builder.build!,
+          settings: settings,
           manual: false
         )
       end

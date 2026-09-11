@@ -25,10 +25,13 @@ RSpec.describe Tickrake::DSL::JobBuilder do
   let(:stock_universe)  { instance_double(Tickrake::UniverseConfig, entries: [aapl_entry, spy_entry]) }
   let(:spx_universe)    { instance_double(Tickrake::UniverseConfig, entries: [spxw_entry]) }
 
+  let(:configured_datastores) { { "s3_archive" => double("s3_archive"), "minio_intraday" => double("minio_intraday") } }
+
   let(:config) do
     instance_double(Tickrake::Config).tap do |c|
       allow(c).to receive(:universe).with("stock_universe").and_return(stock_universe)
       allow(c).to receive(:universe).with("spx_symbols").and_return(spx_universe)
+      allow(c).to receive(:datastores).and_return(configured_datastores)
     end
   end
 
@@ -399,6 +402,20 @@ RSpec.describe Tickrake::DSL::JobBuilder do
         end
       end.to raise_error(Tickrake::Error, /requires a maintenance block/)
     end
+
+    it "raises when an archive destination is not in datastores" do
+      expect do
+        build("bad") do
+          provider :schwab
+          type :maintenance
+          schedule { at "15:30"; weekdays }
+          maintenance do
+            archive :option_samples, universe: "spx_symbols",
+                    to: :unknown_store, artifacts: %i[csv parquet]
+          end
+        end
+      end.to raise_error(Tickrake::Error, /archive destination `unknown_store` is not configured/)
+    end
   end
 
   describe "metadata_sync job" do
@@ -474,6 +491,15 @@ RSpec.describe Tickrake::DSL::JobBuilder do
           intraday_publish {}
         end
       end.to raise_error(Tickrake::Error, /requires datastore/)
+    end
+
+    it "raises when the datastore is not configured" do
+      expect do
+        build_intraday_publish("bad") do
+          schedule { every 60.seconds; weekdays from: "08:30", to: "15:30" }
+          intraday_publish { datastore :unknown_store }
+        end
+      end.to raise_error(Tickrake::Error, /datastore `unknown_store` is not configured/)
     end
   end
 end
