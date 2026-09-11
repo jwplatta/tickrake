@@ -148,10 +148,16 @@ module Tickrake
 
         region = raw_ds.fetch("region", nil)&.to_s&.strip
         prefix = raw_ds.fetch("prefix", "").to_s
-        storage_class = raw_ds.fetch("storage_class", "STANDARD_IA").to_s.strip.upcase
-        unless VALID_S3_STORAGE_CLASSES.include?(storage_class)
-          raise ConfigError, "datastore `#{name}` has invalid storage_class: #{storage_class}"
-        end
+        raw_storage_class = raw_ds.fetch("storage_class", nil)
+        storage_class = if raw_storage_class
+                          raw_storage_class.to_s.strip.upcase.tap do |sc|
+                            unless VALID_S3_STORAGE_CLASSES.include?(sc)
+                              raise ConfigError, "datastore `#{name}` has invalid storage_class: #{sc}"
+                            end
+                          end
+                        elsif type == "s3"
+                          "STANDARD_IA"
+                        end
 
         result[name.to_s] = DatastoreConfig.new(
           name: name.to_s,
