@@ -33,10 +33,7 @@ module Tickrake
 
         File.open(absolute_path, "rb") do |body|
           s3_client.put_object(
-            bucket: remote_object.bucket,
-            key: remote_object.key,
-            body: body,
-            storage_class: @archive_config.storage_class
+            **put_params(bucket: remote_object.bucket, key: remote_object.key, body: body)
           )
         end
 
@@ -45,10 +42,7 @@ module Tickrake
 
       def upload_content(key, content)
         s3_client.put_object(
-          bucket: @archive_config.bucket,
-          key: key,
-          body: content,
-          storage_class: @archive_config.storage_class
+          **put_params(bucket: @archive_config.bucket, key: key, body: content)
         )
         RemoteObject.new(bucket: @archive_config.bucket, key: key, size: content.bytesize)
       end
@@ -57,10 +51,7 @@ module Tickrake
         absolute_path = Tickrake::PathSupport.expand_path(local_path)
         File.open(absolute_path, "rb") do |body|
           s3_client.put_object(
-            bucket: @archive_config.bucket,
-            key: key,
-            body: body,
-            storage_class: @archive_config.storage_class
+            **put_params(bucket: @archive_config.bucket, key: key, body: body)
           )
         end
         RemoteObject.new(bucket: @archive_config.bucket, key: key, size: File.size(absolute_path))
@@ -102,6 +93,12 @@ module Tickrake
       end
 
       private
+
+      def put_params(bucket:, key:, body:)
+        params = { bucket: bucket, key: key, body: body }
+        params[:storage_class] = @archive_config.storage_class if @archive_config.storage_class
+        params
+      end
 
       def remote_object_for(local_path)
         RemoteObject.new(bucket: @archive_config.bucket, key: key_for(local_path), size: File.size(local_path))
