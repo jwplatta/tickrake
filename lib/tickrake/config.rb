@@ -219,10 +219,10 @@ module Tickrake
       @option_root_tickers = option_root_tickers
       @option_snapshot_filename_timezone = option_snapshot_filename_timezone
       @datastores = datastores
-      @pending_metadata_dir = pending_metadata_dir || Tickrake::PathSupport.expand_path("~/.tickrake/pending_metadata")
-      @pending_events_dir = pending_events_dir || Tickrake::PathSupport.expand_path("~/.tickrake/pending_events")
-      @universes = universes
       @data_dir = data_dir
+      @pending_metadata_dir = pending_metadata_dir || (@data_dir && File.join(@data_dir, "pending_metadata"))
+      @pending_events_dir = pending_events_dir || (@data_dir && File.join(@data_dir, "pending_events"))
+      @universes = universes
       @history_dir = history_dir
       @options_dir = options_dir
       @max_workers = max_workers

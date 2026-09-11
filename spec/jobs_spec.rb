@@ -4,7 +4,7 @@ RSpec.describe "job execution" do
   let(:config) do
     Tickrake::ConfigLoader.load(File.expand_path("../config/tickrake.example.yml", __dir__))
   end
-  let(:tracker) { Tickrake::Tracker.new(File.join(Dir.mktmpdir, "tickrake.sqlite3")) }
+  let(:tracker) { Tickrake::Tracker.new(File.join(Dir.mktmpdir, "tickrake.sqlite3"), migrate: true) }
   let(:logger) { Logger.new(nil) }
 
   def config_with(config, **overrides)

@@ -36,8 +36,8 @@ module Tickrake
       data_dir = Tickrake::PathSupport.expand_path(dig(storage, "data_dir", "~/.tickrake/data"))
       history_dir = Tickrake::PathSupport.expand_path(dig(storage, "history_dir", File.join(data_dir, "history")))
       options_dir = Tickrake::PathSupport.expand_path(dig(storage, "options_dir", File.join(data_dir, "options")))
-      pending_metadata_dir = Tickrake::PathSupport.expand_path(dig(storage, "pending_metadata_dir", "~/.tickrake/pending_metadata"))
-      pending_events_dir = Tickrake::PathSupport.expand_path(dig(storage, "pending_events_dir", "~/.tickrake/pending_events"))
+      pending_metadata_dir = Tickrake::PathSupport.expand_path(dig(storage, "pending_metadata_dir", File.join(data_dir, "pending_metadata")))
+      pending_events_dir = Tickrake::PathSupport.expand_path(dig(storage, "pending_events_dir", File.join(data_dir, "pending_events")))
       datastores = load_datastores(data.fetch("datastores", {}))
       universes = load_universes(data.fetch("universes", {}))
       @universes = universes
