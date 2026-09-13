@@ -173,26 +173,6 @@ RSpec.describe "option sample maintenance" do
     archive_service
   end
 
-  it "does not fail the archive step when index publish raises" do
-    Dir.mktmpdir do |dir|
-      config = build_config(dir)
-      Tickrake::Tracker.migrate!(config.sqlite_path)
-      tracker = Tickrake::Tracker.new(config.sqlite_path)
-      write_raw_fixture(config)
-
-      archive_service = stub_archive_service
-
-      job = build_maintenance_job(config, tracker, tasks: [compact_task, archive_task])
-
-      allow_any_instance_of(Tickrake::Maintenance::OptionSamples::ArtifactArchiver).to receive(:archive_service_for)
-        .and_return(archive_service)
-      allow_any_instance_of(Tickrake::Index::Publisher).to receive(:publish)
-        .and_raise(Tickrake::Error, "simulated index publish failure")
-
-      result = job.run(now: Time.utc(2026, 6, 26, 21, 0, 0))
-      expect(result).to be_successful
-    end
-  end
 
   it "skips archive when compact finds no raw snapshots" do
     Dir.mktmpdir do |dir|

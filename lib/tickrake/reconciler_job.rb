@@ -82,10 +82,10 @@ module Tickrake
 
     def build_root_index_payload(provider, root, manifests)
       historical = manifests.map do |m|
-        files = Array(m.fetch("artifacts", [])).map do |artifact|
+        files = m.fetch("artifacts", {}).map do |format, artifact|
           {
-            "format" => artifact.fetch("format"),
-            "uri"    => artifact.fetch("uri"),
+            "format"    => format,
+            "uri"       => artifact.fetch("uri"),
             "row_count" => artifact.fetch("row_count", nil)
           }.compact
         end
