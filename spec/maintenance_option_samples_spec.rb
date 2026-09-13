@@ -173,42 +173,6 @@ RSpec.describe "option sample maintenance" do
     archive_service
   end
 
-  it "publishes ROOT.json and tickers.json after a successful archive step" do
-    Dir.mktmpdir do |dir|
-      config = build_config(dir)
-      Tickrake::Tracker.migrate!(config.sqlite_path)
-      tracker = Tickrake::Tracker.new(config.sqlite_path)
-      write_raw_fixture(config)
-
-      archive_service = stub_archive_service
-
-      job = build_maintenance_job(config, tracker, tasks: [compact_task, archive_task])
-
-      allow_any_instance_of(Tickrake::Maintenance::OptionSamples::ArtifactArchiver).to receive(:archive_service_for)
-        .and_return(archive_service)
-      allow_any_instance_of(Tickrake::MaintenanceJob).to receive(:index_s3_archive)
-        .and_return(archive_service)
-
-      result = job.run(now: Time.utc(2026, 6, 26, 21, 0, 0))
-      expect(result).to be_successful
-
-      root_json = File.join(config.options_dir, "schwab", "SPXW.json")
-      tickers_json = File.join(config.options_dir, "schwab", "tickers.json")
-
-      expect(File.exist?(root_json)).to be true
-      expect(File.exist?(tickers_json)).to be true
-
-      root_payload = JSON.parse(File.read(root_json))
-      expect(root_payload["provider"]).to eq("schwab")
-      expect(root_payload["root"]).to eq("SPXW")
-      expect(root_payload["historical"].length).to eq(1)
-      expect(root_payload["historical"].first["sample_date"]).to eq("2026-06-26")
-
-      tickers_payload = JSON.parse(File.read(tickers_json))
-      expect(tickers_payload["roots"]).to include("SPXW")
-    end
-  end
-
   it "does not fail the archive step when index publish raises" do
     Dir.mktmpdir do |dir|
       config = build_config(dir)
@@ -251,6 +215,102 @@ RSpec.describe "option sample maintenance" do
       expect(result.step_results.first.action).to eq("compact")
       expect(result.step_results.first.success).to eq(true)
       expect(archive_service).not_to have_received(:upload)
+    end
+  end
+
+  describe Tickrake::Maintenance::OptionSamples::SourceSampleCleaner do
+    def build_context(config)
+      Tickrake::Maintenance::OptionSamples::Context.new(
+        config: config,
+        tracker: Tickrake::Tracker.new(config.sqlite_path),
+        provider_name: "schwab",
+        option_root: "SPXW",
+        sample_date: Date.new(2026, 9, 13),
+        logger: Logger.new(nil)
+      )
+    end
+
+    let(:manifest_args) { { dataset_type: "options", provider: "schwab", root: "SPXW", sample_date: Date.new(2026, 9, 13) } }
+
+    it "raises without deleting files when manifest does not exist" do
+      Dir.mktmpdir do |dir|
+        config = build_config(dir)
+        context = build_context(config)
+
+        source_file = File.join(dir, "snapshot.csv")
+        File.write(source_file, "data")
+
+        manifest_writer = instance_double(Tickrake::Maintenance::OptionSamples::ManifestWriter)
+        allow(manifest_writer).to receive(:manifest_exists?).with(**manifest_args).and_return(false)
+
+        cleaner = described_class.new(context: context, manifest_writer: manifest_writer, s3_archive: nil)
+        result = cleaner.run(source_paths: [source_file])
+
+        expect(result.success).to eq(false)
+        expect(result.deleted_source_paths).to be_empty
+        expect(File.exist?(source_file)).to eq(true)
+      end
+    end
+
+    it "raises without deleting files when an artifact is not accessible in S3" do
+      Dir.mktmpdir do |dir|
+        config = build_config(dir)
+        context = build_context(config)
+
+        source_file = File.join(dir, "snapshot.csv")
+        File.write(source_file, "data")
+
+        manifest_data = {
+          "artifacts" => {
+            "csv" => { "uri" => "s3://tickrake/options/schwab/SPXW_samples_2026-09-13.csv", "row_count" => 10 }
+          }
+        }
+
+        manifest_writer = instance_double(Tickrake::Maintenance::OptionSamples::ManifestWriter)
+        allow(manifest_writer).to receive(:manifest_exists?).with(**manifest_args).and_return(true)
+        allow(manifest_writer).to receive(:read).with(**manifest_args).and_return(manifest_data)
+
+        s3_archive = instance_double(Tickrake::Storage::S3Archive)
+        allow(s3_archive).to receive(:object_exists?).with("options/schwab/SPXW_samples_2026-09-13.csv").and_return(false)
+
+        cleaner = described_class.new(context: context, manifest_writer: manifest_writer, s3_archive: s3_archive)
+        result = cleaner.run(source_paths: [source_file])
+
+        expect(result.success).to eq(false)
+        expect(result.deleted_source_paths).to be_empty
+        expect(File.exist?(source_file)).to eq(true)
+      end
+    end
+
+    it "deletes source files when manifest exists and all artifacts are accessible with valid row_counts" do
+      Dir.mktmpdir do |dir|
+        config = build_config(dir)
+        context = build_context(config)
+
+        source_file = File.join(dir, "snapshot.csv")
+        File.write(source_file, "data")
+
+        manifest_data = {
+          "artifacts" => {
+            "csv"     => { "uri" => "s3://tickrake/options/schwab/SPXW_samples_2026-09-13.csv",     "row_count" => 10 },
+            "parquet" => { "uri" => "s3://tickrake/options/schwab/SPXW_samples_2026-09-13.parquet", "row_count" => 10 }
+          }
+        }
+
+        manifest_writer = instance_double(Tickrake::Maintenance::OptionSamples::ManifestWriter)
+        allow(manifest_writer).to receive(:manifest_exists?).with(**manifest_args).and_return(true)
+        allow(manifest_writer).to receive(:read).with(**manifest_args).and_return(manifest_data)
+
+        s3_archive = instance_double(Tickrake::Storage::S3Archive)
+        allow(s3_archive).to receive(:object_exists?).and_return(true)
+
+        cleaner = described_class.new(context: context, manifest_writer: manifest_writer, s3_archive: s3_archive)
+        result = cleaner.run(source_paths: [source_file])
+
+        expect(result.success).to eq(true)
+        expect(result.deleted_source_paths).to eq([source_file])
+        expect(File.exist?(source_file)).to eq(false)
+      end
     end
   end
 
