@@ -185,7 +185,7 @@ module Tickrake
   ImportJobConfig = Struct.new(:name, :type, :provider, :ticker, :option_root, :paths, :force, keyword_init: true)
 
   class Config
-    attr_reader :timezone, :sqlite_path, :providers, :default_provider_name, :data_dir, :history_dir, :options_dir, :max_workers,
+    attr_reader :timezone, :sqlite_path, :providers, :default_provider_name, :data_dir, :candles_dir, :options_dir, :max_workers,
                 :retry_count, :retry_delay_seconds, :option_fetch_timeout_seconds, :candle_fetch_timeout_seconds, :jobs, :import_jobs,
                 :option_root_tickers, :option_snapshot_filename_timezone, :datastores, :universes, :pending_metadata_dir,
                 :pending_events_dir
@@ -202,7 +202,7 @@ module Tickrake
       pending_events_dir: nil,
       universes: {},
       data_dir:,
-      history_dir:,
+      candles_dir: nil,
       options_dir:,
       max_workers:,
       retry_count:,
@@ -223,7 +223,7 @@ module Tickrake
       @pending_metadata_dir = pending_metadata_dir || (@data_dir && File.join(@data_dir, "pending_metadata"))
       @pending_events_dir = pending_events_dir || (@data_dir && File.join(@data_dir, "pending_events"))
       @universes = universes
-      @history_dir = history_dir
+      @candles_dir = candles_dir
       @options_dir = options_dir
       @max_workers = max_workers
       @retry_count = retry_count

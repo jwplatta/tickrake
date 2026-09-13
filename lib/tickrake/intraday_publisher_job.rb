@@ -46,7 +46,6 @@ module Tickrake
 
           first = rows.first
           intraday_index = {
-            "schema_version" => 1,
             "provider" => provider_name,
             "root" => root,
             "updated_at" => Time.now.utc.iso8601,

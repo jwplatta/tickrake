@@ -11,7 +11,7 @@ RSpec.describe "index data importer and members query" do
       default_provider_name: "ibkr-paper",
       option_root_tickers: {},
       data_dir: Dir.mktmpdir,
-      history_dir: Dir.mktmpdir,
+      candles_dir: Dir.mktmpdir,
       options_dir: Dir.mktmpdir,
       max_workers: 2,
       retry_count: 1,

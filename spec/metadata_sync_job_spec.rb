@@ -15,7 +15,7 @@ RSpec.describe Tickrake::MetadataSyncJob do
       datastores: {},
       pending_metadata_dir: File.join(dir, "pending_metadata"),
       data_dir: File.join(dir, "data"),
-      history_dir: File.join(dir, "data", "history"),
+      candles_dir: File.join(dir, "data", "candles"),
       options_dir: File.join(dir, "data", "options"),
       max_workers: 2,
       retry_count: 1,

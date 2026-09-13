@@ -40,11 +40,20 @@ module Tickrake
         remote_object
       end
 
+      def bucket
+        @archive_config.bucket
+      end
+
       def upload_content(key, content)
         s3_client.put_object(
           **put_params(bucket: @archive_config.bucket, key: key, body: content)
         )
         RemoteObject.new(bucket: @archive_config.bucket, key: key, size: content.bytesize)
+      end
+
+      def download_content(key)
+        response = s3_client.get_object(bucket: @archive_config.bucket, key: key)
+        response.body.read
       end
 
       def upload_file(local_path, key:)
@@ -55,6 +64,13 @@ module Tickrake
           )
         end
         RemoteObject.new(bucket: @archive_config.bucket, key: key, size: File.size(absolute_path))
+      end
+
+      def object_exists?(key)
+        s3_client.head_object(bucket: @archive_config.bucket, key: key)
+        true
+      rescue Aws::S3::Errors::NotFound
+        false
       end
 
       def list_keys(prefix:)

@@ -20,6 +20,7 @@ module Tickrake
         @metadata_sync_builder = nil
         @intraday_publish_builder = nil
         @events_ingest_builder = nil
+        @reconcile_builder = nil
       end
 
       def provider(name)
@@ -92,9 +93,14 @@ module Tickrake
         @events_ingest_builder.instance_eval(&block) if block
       end
 
+      def reconcile(&block)
+        @reconcile_builder = ReconcileBuilder.new
+        @reconcile_builder.instance_eval(&block) if block
+      end
+
       def build!(config)
         inferred_type = infer_type
-        provider_optional = %w[metadata_sync intraday_publish events_ingest].include?(inferred_type)
+        provider_optional = %w[metadata_sync intraday_publish events_ingest reconciler].include?(inferred_type)
         raise Tickrake::Error, "job `#{@name}` requires provider" if @provider.nil? && !provider_optional
         raise Tickrake::Error, "job `#{@name}` requires a schedule block" if @schedule_builder.nil?
 
@@ -109,6 +115,7 @@ module Tickrake
         when "metadata_sync"   then build_metadata_sync_job!(schedule)
         when "intraday_publish" then build_intraday_publish_job!(config, schedule)
         when "events_ingest"    then build_events_ingest_job!(config, schedule)
+        when "reconciler"       then build_reconcile_job!(schedule)
         else raise Tickrake::Error, "job `#{@name}` has unknown type: #{inferred_type.inspect}"
         end
       end
@@ -229,7 +236,8 @@ module Tickrake
           "level_one"        => @level_one_builder,
           "metadata_sync"    => @metadata_sync_builder,
           "intraday_publish" => @intraday_publish_builder,
-          "events_ingest"    => @events_ingest_builder
+          "events_ingest"    => @events_ingest_builder,
+          "reconciler"       => @reconcile_builder
         }
         present = builders.select { |_, b| !b.nil? }
         raise Tickrake::Error, "job `#{@name}` requires a typed block (e.g. `level_one do`, `candles do`)" if present.empty?
@@ -351,6 +359,27 @@ module Tickrake
           tasks: [],
           task: nil,
           settings: settings,
+          manual: false
+        )
+      end
+
+      def build_reconcile_job!(schedule)
+        raise Tickrake::Error, "reconciler job `#{@name}` requires a reconcile block" if @reconcile_builder.nil?
+
+        Tickrake::ScheduledJobConfig.new(
+          name: @name,
+          type: "reconciler",
+          provider: nil,
+          interval_seconds: schedule[:interval_seconds],
+          windows: schedule[:windows],
+          run_at: schedule[:run_at],
+          days: schedule[:days],
+          lookback_days: nil,
+          dte_buckets: [],
+          universe: [],
+          tasks: [],
+          task: nil,
+          settings: @reconcile_builder.build!,
           manual: false
         )
       end

@@ -25,6 +25,8 @@ module Tickrake
       sidecar_paths.each { |path| File.delete(path) }
 
       @runtime.logger.info("metadata_sync: ingested #{sidecar_paths.length} sidecar(s)")
+
+      @runtime.tracker.evict_stale_metadata(older_than_days: 10)
     end
   end
 end

@@ -18,7 +18,7 @@ RSpec.describe "job execution" do
       datastores: config.datastores,
       universes: config.universes,
       data_dir: config.data_dir,
-      history_dir: config.history_dir,
+      candles_dir: config.candles_dir,
       options_dir: config.options_dir,
       max_workers: config.max_workers,
       retry_count: config.retry_count,
@@ -542,7 +542,7 @@ RSpec.describe "job execution" do
         need_extended_hours_data: false,
         need_previous_close: false
       )
-      custom = config_with(config, history_dir: dir, candles_universe: [candle_entry])
+      custom = config_with(config, candles_dir: dir, candles_universe: [candle_entry])
       provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
       provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
       runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger, provider_name: "schwab")
@@ -557,9 +557,9 @@ RSpec.describe "job execution" do
 
       result = Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(File.exist?(File.join(dir, "schwab", "SPY_day.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "schwab", "SPY_1min.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "schwab", "SPY_5min.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "day", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "1min", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "5min", "SPY.csv"))).to eq(true)
       expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("success"))
       expect(tracker.fetch_runs.map { |row| row["frequency"] }).to include("day", "1min", "5min")
       expect(result.success_count).to eq(3)
@@ -615,7 +615,7 @@ RSpec.describe "job execution" do
           symbol_map: { "/ES" => "^ES", "/NQ" => "^NQ", "/RTY" => "^RTY" }
         )
       )
-      custom = config_with(config, history_dir: dir, candles_universe: [candle_entry], providers: providers)
+      custom = config_with(config, candles_dir: dir, candles_universe: [candle_entry], providers: providers)
       provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
       provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
       runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger, provider_name: "schwab")
@@ -625,8 +625,8 @@ RSpec.describe "job execution" do
 
       Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(File.exist?(File.join(dir, "schwab", "^ES_1min.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "schwab", "ES_1min.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "schwab", "1min", "^ES.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "1min", "ES.csv"))).to eq(false)
       expect(tracker.fetch_runs.last["symbol"]).to eq("^ES")
       expect(provider).to have_received(:fetch_bars).with(hash_including(symbol: "/ES", frequency: "1min"))
     end
@@ -739,10 +739,10 @@ RSpec.describe "job execution" do
         need_extended_hours_data: false,
         need_previous_close: false
       )
-      custom = config_with(config, history_dir: dir, candles_universe: [candle_entry], candle_lookback_days: 3)
-      existing_dir = File.join(dir, "schwab")
+      custom = config_with(config, candles_dir: dir, candles_universe: [candle_entry], candle_lookback_days: 3)
+      existing_dir = File.join(dir, "schwab", "day")
       FileUtils.mkdir_p(existing_dir)
-      existing_path = File.join(existing_dir, "SPY_day.csv")
+      existing_path = File.join(existing_dir, "SPY.csv")
       File.write(existing_path, "datetime,open,high,low,close,volume\n")
       provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
       provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
@@ -768,7 +768,7 @@ RSpec.describe "job execution" do
       )
       custom = config_with(
         config,
-        history_dir: dir,
+        candles_dir: dir,
         providers: {
           "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}),
           "ibkr-paper" => Tickrake::ProviderDefinition.new(name: "ibkr-paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" })
@@ -791,8 +791,8 @@ RSpec.describe "job execution" do
 
       Tickrake::CandlesJob.new(runtime, scheduled_job: scheduled_job).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(File.exist?(File.join(dir, "ibkr-paper", "SPY_day.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "schwab", "SPY_day.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "day", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "day", "SPY.csv"))).to eq(false)
     end
   end
 
@@ -808,7 +808,7 @@ RSpec.describe "job execution" do
       )
       custom = config_with(
         config,
-        history_dir: dir,
+        candles_dir: dir,
         providers: {
           "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}),
           "ibkr-paper" => Tickrake::ProviderDefinition.new(name: "ibkr-paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" })
@@ -831,8 +831,8 @@ RSpec.describe "job execution" do
 
       Tickrake::CandlesJob.new(runtime, scheduled_job: scheduled_job).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(File.exist?(File.join(dir, "schwab", "SPY_day.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "ibkr-paper", "SPY_day.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "schwab", "day", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "day", "SPY.csv"))).to eq(false)
     end
   end
 
@@ -845,10 +845,10 @@ RSpec.describe "job execution" do
         need_extended_hours_data: false,
         need_previous_close: false
       )
-      custom = config_with(config, history_dir: dir, candles_universe: [candle_entry], candle_lookback_days: 3)
-      existing_dir = File.join(dir, "schwab")
+      custom = config_with(config, candles_dir: dir, candles_universe: [candle_entry], candle_lookback_days: 3)
+      existing_dir = File.join(dir, "schwab", "day")
       FileUtils.mkdir_p(existing_dir)
-      existing_path = File.join(existing_dir, "SPY_day.csv")
+      existing_path = File.join(existing_dir, "SPY.csv")
       File.write(existing_path, "datetime,open,high,low,close,volume\n")
       provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
       provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
@@ -908,7 +908,7 @@ RSpec.describe "job execution" do
         config,
         providers: { "ib_paper" => Tickrake::ProviderDefinition.new(name: "ib_paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" }) },
         default_provider_name: "ib_paper",
-        history_dir: dir,
+        candles_dir: dir,
         candles_universe: [candle_entry]
       )
       provider = instance_double(Tickrake::Providers::Ibkr, provider_name: "ib_paper", adapter_name: "ibkr")
@@ -941,7 +941,7 @@ RSpec.describe "job execution" do
       )
       custom = config_with(
         config,
-        history_dir: dir,
+        candles_dir: dir,
         providers: {
           "schwab_live" => Tickrake::ProviderDefinition.new(name: "schwab_live", adapter: "schwab", settings: {}),
           "schwab_paper" => Tickrake::ProviderDefinition.new(name: "schwab_paper", adapter: "schwab", settings: {})
@@ -964,8 +964,8 @@ RSpec.describe "job execution" do
 
       Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(File.exist?(File.join(dir, "schwab_paper", "SPY_day.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "schwab_live", "SPY_day.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "schwab_paper", "day", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab_live", "day", "SPY.csv"))).to eq(false)
     end
   end
 
@@ -990,7 +990,7 @@ RSpec.describe "job execution" do
       ]
       custom = config_with(
         config,
-        history_dir: dir,
+        candles_dir: dir,
         providers: {
           "schwab" => Tickrake::ProviderDefinition.new(
             name: "schwab",
@@ -1025,8 +1025,8 @@ RSpec.describe "job execution" do
 
       expect(runtime_provider).to have_received(:fetch_bars).with(hash_including(symbol: "/ES", frequency: "1min")).at_least(:once)
       expect(runtime_provider).to have_received(:fetch_bars).with(hash_including(symbol: "SPY", frequency: "day")).at_least(:once)
-      expect(File.exist?(File.join(dir, "ibkr-paper", "/ES_1min.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "ibkr-paper", "SPY_day.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "1min", "ES.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "day", "SPY.csv"))).to eq(true)
     end
   end
 
@@ -1042,7 +1042,7 @@ RSpec.describe "job execution" do
       )
       custom = config_with(
         config,
-        history_dir: dir,
+        candles_dir: dir,
         providers: {
           "schwab" => Tickrake::ProviderDefinition.new(name: "schwab", adapter: "schwab", settings: {}),
           "ibkr-paper" => Tickrake::ProviderDefinition.new(name: "ibkr-paper", adapter: "ibkr", settings: { "host" => "127.0.0.1" })
@@ -1067,8 +1067,8 @@ RSpec.describe "job execution" do
       Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
       expect(runtime_provider).to have_received(:fetch_bars).at_least(:once)
-      expect(File.exist?(File.join(dir, "ibkr-paper", "SPY_day.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "schwab", "SPY_day.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "day", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "day", "SPY.csv"))).to eq(false)
     end
   end
 
@@ -1081,7 +1081,7 @@ RSpec.describe "job execution" do
         need_extended_hours_data: false,
         need_previous_close: false
       )
-      custom = config_with(config, history_dir: dir, candles_universe: [candle_entry])
+      custom = config_with(config, candles_dir: dir, candles_universe: [candle_entry])
       progress_reporter = instance_double(Tickrake::ProgressReporter, advance: true, finish: true)
       provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
       provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)

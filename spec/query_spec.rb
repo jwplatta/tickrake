@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe "query engine" do
-  def build_config(history_dir:, options_dir:)
+  def build_config(candles_dir:, options_dir:)
     Tickrake::Config.new(
       timezone: "America/Chicago",
       sqlite_path: File.join(Dir.mktmpdir, "tickrake.sqlite3"),
@@ -11,8 +11,8 @@ RSpec.describe "query engine" do
       },
       default_provider_name: "ibkr-paper",
       option_root_tickers: { "SPXW" => "SPX" },
-      data_dir: File.dirname(history_dir),
-      history_dir: history_dir,
+      data_dir: File.dirname(candles_dir),
+      candles_dir: candles_dir,
       options_dir: options_dir,
       max_workers: 2,
       retry_count: 1,
@@ -72,9 +72,9 @@ RSpec.describe "query engine" do
 
   it "scans candle files and reuses cached metadata on subsequent scans" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
-      provider_dir = File.join(history_dir, "ibkr-paper")
+      provider_dir = File.join(candles_dir, "ibkr-paper")
       FileUtils.mkdir_p(provider_dir)
       path = File.join(provider_dir, "SPY_1min.csv")
       File.write(
@@ -85,7 +85,7 @@ RSpec.describe "query engine" do
           2026-04-10T13:31:00Z,1.5,2,1.4,1.8,12
         CSV
       )
-      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       scanner = Tickrake::Query::CandlesScanner.new(config: config, tracker: tracker)
 
@@ -101,9 +101,9 @@ RSpec.describe "query engine" do
 
   it "matches mapped futures aliases when scanning candle files" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
-      provider_dir = File.join(history_dir, "schwab")
+      provider_dir = File.join(candles_dir, "schwab")
       FileUtils.mkdir_p(provider_dir)
       path = File.join(provider_dir, "^ES_1min.csv")
       File.write(
@@ -113,7 +113,7 @@ RSpec.describe "query engine" do
           2026-04-10T13:30:00Z,1,2,0.5,1.5,10
         CSV
       )
-      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       scanner = Tickrake::Query::CandlesScanner.new(config: config, tracker: tracker)
 
@@ -130,13 +130,13 @@ RSpec.describe "query engine" do
 
   it "lists option snapshots with parsed metadata through option-root aliases" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       provider_dir = File.join(options_dir, "schwab")
       FileUtils.mkdir_p(provider_dir)
       File.write(File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
       File.write(File.join(provider_dir, "SPXW_exp2026-04-18_2026-04-11_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
-      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.bulk_upsert_file_metadata(
         [
@@ -184,12 +184,12 @@ RSpec.describe "query engine" do
 
   it "allows option searches by option-root alias" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       provider_dir = File.join(options_dir, "schwab")
       FileUtils.mkdir_p(provider_dir)
       File.write(File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
-      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.upsert_file_metadata(
         path: File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv"),
@@ -217,14 +217,14 @@ RSpec.describe "query engine" do
 
   it "filters option snapshots by sample datetime window and expiration date independently" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       provider_dir = File.join(options_dir, "schwab")
       FileUtils.mkdir_p(provider_dir)
       File.write(File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-30_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
       File.write(File.join(provider_dir, "SPXW_exp2026-04-07_2026-03-30_15-00-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
       File.write(File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-31_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
-      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.bulk_upsert_file_metadata(
         [
@@ -288,14 +288,14 @@ RSpec.describe "query engine" do
 
   it "sorts option snapshots by sample datetime and can limit the returned samples" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       provider_dir = File.join(options_dir, "schwab")
       FileUtils.mkdir_p(provider_dir)
       File.write(File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-30_13-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
       File.write(File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-30_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
       File.write(File.join(provider_dir, "SPXW_exp2026-04-06_2026-03-30_15-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
-      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.bulk_upsert_file_metadata(
         [
@@ -358,12 +358,12 @@ RSpec.describe "query engine" do
 
   it "keeps option queries on the metadata cache when no cached rows match" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       provider_dir = File.join(options_dir, "schwab")
       FileUtils.mkdir_p(provider_dir)
       File.write(File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv"), "contract_type,symbol\nCALL,SPXW\n")
-      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       scanner = Tickrake::Query::OptionsScanner.new(config: config, tracker: tracker)
 
@@ -375,9 +375,9 @@ RSpec.describe "query engine" do
 
   it "pushes option ticker filters, ordering, and limits into sqlite" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
-      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.bulk_upsert_file_metadata(
         [
@@ -429,14 +429,14 @@ RSpec.describe "query engine" do
 
   it "returns option rows backfilled with expiration dates from cached metadata without rediscovery" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       provider_dir = File.join(options_dir, "schwab")
       FileUtils.mkdir_p(provider_dir)
       path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
       File.write(path, "contract_type,symbol\nCALL,SPXW\n")
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir)
       db = SQLite3::Database.new(config.sqlite_path)
       db.execute_batch(
         <<~SQL
@@ -558,9 +558,9 @@ RSpec.describe "query engine" do
 
   it "lists compacted option artifacts grouped by sample date with archive state" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
-      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.bulk_upsert_file_metadata(
         [
@@ -633,9 +633,9 @@ RSpec.describe "query engine" do
 
   it "filters compacted option artifacts by sample date range and limit" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
-      config = build_config(history_dir: history_dir, options_dir: options_dir)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
 
       %w[2026-06-22 2026-06-23 2026-06-24].each do |date|

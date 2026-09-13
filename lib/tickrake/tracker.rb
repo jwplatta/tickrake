@@ -164,6 +164,11 @@ module Tickrake
       bulk_upsert_file_metadata([attrs])
     end
 
+    def evict_stale_metadata(older_than_days:)
+      cutoff = (Time.now.utc - older_than_days * 86400).iso8601
+      @db.execute("DELETE FROM file_metadata_cache WHERE updated_at < ?", [cutoff])
+    end
+
     def bulk_upsert_file_metadata(attrs_list)
       return if attrs_list.empty?
 
@@ -197,35 +202,6 @@ module Tickrake
             FILE_METADATA_COLUMNS.map { |column| values.fetch(column) }
           )
         end
-      end
-    end
-
-    def historical_index_rows(provider_name:, root:)
-      synchronize_db do
-        db.execute(
-          <<~SQL,
-            SELECT
-              provider_name,
-              ticker AS root,
-              substr(path, instr(path, '_samples_') + 9, 10) AS sample_date,
-              storage_format,
-              remote_uri,
-              path,
-              row_count,
-              source_file_count,
-              first_observed_at,
-              last_observed_at,
-              artifact_status,
-              storage_location,
-              updated_at
-            FROM file_metadata_cache
-            WHERE dataset_type IN ('options_compacted_csv', 'options_compacted_parquet')
-              AND provider_name = ?
-              AND ticker = ?
-            ORDER BY sample_date, storage_format
-          SQL
-          [provider_name, root]
-        )
       end
     end
 
@@ -280,21 +256,6 @@ module Tickrake
           SQL
           [provider_name, root, collection_id]
         ).to_i
-      end
-    end
-
-    def known_roots(provider_name:)
-      synchronize_db do
-        db.execute(
-          <<~SQL,
-            SELECT DISTINCT ticker AS root
-            FROM file_metadata_cache
-            WHERE dataset_type IN ('options_compacted_csv', 'options_compacted_parquet', 'options')
-              AND provider_name = ?
-            ORDER BY ticker
-          SQL
-          [provider_name]
-        ).map { |row| row.fetch("root") }
       end
     end
 

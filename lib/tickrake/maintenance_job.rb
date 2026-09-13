@@ -45,6 +45,7 @@ module Tickrake
             provider_name = target.fetch(:provider_name)
             option_root = target.fetch(:option_root)
 
+            last_compact_result = nil
             Array(@scheduled_job.tasks).each do |step|
               next unless step_matches_target?(step, provider_name: provider_name, option_root: option_root)
 
@@ -57,7 +58,8 @@ module Tickrake
                 logger: @runtime.logger
               )
 
-              result = run_step(context: context, step: step)
+              result = run_step(context: context, step: step, last_compact_result: last_compact_result)
+              last_compact_result = result if step.action == "compact" && result.successful?
               artifacts_written.concat(step_artifacts(result))
               step_results << StepExecution.new(
                 action: step.action,
@@ -89,12 +91,18 @@ module Tickrake
 
     private
 
-    def run_step(context:, step:)
+    def run_step(context:, step:, last_compact_result: nil)
       case step.action
       when "compact"
         run_compact_step(context: context, delete_sources: step.delete_sources)
       when "archive"
-        run_archive_step(context: context, destination_name: step.destination, artifacts: step.artifacts, retain_local: step.retain_local)
+        run_archive_step(
+          context: context,
+          destination_name: step.destination,
+          artifacts: step.artifacts,
+          retain_local: step.retain_local,
+          row_count: last_compact_result&.row_count
+        )
       else
         raise Tickrake::Error, "Unknown maintenance action `#{step.action}`."
       end
@@ -113,6 +121,8 @@ module Tickrake
           option_root: context.option_root,
           sample_date: context.sample_date,
           artifacts_written: compact.artifacts_written,
+          row_count: compact.row_count,
+          source_file_count: compact.source_file_count,
           errors: validation.errors
         )
       end
@@ -125,10 +135,17 @@ module Tickrake
       compact
     end
 
-    def run_archive_step(context:, destination_name:, artifacts:, retain_local:)
-      archive = Tickrake::Maintenance::OptionSamples::ArtifactArchiver.new(context: context).upload(
+    def run_archive_step(context:, destination_name:, artifacts:, retain_local:, row_count: nil)
+      s3_archive = archive_s3_archive(context, destination_name)
+      manifest_writer = s3_archive ? Tickrake::Maintenance::OptionSamples::ManifestWriter.new(s3_archive: s3_archive) : nil
+
+      archive = Tickrake::Maintenance::OptionSamples::ArtifactArchiver.new(
+        context: context,
+        manifest_writer: manifest_writer
+      ).upload(
         destination_name: destination_name,
-        artifacts: artifacts
+        artifacts: artifacts,
+        row_count: row_count
       )
       return archive unless archive.successful?
 
@@ -138,8 +155,6 @@ module Tickrake
         artifacts: artifacts
       )
       return retention if !retention.successful?
-
-      publish_index(context: context, destination_name: destination_name)
 
       archive
     end
@@ -219,21 +234,7 @@ module Tickrake
       provider_name_for(step) == provider_name && option_roots_for(step).include?(option_root)
     end
 
-    def publish_index(context:, destination_name:)
-      s3_archive = index_s3_archive(context, destination_name)
-      Tickrake::Index::Publisher.new(
-        tracker: @runtime.tracker,
-        options_dir: @runtime.config.options_dir,
-        logger: @runtime.logger,
-        s3_archive: s3_archive
-      ).publish(provider: context.provider_name, root: context.option_root)
-    rescue StandardError => e
-      @runtime.logger.error(
-        "Index publish failed provider=#{context.provider_name} root=#{context.option_root}: #{e.class}: #{e.message}"
-      )
-    end
-
-    def index_s3_archive(context, destination_name)
+    def archive_s3_archive(context, destination_name)
       archive_config = context.config.archives[destination_name]
       return nil unless archive_config
 

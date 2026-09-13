@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Tickrake::DataLoader do
-  def build_config(history_dir:, options_dir:, sqlite_path:)
+  def build_config(candles_dir:, options_dir:, sqlite_path:)
     Tickrake::Config.new(
       timezone: "America/Chicago",
       sqlite_path: sqlite_path,
@@ -11,8 +11,8 @@ RSpec.describe Tickrake::DataLoader do
       },
       default_provider_name: "ibkr-paper",
       option_root_tickers: { "SPXW" => "SPX" },
-      data_dir: File.dirname(history_dir),
-      history_dir: history_dir,
+      data_dir: File.dirname(candles_dir),
+      candles_dir: candles_dir,
       options_dir: options_dir,
       max_workers: 2,
       retry_count: 1,
@@ -86,10 +86,10 @@ RSpec.describe Tickrake::DataLoader do
 
   it "loads candles as typed streamed hashes with row-level date filtering by default" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      provider_dir = File.join(history_dir, "ibkr-paper")
+      provider_dir = File.join(candles_dir, "ibkr-paper")
       FileUtils.mkdir_p(provider_dir)
       path = File.join(provider_dir, "SPY_1min.csv")
       File.write(path, <<~CSV)
@@ -99,7 +99,7 @@ RSpec.describe Tickrake::DataLoader do
         2026-04-11T13:31:00Z,3,4,2.5,3.5,12
       CSV
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       loader = described_class.new(config: config, tracker: tracker)
 
@@ -126,10 +126,10 @@ RSpec.describe Tickrake::DataLoader do
 
   it "yields candle rows without full materialization" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      provider_dir = File.join(history_dir, "ibkr-paper")
+      provider_dir = File.join(candles_dir, "ibkr-paper")
       FileUtils.mkdir_p(provider_dir)
       path = File.join(provider_dir, "SPY_1min.csv")
       File.write(path, <<~CSV)
@@ -138,7 +138,7 @@ RSpec.describe Tickrake::DataLoader do
         2026-04-10T13:31:00Z,2,3,1.5,2.5,11
       CSV
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
 
       enumerator = loader.load_candles(
@@ -156,7 +156,7 @@ RSpec.describe Tickrake::DataLoader do
 
   it "loads option chains as typed plain hashes by default using canonical ticker aliases" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
       provider_dir = File.join(options_dir, "schwab")
@@ -166,7 +166,7 @@ RSpec.describe Tickrake::DataLoader do
       File.write(first_path, "contract_type,symbol,description,strike,bid,ask,expiration_date,open_interest\nCALL,SPXW,first,5100,1.25,1.35,2026-04-17,42\n")
       File.write(second_path, "contract_type,symbol,description,strike,bid,ask,expiration_date,open_interest\nCALL,SPXW,second,5105,1.45,1.6,2026-04-17,55\n")
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.bulk_upsert_file_metadata(
         [
@@ -225,7 +225,7 @@ RSpec.describe Tickrake::DataLoader do
 
   it "includes typed option snapshot metadata under a dedicated metadata key when requested" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
       provider_dir = File.join(options_dir, "schwab")
@@ -233,7 +233,7 @@ RSpec.describe Tickrake::DataLoader do
       path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
       File.write(path, "contract_type,symbol,description,delta,bid_size,expiration_date\nCALL,SPXW,first,0.35,10,2026-04-17\n")
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.upsert_file_metadata(
         path: path,
@@ -277,7 +277,7 @@ RSpec.describe Tickrake::DataLoader do
 
   it "coerces blank numeric option fields to nil" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
       provider_dir = File.join(options_dir, "schwab")
@@ -285,7 +285,7 @@ RSpec.describe Tickrake::DataLoader do
       path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
       File.write(path, "contract_type,symbol,bid,ask,last_size,expiration_date\nCALL,SPXW,,, ,2026-04-17\n")
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.upsert_file_metadata(
         path: path,
@@ -318,7 +318,7 @@ RSpec.describe Tickrake::DataLoader do
 
   it "supports option-root filtering and last-in-bucket synthetic frequencies" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
       provider_dir = File.join(options_dir, "schwab")
@@ -333,7 +333,7 @@ RSpec.describe Tickrake::DataLoader do
         File.write(paths[index], "contract_type,symbol,description\nCALL,#{index == 3 ? 'SPY' : 'SPXW'},#{description}\n")
       end
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.bulk_upsert_file_metadata(
         [
@@ -409,10 +409,10 @@ RSpec.describe Tickrake::DataLoader do
 
   it "returns empty enumerators cleanly for unmatched searches" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
 
       expect(
@@ -429,10 +429,10 @@ RSpec.describe Tickrake::DataLoader do
 
   it "orders candle rows by sample time when requested" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      provider_dir = File.join(history_dir, "ibkr-paper")
+      provider_dir = File.join(candles_dir, "ibkr-paper")
       FileUtils.mkdir_p(provider_dir)
       path = File.join(provider_dir, "SPY_1min.csv")
       File.write(path, <<~CSV)
@@ -442,7 +442,7 @@ RSpec.describe Tickrake::DataLoader do
         2026-04-10T13:31:00Z,2,3,1.5,2.5,11
       CSV
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       loader = described_class.new(config: config, tracker: tracker)
 
@@ -465,7 +465,7 @@ RSpec.describe Tickrake::DataLoader do
 
   it "orders option chains by sample time when requested across multiple sample dates" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
       provider_dir = File.join(options_dir, "schwab")
@@ -477,7 +477,7 @@ RSpec.describe Tickrake::DataLoader do
       File.write(second_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,first,2026-04-17\n")
       File.write(third_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,third,2026-04-17\n")
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.bulk_upsert_file_metadata(
         [
@@ -545,7 +545,7 @@ RSpec.describe Tickrake::DataLoader do
 
   it "keeps the default option chain ordering unchanged" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
       provider_dir = File.join(options_dir, "schwab")
@@ -555,7 +555,7 @@ RSpec.describe Tickrake::DataLoader do
       File.write(earlier_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,first,2026-04-17\n")
       File.write(later_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,second,2026-04-17\n")
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.bulk_upsert_file_metadata(
         [
@@ -603,7 +603,7 @@ RSpec.describe Tickrake::DataLoader do
 
   it "orders bucketed option chains by selected sample time when requested" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
       provider_dir = File.join(options_dir, "schwab")
@@ -615,7 +615,7 @@ RSpec.describe Tickrake::DataLoader do
       File.write(second_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,first,2026-04-17\n")
       File.write(third_path, "contract_type,symbol,description,expiration_date\nCALL,SPXW,third,2026-04-17\n")
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.bulk_upsert_file_metadata(
         [
@@ -683,10 +683,10 @@ RSpec.describe Tickrake::DataLoader do
 
   it "rejects unsupported order values" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
 
       expect do
@@ -703,10 +703,10 @@ RSpec.describe Tickrake::DataLoader do
 
   it "candles_available? returns false when no matching candle files exist" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
 
       expect(loader.candles_available?(
@@ -721,17 +721,17 @@ RSpec.describe Tickrake::DataLoader do
 
   it "candles_available? returns true when a matching candle file exists" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      provider_dir = File.join(history_dir, "ibkr-paper")
+      provider_dir = File.join(candles_dir, "ibkr-paper")
       FileUtils.mkdir_p(provider_dir)
       File.write(File.join(provider_dir, "SPY_1min.csv"), <<~CSV)
         datetime,open,high,low,close,volume
         2026-04-10T13:30:00Z,1,2,0.5,1.5,10
       CSV
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
 
       expect(loader.candles_available?(
@@ -746,10 +746,10 @@ RSpec.describe Tickrake::DataLoader do
 
   it "candles_availability returns zero-value hash when no matching candle files exist" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
 
       result = loader.candles_availability(
@@ -766,10 +766,10 @@ RSpec.describe Tickrake::DataLoader do
 
   it "candles_availability returns full metadata for a file that fully covers the requested range" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      provider_dir = File.join(history_dir, "ibkr-paper")
+      provider_dir = File.join(candles_dir, "ibkr-paper")
       FileUtils.mkdir_p(provider_dir)
       File.write(File.join(provider_dir, "SPY_1min.csv"), <<~CSV)
         datetime,open,high,low,close,volume
@@ -778,7 +778,7 @@ RSpec.describe Tickrake::DataLoader do
         2026-04-10T13:32:00Z,3,4,2.5,3.5,12
       CSV
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
 
       result = loader.candles_availability(
@@ -799,17 +799,17 @@ RSpec.describe Tickrake::DataLoader do
 
   it "candles_availability returns partial coverage when the file only partially covers the requested range" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      provider_dir = File.join(history_dir, "ibkr-paper")
+      provider_dir = File.join(candles_dir, "ibkr-paper")
       FileUtils.mkdir_p(provider_dir)
       File.write(File.join(provider_dir, "SPY_1min.csv"), <<~CSV)
         datetime,open,high,low,close,volume
         2026-04-10T13:30:00Z,1,2,0.5,1.5,10
       CSV
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
 
       result = loader.candles_availability(
@@ -827,10 +827,10 @@ RSpec.describe Tickrake::DataLoader do
 
   it "candles_availability sums sample_count across multiple files" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      provider_dir = File.join(history_dir, "ibkr-paper")
+      provider_dir = File.join(candles_dir, "ibkr-paper")
       FileUtils.mkdir_p(provider_dir)
       File.write(File.join(provider_dir, "SPY_1min.csv"), <<~CSV)
         datetime,open,high,low,close,volume
@@ -844,7 +844,7 @@ RSpec.describe Tickrake::DataLoader do
         2026-04-10T13:40:00Z,3,4,2.5,3.5,60
       CSV
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
 
       result = loader.candles_availability(
@@ -862,10 +862,10 @@ RSpec.describe Tickrake::DataLoader do
 
   it "options_available? returns false when no matching option records exist" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
 
       expect(loader.options_available?(
@@ -879,7 +879,7 @@ RSpec.describe Tickrake::DataLoader do
 
   it "options_available? returns true when matching option records exist" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
       provider_dir = File.join(options_dir, "schwab")
@@ -887,7 +887,7 @@ RSpec.describe Tickrake::DataLoader do
       path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
       File.write(path, "contract_type,symbol,expiration_date\nCALL,SPXW,2026-04-17\n")
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.upsert_file_metadata(
         path: path,
@@ -915,10 +915,10 @@ RSpec.describe Tickrake::DataLoader do
 
   it "options_availability returns zero-value hash when no matching option records exist" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       loader = described_class.new(config: config, tracker: Tickrake::Tracker.new(config.sqlite_path))
 
       result = loader.options_availability(
@@ -934,7 +934,7 @@ RSpec.describe Tickrake::DataLoader do
 
   it "options_availability returns full metadata for multi-snapshot multi-expiration query" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
       provider_dir = File.join(options_dir, "schwab")
@@ -944,7 +944,7 @@ RSpec.describe Tickrake::DataLoader do
       path_c = File.join(provider_dir, "SPXW_exp2026-04-24_2026-04-10_14-30-00.csv")
       [path_a, path_b, path_c].each { |p| File.write(p, "contract_type,symbol,expiration_date\nCALL,SPXW,2026-04-17\n") }
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.bulk_upsert_file_metadata([
         { path: path_a, dataset_type: "options", provider_name: "schwab", ticker: "SPXW", frequency: nil,
@@ -976,7 +976,7 @@ RSpec.describe Tickrake::DataLoader do
 
   it "options_availability with expiration_date filter returns single-element expirations array" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
       provider_dir = File.join(options_dir, "schwab")
@@ -985,7 +985,7 @@ RSpec.describe Tickrake::DataLoader do
       path_b = File.join(provider_dir, "SPXW_exp2026-04-24_2026-04-10_14-30-00.csv")
       [path_a, path_b].each { |p| File.write(p, "contract_type,symbol,expiration_date\nCALL,SPXW,2026-04-17\n") }
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.bulk_upsert_file_metadata([
         { path: path_a, dataset_type: "options", provider_name: "schwab", ticker: "SPXW", frequency: nil,
@@ -1011,7 +1011,7 @@ RSpec.describe Tickrake::DataLoader do
 
   it "options_available? returns false when option_root is set but no records match that root" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
       provider_dir = File.join(options_dir, "schwab")
@@ -1019,7 +1019,7 @@ RSpec.describe Tickrake::DataLoader do
       path = File.join(provider_dir, "SPY_exp2026-04-17_2026-04-10_14-30-00.csv")
       File.write(path, "contract_type,symbol,expiration_date\nCALL,SPY,2026-04-17\n")
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.upsert_file_metadata(
         path: path,
