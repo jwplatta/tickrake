@@ -1,6 +1,4 @@
 # frozen_string_literal: true
-# DEPRECATED: RootIndexBuilder is no longer called from active code paths.
-# The reconciler now handles building ROOT.json. This file is kept for reference.
 
 module Tickrake
   module Index
@@ -18,48 +16,11 @@ module Tickrake
           "provider" => provider,
           "root" => root,
           "updated_at" => Time.now.utc.iso8601,
-          "historical" => build_historical(provider, root),
           "intraday" => build_intraday(provider, root)
         }
       end
 
       private
-
-      def build_historical(provider, root)
-        rows = @tracker.historical_index_rows(provider_name: provider, root: root)
-        grouped = rows.group_by { |row| row.fetch("sample_date") }
-
-        grouped.map do |sample_date, date_rows|
-          files = {}
-          date_rows.each do |row|
-            format = row.fetch("storage_format")
-            next unless format
-
-            uri = UriBuilder.build(
-              path: row.fetch("path"),
-              storage_location: row.fetch("storage_location"),
-              remote_uri: row.fetch("remote_uri")
-            )
-            files[format] = {
-              "uri" => uri,
-              "row_count" => row.fetch("row_count"),
-              "source_file_count" => row.fetch("source_file_count")
-            }.compact
-          end
-
-          parquet_row = date_rows.find { |r| r.fetch("storage_format") == "parquet" }
-          csv_row = date_rows.find { |r| r.fetch("storage_format") == "csv" }
-          representative = parquet_row || csv_row
-
-          {
-            "sample_date" => sample_date,
-            "status" => "ready",
-            "files" => files,
-            "first_observed_at" => representative&.fetch("first_observed_at"),
-            "last_observed_at" => representative&.fetch("last_observed_at")
-          }
-        end.sort_by { |entry| entry.fetch("sample_date") }
-      end
 
       def build_intraday(provider, root)
         rows = @tracker.intraday_index_rows(provider_name: provider, root: root)
@@ -70,11 +31,7 @@ module Tickrake
           {
             "expiration_date" => row.fetch("expiration_date"),
             "format" => "csv",
-            "uri" => UriBuilder.build(
-              path: row.fetch("path"),
-              storage_location: "local",
-              remote_uri: nil
-            ),
+            "uri" => "file://#{row.fetch("path")}",
             "row_count" => row.fetch("row_count")
           }
         end
