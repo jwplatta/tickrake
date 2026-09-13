@@ -15,7 +15,7 @@ RSpec.describe "option sample maintenance" do
       option_snapshot_filename_timezone: "utc",
       datastores: with_archive ? { "s3_archive" => Tickrake::DatastoreConfig.new(name: "s3_archive", type: "s3", bucket: "tickrake", region: "us-east-1", prefix: "", storage_class: "GLACIER_IR") } : {},
       data_dir: File.join(dir, "data"),
-      history_dir: File.join(dir, "data", "history"),
+      candles_dir: File.join(dir, "data", "candles"),
       options_dir: File.join(dir, "data", "options"),
       max_workers: 2,
       retry_count: 1,

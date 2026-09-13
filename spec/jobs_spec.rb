@@ -18,7 +18,6 @@ RSpec.describe "job execution" do
       datastores: config.datastores,
       universes: config.universes,
       data_dir: config.data_dir,
-      history_dir: config.history_dir,
       candles_dir: config.candles_dir,
       options_dir: config.options_dir,
       max_workers: config.max_workers,

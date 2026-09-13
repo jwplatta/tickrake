@@ -75,101 +75,6 @@ module Tickrake
       0
     end
 
-    def import_configured_job(config, common_options, options)
-      job = config.import_job(options[:job])
-      validate_import_job_options!(options)
-
-      runtime = Tickrake::Runtime.new(
-        config: config,
-        provider_name: job.provider,
-        verbose: common_options[:verbose],
-        stdout: @stdout,
-        log_path: Tickrake::PathSupport.named_log_path(job.name),
-        config_path: common_options[:config_path]
-      )
-
-      results = import_paths(
-        type: job.type,
-        config: config,
-        runtime: runtime,
-        provider_name: job.provider,
-        ticker: job.ticker,
-        option_root: job.option_root,
-        paths: job.paths,
-        force: options[:force] || job.force,
-        progress_reporter: build_import_progress_reporter(job.paths)
-      )
-      @stdout.puts("Imported #{results.sum(&:row_count)} option rows into #{results.length} snapshot files from #{job.paths.length} source files.")
-      0
-    end
-
-    def import_direct(config, common_options, options)
-      validate_import_options!(options)
-
-      runtime = Tickrake::Runtime.new(
-        config: config,
-        provider_name: options[:provider],
-        verbose: common_options[:verbose],
-        stdout: @stdout,
-        log_path: Tickrake::PathSupport.named_log_path("import"),
-        config_path: common_options[:config_path]
-      )
-
-      import_paths = [options[:path]]
-      results = import_paths(
-        type: options[:type],
-        config: config,
-        runtime: runtime,
-        provider_name: options[:provider],
-        ticker: options[:ticker],
-        option_root: options[:option_root],
-        paths: import_paths,
-        force: options[:force],
-        progress_reporter: build_import_progress_reporter(import_paths)
-      )
-      @stdout.puts("Imported #{results.sum(&:row_count)} option rows into #{results.length} snapshot files.")
-      0
-    end
-
-    def import_paths(type:, config:, runtime:, provider_name:, ticker:, option_root:, paths:, force:, progress_reporter:)
-      begin
-        case type
-        when "options"
-          paths.flat_map do |path|
-            begin
-              Tickrake::Importers::MassiveOptionsImporter.new(
-                config: config,
-                tracker: runtime.tracker,
-                provider_name: provider_name,
-                ticker: ticker,
-                option_root: option_root,
-                source_path: path,
-                force: force,
-                logger: runtime.logger
-              ).import.tap do
-                progress_reporter&.advance(title: import_progress_title(path))
-              end
-            rescue StandardError
-              progress_reporter&.advance(title: "#{import_progress_title(path)} failed")
-              raise
-            end
-          end
-        else
-          raise Tickrake::Error, "Unsupported import type `#{type}`."
-        end
-      ensure
-        progress_reporter&.finish
-      end
-    end
-
-    def build_import_progress_reporter(paths)
-      Tickrake::ProgressReporter.build(total: paths.length, title: "Import", output: @stdout)
-    end
-
-    def import_progress_title(path)
-      "Import #{File.basename(path)}"
-    end
-
     def run_command(argv, config, common_options)
       options = parse_run_options!(argv)
 
@@ -404,19 +309,6 @@ module Tickrake
       raise OptionParser::InvalidOption, argv.first if argv.any?
 
       options
-    end
-
-    def validate_import_options!(options)
-      raise Tickrake::Error, "--type is required for imports." unless options[:type]
-      raise Tickrake::Error, "Only --type options imports are supported." unless options[:type] == "options"
-      raise Tickrake::Error, "Option imports require --provider." unless options[:provider]
-      raise Tickrake::Error, "Option imports require --option-root." unless options[:option_root]
-      raise Tickrake::Error, "Option imports require --path." unless options[:path]
-    end
-
-    def validate_import_job_options!(options)
-      direct_args = [options[:type], options[:provider], options[:ticker], options[:option_root], options[:path]]
-      raise Tickrake::Error, "Direct import arguments cannot be combined with --job." if direct_args.any?
     end
 
     def validate_job_run_options!(job, options)

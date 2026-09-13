@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Tickrake::Storage::CandleMetadataSync do
-  def build_config(history_dir:, options_dir:, sqlite_path:)
+  def build_config(candles_dir:, options_dir:, sqlite_path:)
     Tickrake::Config.new(
       timezone: "America/Chicago",
       sqlite_path: sqlite_path,
@@ -11,8 +11,8 @@ RSpec.describe Tickrake::Storage::CandleMetadataSync do
       },
       default_provider_name: "ibkr-paper",
       option_root_tickers: {},
-      data_dir: File.dirname(history_dir),
-      history_dir: history_dir,
+      data_dir: File.dirname(candles_dir),
+      candles_dir: candles_dir,
       options_dir: options_dir,
       max_workers: 2,
       retry_count: 1,
@@ -26,10 +26,10 @@ RSpec.describe Tickrake::Storage::CandleMetadataSync do
 
   it "inserts missing candle metadata rows and skips existing cache paths" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      ibkr_dir = File.join(history_dir, "ibkr-paper")
+      ibkr_dir = File.join(candles_dir, "ibkr-paper")
       FileUtils.mkdir_p(ibkr_dir)
 
       spy_path = File.join(ibkr_dir, "SPY_1min.csv")
@@ -37,7 +37,7 @@ RSpec.describe Tickrake::Storage::CandleMetadataSync do
       File.write(spy_path, "datetime,open,high,low,close,volume\n2026-04-10T13:30:00Z,1,2,0,1,10\n")
       File.write(qqq_path, "datetime,open,high,low,close,volume\n2026-04-10T13:35:00Z,1,2,0,1,20\n")
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       Tickrake::Tracker.migrate!(config.sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       tracker.upsert_file_metadata(
@@ -68,10 +68,10 @@ RSpec.describe Tickrake::Storage::CandleMetadataSync do
 
   it "supports provider filtering and canonicalizes provider symbol mappings" do
     Dir.mktmpdir do |dir|
-      history_dir = File.join(dir, "history")
+      candles_dir = File.join(dir, "candles")
       options_dir = File.join(dir, "options")
       sqlite_path = File.join(dir, "tickrake.sqlite3")
-      schwab_dir = File.join(history_dir, "schwab")
+      schwab_dir = File.join(candles_dir, "schwab")
       FileUtils.mkdir_p(schwab_dir)
 
       es_path = File.join(schwab_dir, "^ES_1min.csv")
@@ -79,7 +79,7 @@ RSpec.describe Tickrake::Storage::CandleMetadataSync do
       File.write(File.join(schwab_dir, "README.txt"), "ignored")
       File.write(File.join(schwab_dir, "badname.csv"), "datetime,open\n")
 
-      config = build_config(history_dir: history_dir, options_dir: options_dir, sqlite_path: sqlite_path)
+      config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
       Tickrake::Tracker.migrate!(config.sqlite_path)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
 
