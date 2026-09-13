@@ -22,6 +22,8 @@ module Tickrake
         :option_root,
         :sample_date,
         :artifacts_written,
+        :row_count,
+        :source_file_count,
         :errors,
         keyword_init: true
       ) do

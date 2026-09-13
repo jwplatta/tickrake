@@ -59,10 +59,10 @@ module Tickrake
       end
 
       def candle_paths_for(provider_name)
-        base_dir = File.join(@config.history_dir, provider_name.to_s)
+        base_dir = File.join(@config.candles_dir, provider_name.to_s)
         return [] unless Dir.exist?(base_dir)
 
-        Dir.glob(File.join(base_dir, "*.csv")).sort
+        Dir.glob(File.join(base_dir, "**", "*.csv")).sort
       end
     end
   end

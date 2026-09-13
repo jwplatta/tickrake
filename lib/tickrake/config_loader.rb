@@ -35,6 +35,8 @@ module Tickrake
       storage = data.fetch("storage", {})
       data_dir = Tickrake::PathSupport.expand_path(dig(storage, "data_dir", "~/.tickrake/data"))
       history_dir = Tickrake::PathSupport.expand_path(dig(storage, "history_dir", File.join(data_dir, "history")))
+      candles_dir_default = storage["candles_dir"] ? storage["candles_dir"] : (storage["history_dir"] ? storage["history_dir"] : File.join(data_dir, "candles"))
+      candles_dir = Tickrake::PathSupport.expand_path(candles_dir_default)
       options_dir = Tickrake::PathSupport.expand_path(dig(storage, "options_dir", File.join(data_dir, "options")))
       pending_metadata_dir = Tickrake::PathSupport.expand_path(dig(storage, "pending_metadata_dir", File.join(data_dir, "pending_metadata")))
       pending_events_dir = Tickrake::PathSupport.expand_path(dig(storage, "pending_events_dir", File.join(data_dir, "pending_events")))
@@ -58,6 +60,7 @@ module Tickrake
         universes: universes,
         data_dir: data_dir,
         history_dir: history_dir,
+        candles_dir: candles_dir,
         options_dir: options_dir,
         max_workers: Integer(runtime.fetch("max_workers", 4)),
         retry_count: Integer(runtime.fetch("retry_count", 2)),

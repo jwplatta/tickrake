@@ -37,15 +37,14 @@ module Tickrake
             sampled_at_resolver: @context.dataset.method(:sampled_at_for_path)
           )
 
-          upsert_metadata(path: csv_path, format: "csv", first_sampled_at: result.first_sampled_at, last_sampled_at: result.last_sampled_at, row_count: result.row_count, source_file_count: raw_files.length)
-          upsert_metadata(path: parquet_path, format: "parquet", first_sampled_at: result.first_sampled_at, last_sampled_at: result.last_sampled_at, row_count: result.row_count, source_file_count: raw_files.length)
-
           CompactResult.new(
             success: true,
             provider_name: @context.provider_name,
             option_root: @context.option_root,
             sample_date: @context.sample_date,
             artifacts_written: [csv_path, parquet_path],
+            row_count: result.row_count,
+            source_file_count: raw_files.length,
             errors: []
           )
         rescue StandardError => e
@@ -62,30 +61,6 @@ module Tickrake
           progress_reporter&.finish
         end
 
-        private
-
-        def upsert_metadata(path:, format:, first_sampled_at:, last_sampled_at:, row_count:, source_file_count:)
-          stat = File.stat(path)
-          @context.tracker.upsert_file_metadata(
-            path: path,
-            dataset_type: format == "csv" ? "options_compacted_csv" : "options_compacted_parquet",
-            provider_name: @context.provider_name,
-            ticker: @context.option_root,
-            frequency: nil,
-            expiration_date: nil,
-            storage_format: format,
-            storage_location: "local",
-            artifact_status: "ready_local",
-            remote_uri: nil,
-            source_file_count: source_file_count,
-            row_count: row_count,
-            first_observed_at: first_sampled_at&.utc&.iso8601,
-            last_observed_at: last_sampled_at&.utc&.iso8601,
-            file_mtime: stat.mtime.to_i,
-            file_size: stat.size,
-            updated_at: Time.now
-          )
-        end
       end
     end
   end

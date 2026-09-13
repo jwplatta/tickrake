@@ -1,4 +1,6 @@
 # frozen_string_literal: true
+# DEPRECATED: RootIndexBuilder is no longer called from active code paths.
+# The reconciler now handles building ROOT.json. This file is kept for reference.
 
 module Tickrake
   module Index

@@ -164,6 +164,11 @@ module Tickrake
       bulk_upsert_file_metadata([attrs])
     end
 
+    def evict_stale_metadata(older_than_days:)
+      cutoff = (Time.now.utc - older_than_days * 86400).iso8601
+      @db.execute("DELETE FROM file_metadata_cache WHERE updated_at < ?", [cutoff])
+    end
+
     def bulk_upsert_file_metadata(attrs_list)
       return if attrs_list.empty?
 

@@ -41,19 +41,6 @@ module Tickrake
       when "migrate"
         config = Tickrake::ConfigLoader.load(config_path)
         migrate_command(argv, config)
-      when "sync-metadata"
-        config = Tickrake::ConfigLoader.load(config_path)
-        sync_metadata_command(argv, config)
-      when "import-index-data"
-        config = Tickrake::ConfigLoader.load(config_path)
-        import_index_data_command(argv, config)
-      when "import"
-        config = Tickrake::ConfigLoader.load(config_path)
-        import_command(argv, config, common_options)
-
-      when "query"
-        config = Tickrake::ConfigLoader.load(config_path)
-        query_command(argv, config)
       when "status"
         config = Tickrake::ConfigLoader.load(config_path)
         status_command(argv, config)
@@ -66,12 +53,6 @@ module Tickrake
       when "run"
         config = Tickrake::ConfigLoader.load(config_path)
         run_command(argv, config, common_options)
-      when "publish-index"
-        config = Tickrake::ConfigLoader.load(config_path)
-        publish_index_command(argv, config)
-      when "prune-orphaned"
-        config = Tickrake::ConfigLoader.load(config_path)
-        prune_orphaned_command(argv, config)
       else
         @stderr.puts(usage)
         1
@@ -91,44 +72,6 @@ module Tickrake
 
       Tickrake::Tracker.migrate!(config.sqlite_path)
       @stdout.puts("Migrated Tickrake database at #{config.sqlite_path}.")
-      0
-    end
-
-    def import_command(argv, config, common_options)
-      options = parse_import_options!(argv)
-      if options[:job]
-        import_configured_job(config, common_options, options)
-      else
-        import_direct(config, common_options, options)
-      end
-    end
-
-    def import_index_data_command(argv, config)
-      options = parse_import_index_data_options!(argv)
-      tracker = Tickrake::Tracker.new(config.sqlite_path)
-      Tickrake::IndexData::Importer.new(tracker: tracker).import!(
-        memberships_path: options.fetch(:memberships),
-        tickers_path: options[:tickers],
-        alias_history_path: options[:alias_history]
-      )
-      @stdout.puts("Imported market index data from #{options.fetch(:memberships)}.")
-      0
-    end
-
-    def sync_metadata_command(argv, config)
-      options = parse_sync_metadata_options!(argv, config)
-      tracker = Tickrake::Tracker.new(config.sqlite_path)
-      result = Tickrake::Storage::CandleMetadataSync.new(
-        config: config,
-        tracker: tracker,
-        provider_name: options[:provider]
-      ).run
-      providers = result.providers_scanned.join(", ")
-      @stdout.puts(
-        "Synced candle metadata for #{result.providers_scanned.length} provider(s) "\
-        "(#{providers}): discovered #{result.files_discovered} file(s), inserted "\
-        "#{result.rows_inserted} row(s), skipped #{result.files_skipped} file(s)."
-      )
       0
     end
 
@@ -463,60 +406,6 @@ module Tickrake
       options
     end
 
-    def parse_import_options!(argv)
-      options = {
-        type: nil,
-        job: nil,
-        provider: nil,
-        ticker: nil,
-        option_root: nil,
-        path: nil,
-        force: false
-      }
-
-      parser = OptionParser.new do |opts|
-        opts.on("--type TYPE", "Import type: options") { |value| options[:type] = value }
-        opts.on("--job NAME", "Configured import job name to run") { |value| options[:job] = value }
-        opts.on("--provider NAME", "Use the named provider from config") { |value| options[:provider] = value }
-        opts.on("--ticker SYMBOL", "Underlying ticker metadata for the import") { |value| options[:ticker] = value }
-        opts.on("--option-root ROOT", "Filter source rows to a single option root") { |value| options[:option_root] = value }
-        opts.on("--path PATH", "Massive flatfile CSV path to import") { |value| options[:path] = value }
-        opts.on("--force", "Replace existing imported snapshot files") { options[:force] = true }
-      end
-      parser.order!(argv)
-      raise OptionParser::InvalidOption, argv.first if argv.any?
-
-      options
-    end
-
-    def parse_import_index_data_options!(argv)
-      options = { memberships: nil, tickers: nil, alias_history: nil }
-      parser = OptionParser.new do |opts|
-        opts.on("--memberships PATH", "Canonical market index memberships CSV") { |value| options[:memberships] = value }
-        opts.on("--tickers PATH", "Canonical ticker metadata CSV") { |value| options[:tickers] = value }
-        opts.on("--alias-history PATH", "Canonical ticker alias history CSV") { |value| options[:alias_history] = value }
-      end
-      parser.order!(argv)
-      raise OptionParser::InvalidOption, argv.first if argv.any?
-      raise Tickrake::Error, "--memberships is required." unless options[:memberships]
-
-      options
-    end
-
-    def parse_sync_metadata_options!(argv, config)
-      options = { provider: nil }
-      parser = OptionParser.new do |opts|
-        opts.on("--provider NAME", "Restrict candle metadata sync to one configured provider") do |value|
-          options[:provider] = value
-        end
-      end
-      parser.order!(argv)
-      raise OptionParser::InvalidOption, argv.first if argv.any?
-      config.provider_definition(options[:provider]) if options[:provider]
-
-      options
-    end
-
     def validate_import_options!(options)
       raise Tickrake::Error, "--type is required for imports." unless options[:type]
       raise Tickrake::Error, "Only --type options imports are supported." unless options[:type] == "options"
@@ -598,105 +487,6 @@ module Tickrake
       return 1 if start_date.nil? && end_date.nil?
 
       ((end_date - start_date).to_i + 1)
-    end
-
-    def query_command(argv, config)
-      options = parse_query_options!(argv)
-      tracker = Tickrake::Tracker.new(config.sqlite_path)
-      Tickrake::Query::Engine.new(config: config, tracker: tracker, stdout: @stdout).run(
-        type: options[:type],
-        provider_name: options[:provider],
-        ticker: options[:ticker],
-        index_code: options[:index],
-        as_of: options[:as_of],
-        frequency: options[:frequency],
-        start_date: options[:start_date],
-        end_date: options[:end_date],
-        expiration_date: options[:expiration_date],
-        limit: options[:limit],
-        ascending: options[:ascending],
-        format: options[:format]
-      )
-      0
-    end
-
-    def publish_index_command(argv, config)
-      options = { provider: nil, type: nil, upload: false }
-      parser = OptionParser.new do |opts|
-        opts.on("--provider NAME", "Provider name (e.g. schwab)") { |v| options[:provider] = v }
-        opts.on("--type TYPE", "Data type: options or candles") { |v| options[:type] = v }
-        opts.on("--upload", "Upload published index files to S3") { options[:upload] = true }
-      end
-      parser.order!(argv)
-      raise OptionParser::InvalidOption, argv.first if argv.any?
-      raise Tickrake::Error, "--provider is required" unless options[:provider]
-      raise Tickrake::Error, "--type is required" unless options[:type]
-      raise Tickrake::Error, "Index publishing for candles is not yet implemented." if options[:type] == "candles"
-      raise Tickrake::Error, "Unknown type `#{options[:type]}`. Valid types: options" unless options[:type] == "options"
-
-      tracker = Tickrake::Tracker.new(config.sqlite_path)
-      roots = tracker.known_roots(provider_name: options[:provider])
-      raise Tickrake::Error, "No known roots for provider `#{options[:provider]}`." if roots.empty?
-
-      s3_archive = if options[:upload]
-        archive_config = config.s3_archive
-        raise Tickrake::Error, "No s3_archive configured." unless archive_config
-        Tickrake::Storage::S3Archive.new(config, archive_config: archive_config)
-      end
-
-      publisher = Tickrake::Index::Publisher.new(
-        tracker: tracker,
-        options_dir: config.options_dir,
-        logger: nil,
-        s3_archive: s3_archive
-      )
-
-      roots.each do |root|
-        publisher.publish(provider: options[:provider], root: root)
-        @stdout.puts("Published index for #{options[:provider]}/#{root}")
-      end
-      @stdout.puts("Published tickers index for #{options[:provider]}")
-      0
-    end
-
-
-    def parse_query_options!(argv)
-      options = {
-        type: nil,
-        provider: nil,
-        ticker: nil,
-        frequency: nil,
-        start_date: nil,
-        end_date: nil,
-        expiration_date: nil,
-        limit: nil,
-        ascending: true,
-        format: "text",
-        index: nil,
-        as_of: nil
-      }
-      parser = OptionParser.new do |opts|
-        opts.on("--type TYPE", "Dataset type: candles, options, compacted-options, or members") { |value| options[:type] = value }
-        opts.on("--provider NAME", "Use the named provider namespace from config") { |value| options[:provider] = value }
-        opts.on("--ticker SYMBOL", "Filter by ticker symbol") { |value| options[:ticker] = value }
-        opts.on("--index CODE", "Filter members queries by market index code") { |value| options[:index] = value }
-        opts.on("--as-of YYYY-MM-DD", "Filter members queries by inclusive membership date") { |value| options[:as_of] = Date.iso8601(value) }
-        opts.on("--frequency FREQ", "Filter candle results by frequency") { |value| options[:frequency] = value }
-        opts.on("--start-date YYYY-MM-DD", "Filter by dataset coverage start date") { |value| options[:start_date] = Date.iso8601(value) }
-        opts.on("--end-date YYYY-MM-DD", "Filter by dataset coverage end date") { |value| options[:end_date] = Date.iso8601(value) }
-        opts.on("--exp-date YYYY-MM-DD", "--expiration-date YYYY-MM-DD", "Filter option snapshots by expiration date") do |value|
-          options[:expiration_date] = Date.iso8601(value)
-        end
-        opts.on("--limit N", Integer, "Limit matching option snapshots to N results") { |value| options[:limit] = value }
-        opts.on("--ascending true|false", "Sort option snapshots by sample datetime ascending or descending") do |value|
-          options[:ascending] = parse_boolean_option!(value, option_name: "--ascending")
-        end
-        opts.on("--format FORMAT", "Output format: text or json") { |value| options[:format] = value }
-      end
-      parser.order!(argv)
-      raise OptionParser::InvalidOption, argv.first if argv.any?
-
-      options
     end
 
     def status_command(argv, config)
@@ -806,37 +596,12 @@ module Tickrake
       0
     end
 
-    def prune_orphaned_command(argv, config)
-      dry_run = argv.include?("--dry-run")
-      tracker = Tickrake::Tracker.new(config.sqlite_path)
-      rows = tracker.file_metadata_rows
-      orphaned = rows.map { |r| r["path"] }.select { |p| !File.exist?(p) }
-
-      if orphaned.empty?
-        @stdout.puts("No orphaned metadata entries found.")
-        return 0
-      end
-
-      if dry_run
-        @stdout.puts("Would delete #{orphaned.length} orphaned metadata entries:")
-        orphaned.each { |p| @stdout.puts("  #{p}") }
-      else
-        deleted = tracker.delete_file_metadata_paths(orphaned)
-        @stdout.puts("Deleted #{deleted} orphaned metadata entries.")
-      end
-      0
-    end
-
     def usage
       <<~TEXT
         Usage:
           tickrake init [--config path/to/tickrake.yml] [--force]
           tickrake validate-config [--config path/to/tickrake.yml] [--verbose]
           tickrake migrate [--config path/to/tickrake.yml]
-          tickrake sync-metadata [--provider NAME] [--config path/to/tickrake.yml]
-          tickrake import --job JOB_NAME [--force] [--config path/to/tickrake.yml] [--verbose]
-          tickrake import --type options --provider massive --option-root ROOT --path path/to/YYYY-MM-DD.csv [--ticker SYMBOL] [--force] [--config path/to/tickrake.yml] [--verbose]
-          tickrake import-index-data --memberships data/market_index_memberships.csv [--tickers data/tickers.csv] [--alias-history data/ticker_aliases.csv] [--config path/to/tickrake.yml]
           tickrake run --job JOB_NAME [--provider NAME] [--from-config-start] [--start-date YYYY-MM-DD --end-date YYYY-MM-DD] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type options --ticker SYMBOL --expiration-date YYYY-MM-DD [--option-root ROOT] [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type candles --ticker SYMBOL --start-date YYYY-MM-DD --end-date YYYY-MM-DD --frequency FREQ [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
@@ -844,10 +609,6 @@ module Tickrake
           tickrake stop --job JOB_NAME|all [--config path/to/tickrake.yml]
           tickrake restart --job JOB_NAME|all [--provider NAME] [--from-config-start] [--config path/to/tickrake.yml]
           tickrake status [--config path/to/tickrake.yml]
-          tickrake query [--type candles|options|compacted-options|members] [--provider NAME] [--ticker SYMBOL] [--index CODE] [--as-of YYYY-MM-DD] [--frequency FREQ] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--exp-date YYYY-MM-DD] [--limit N] [--ascending true|false] [--format text|json] [--config path/to/tickrake.yml]
-
-          tickrake publish-index --provider NAME --type options|candles [--upload] [--config path/to/tickrake.yml]
-          tickrake prune-orphaned [--dry-run] [--config path/to/tickrake.yml]
           tickrake logs [TARGET] [--tail N]
       TEXT
     end

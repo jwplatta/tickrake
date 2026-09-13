@@ -11,7 +11,7 @@ module Tickrake
       end
 
       def candle_path(provider:, symbol:, frequency:)
-        File.join(provider_history_dir(provider), "#{sanitize_symbol(symbol)}_#{frequency}.csv")
+        File.join(provider_candles_dir(provider), frequency.to_s, "#{sanitize_symbol(symbol)}.csv")
       end
 
       def option_sample_path(provider:, symbol:, expiration_date:, timestamp:, root: nil)
@@ -99,8 +99,8 @@ module Tickrake
         TZInfo::Timezone.get(timezone_name).utc_to_local(timestamp.utc)
       end
 
-      def provider_history_dir(provider)
-        File.join(@config.history_dir, provider.to_s)
+      def provider_candles_dir(provider)
+        File.join(@config.candles_dir, provider.to_s)
       end
 
       def provider_options_dir(provider)
