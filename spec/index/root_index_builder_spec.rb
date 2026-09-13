@@ -34,7 +34,6 @@ RSpec.describe Tickrake::Index::RootIndexBuilder do
         builder = described_class.new(tracker: tracker, options_dir: dir)
         result = builder.build(provider: "schwab", root: "SPXW")
 
-        expect(result["schema_version"]).to eq(1)
         expect(result["provider"]).to eq("schwab")
         expect(result["root"]).to eq("SPXW")
         expect(result).to have_key("updated_at")

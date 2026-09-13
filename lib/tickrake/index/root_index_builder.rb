@@ -3,8 +3,6 @@
 module Tickrake
   module Index
     class RootIndexBuilder
-      SCHEMA_VERSION = 1
-
       def initialize(tracker:, options_dir:)
         @tracker = tracker
         @options_dir = options_dir
@@ -12,7 +10,6 @@ module Tickrake
 
       def build(provider:, root:)
         {
-          "schema_version" => SCHEMA_VERSION,
           "provider" => provider,
           "root" => root,
           "updated_at" => Time.now.utc.iso8601,

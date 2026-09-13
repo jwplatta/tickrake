@@ -2,8 +2,6 @@
 
 module Tickrake
   class ReconcilerJob
-    SCHEMA_VERSION = 2
-
     def initialize(runtime, scheduled_job:)
       @runtime = runtime
       @scheduled_job = scheduled_job
@@ -100,7 +98,6 @@ module Tickrake
       end.sort_by { |e| e.fetch("sample_date") }
 
       {
-        "schema_version" => SCHEMA_VERSION,
         "provider"       => provider,
         "root"           => root,
         "updated_at"     => Time.now.utc.iso8601,
@@ -114,7 +111,6 @@ module Tickrake
 
     def write_tickers_index(provider, roots, s3_archive)
       payload = {
-        "schema_version" => 1,
         "provider"       => provider,
         "updated_at"     => Time.now.utc.iso8601,
         "roots"          => roots

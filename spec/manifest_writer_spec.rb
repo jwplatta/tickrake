@@ -29,8 +29,7 @@ RSpec.describe Tickrake::Maintenance::OptionSamples::ManifestWriter do
         expected_key,
         satisfy { |json|
           parsed = JSON.parse(json)
-          parsed["schema_version"] == 1 &&
-            parsed["provider"] == "schwab" &&
+          parsed["provider"] == "schwab" &&
             parsed["root"] == "SPXW" &&
             parsed["sample_date"] == "2026-09-13" &&
             parsed["artifacts"] == artifacts
@@ -53,7 +52,7 @@ RSpec.describe Tickrake::Maintenance::OptionSamples::ManifestWriter do
 
   describe "#read" do
     it "downloads and parses manifest JSON from S3" do
-      payload = { "schema_version" => 1, "provider" => "schwab", "root" => "SPXW", "sample_date" => "2026-09-13" }
+      payload = { "provider" => "schwab", "root" => "SPXW", "sample_date" => "2026-09-13" }
       allow(s3_archive).to receive(:download_content).with(expected_key).and_return(JSON.generate(payload))
 
       result = writer.read(**args)

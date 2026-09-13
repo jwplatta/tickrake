@@ -4,8 +4,6 @@ module Tickrake
   module Maintenance
     module OptionSamples
       class ManifestWriter
-        SCHEMA_VERSION = 1
-
         def initialize(s3_archive:)
           @s3_archive = s3_archive
         end
@@ -13,7 +11,6 @@ module Tickrake
         def write(dataset_type:, provider:, root:, sample_date:, artifacts:, archived_at:)
           key = manifest_key(dataset_type: dataset_type, provider: provider, root: root, sample_date: sample_date)
           payload = {
-            schema_version: SCHEMA_VERSION,
             dataset_type: dataset_type,
             provider: provider,
             root: root,
