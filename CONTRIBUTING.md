@@ -27,6 +27,13 @@ bundle exec exe/tickrake init
 8. Run relevant checks before opening a pull request.
 9. Use conventional commits, for example `feat: add importer resume support` or `fix: refresh metadata after import`.
 
+## Adding a database migration
+
+1. Create a new file under `lib/tickrake/db/migrations/` with the next version number (e.g. `015_my_migration.rb`).
+2. Define a class with `self.version` returning that number and an `up` method that executes the SQL.
+3. **Add a `require_relative` for the new file in `lib/tickrake.rb`** (alongside the other migration requires).
+4. **Register the class in the `migrations` array in `lib/tickrake/tracker.rb`** (`self.migrations` method). Skipping this step means the migration will never run.
+
 ## Running checks
 
 Run the test suite before opening a pull request:

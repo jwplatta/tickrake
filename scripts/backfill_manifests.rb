@@ -102,25 +102,18 @@ providers_to_scan.each do |provider|
     csv_uri     = "s3://#{s3_archive.bucket}/#{csv_key}"
     csv_exists  = s3_archive.object_exists?(csv_key)
 
-    artifacts = []
-
     row_count = row_count_for(parquet_uri)
-    artifacts << {
-      "format"    => "parquet",
-      "uri"       => parquet_uri,
-      "row_count" => row_count
-    }.compact
+
+    artifacts = {
+      "parquet" => { "uri" => parquet_uri, "row_count" => row_count }.compact
+    }
 
     if csv_exists
-      artifacts << {
-        "format"    => "csv",
-        "uri"       => csv_uri,
-        "row_count" => row_count
-      }.compact
+      artifacts["csv"] = { "uri" => csv_uri, "row_count" => row_count }.compact
     end
 
     if options[:dry_run]
-      puts "  WOULD WRITE manifest: provider=#{provider} root=#{root} sample_date=#{sample_date} artifacts=#{artifacts.length}"
+      puts "  WOULD WRITE manifest: provider=#{provider} root=#{root} sample_date=#{sample_date} artifacts=#{artifacts.keys.join(",")}"
       total_written += 1
       next
     end
