@@ -48,7 +48,17 @@ Tickrake.job "my_job" do
 end
 ```
 
-Every job requires a `schedule` block and one typed block that determines the job type.
+Every job requires one typed block that determines the job type. A `schedule` block is required for recurring jobs. When omitted, the job runs once and exits — useful for backfills and ad-hoc tasks:
+
+```ruby
+Tickrake.job "drain_metadata" do
+  metadata_sync do
+    batch_size 1000
+  end
+end
+```
+
+For batch jobs like `metadata_sync`, one-shot mode loops until all pending work is drained. Streaming jobs (`level_one`, `order_book`) require a schedule.
 
 ### Job Types
 

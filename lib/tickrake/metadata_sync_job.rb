@@ -9,11 +9,11 @@ module Tickrake
 
     def run
       pending_dir = @runtime.config.pending_metadata_dir
-      return unless Dir.exist?(pending_dir)
+      return 0 unless Dir.exist?(pending_dir)
 
       batch_size = @scheduled_job.settings.fetch("batch_size", 500)
       sidecar_paths = Dir.glob(File.join(pending_dir, "*.meta.json")).first(batch_size)
-      return if sidecar_paths.empty?
+      return 0 if sidecar_paths.empty?
 
       sidecars = sidecar_paths.map { |path| JSON.parse(File.read(path)) }
 
@@ -30,6 +30,8 @@ module Tickrake
       @runtime.logger.info("metadata_sync: ingested #{sidecar_paths.length} sidecar(s)")
 
       @runtime.tracker.evict_stale_metadata(older_than_days: 10)
+
+      sidecar_paths.length
     end
   end
 end

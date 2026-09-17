@@ -117,15 +117,17 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       end.to raise_error(Tickrake::Error, /requires provider/)
     end
 
-    it "raises without a schedule block" do
-      expect do
-        build("bad") do
-          provider :schwab
-          type :options
-          universe "stock_universe"
-          options { dte 0..30 }
-        end
-      end.to raise_error(Tickrake::Error, /requires a schedule block/)
+    it "builds without a schedule block (one-shot mode)" do
+      job = build("oneshot") do
+        provider :schwab
+        type :options
+        universe "stock_universe"
+        options { dte 0..30 }
+      end
+
+      expect(job.name).to eq("oneshot")
+      expect(job.windows).to be_nil
+      expect(job.interval_seconds).to be_nil
     end
 
     it "raises without universe" do
