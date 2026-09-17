@@ -104,7 +104,6 @@ RSpec.describe "job execution" do
         config,
         options_dir: dir,
         pending_metadata_dir: File.join(dir, "pending_metadata"),
-        pending_fetch_runs_dir: File.join(dir, "pending_fetch_runs"),
         options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")],
         dte_buckets: [0]
       )
@@ -146,59 +145,67 @@ RSpec.describe "job execution" do
 
       Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
 
-      sidecars = Dir.glob(File.join(dir, "pending_metadata", "*.meta.json"))
+      sidecars = Dir.glob(File.join(dir, "pending_metadata", "*.sidecar.json"))
       expect(sidecars.length).to eq(1)
       sidecar = JSON.parse(File.read(sidecars.first))
-      expect(sidecar["dataset_type"]).to eq("options")
-      expect(sidecar["ticker"]).to eq("SPXW")
-      expect(sidecar["provider_name"]).to eq("schwab")
-      expect(sidecar["expiration_date"]).to eq("2026-04-06")
-      expect(sidecar["row_count"]).to eq(1)
 
-      # file_metadata_cache must NOT be written by the scrape job
+      expect(sidecar["file_metadata"]["dataset_type"]).to eq("options")
+      expect(sidecar["file_metadata"]["ticker"]).to eq("SPXW")
+      expect(sidecar["file_metadata"]["provider_name"]).to eq("schwab")
+      expect(sidecar["file_metadata"]["expiration_date"]).to eq("2026-04-06")
+      expect(sidecar["file_metadata"]["row_count"]).to eq(1)
+
+      expect(sidecar["fetch_run"]["status"]).to eq("success")
+      expect(sidecar["fetch_run"]["dataset_type"]).to eq("options")
+      expect(sidecar["fetch_run"]["symbol"]).to eq("$SPX")
+      expect(sidecar["fetch_run"]["output_path"]).to end_with(".csv")
+
+      # neither table should be written directly by the scrape job
       expect(tracker.file_metadata_rows).to be_empty
-
-      # fetch_run sidecars must be written instead of direct SQLite inserts
-      fetch_run_sidecars = Dir.glob(File.join(dir, "pending_fetch_runs", "*.fetch_run.json"))
-      expect(fetch_run_sidecars.length).to eq(1)
-      fetch_run = JSON.parse(File.read(fetch_run_sidecars.first))
-      expect(fetch_run["status"]).to eq("success")
-      expect(fetch_run["dataset_type"]).to eq("options")
-      expect(fetch_run["symbol"]).to eq("$SPX")
-      expect(fetch_run["output_path"]).to end_with(".csv")
-
-      # fetch_runs table must NOT be written by the scrape job
       expect(tracker.fetch_runs).to be_empty
     end
   end
 
-  it "ingests fetch_run sidecars via metadata_sync" do
+  it "ingests combined sidecars via metadata_sync with fetch_run and file_metadata in one transaction" do
     Dir.mktmpdir do |dir|
-      pending_dir = File.join(dir, "pending_fetch_runs")
+      pending_dir = File.join(dir, "pending_metadata")
       FileUtils.mkdir_p(pending_dir)
       sidecar = {
-        "job_type" => "options",
-        "dataset_type" => "options",
-        "symbol" => "$SPX",
-        "frequency" => nil,
-        "option_root" => "SPXW",
-        "requested_buckets" => [0],
-        "resolved_expiration" => "2026-04-06",
-        "scheduled_for" => "2026-04-06T14:30:00Z",
-        "started_at" => "2026-04-06T14:30:01Z",
-        "finished_at" => "2026-04-06T14:30:05Z",
-        "status" => "success",
-        "output_path" => "/tmp/out.csv",
-        "error_message" => nil,
-        "collection_id" => "options-20260406T143000Z"
+        "fetch_run" => {
+          "job_type" => "options",
+          "dataset_type" => "options",
+          "symbol" => "$SPX",
+          "frequency" => nil,
+          "option_root" => "SPXW",
+          "requested_buckets" => [0],
+          "resolved_expiration" => "2026-04-06",
+          "scheduled_for" => "2026-04-06T14:30:00Z",
+          "started_at" => "2026-04-06T14:30:01Z",
+          "finished_at" => "2026-04-06T14:30:05Z",
+          "status" => "success",
+          "output_path" => "/tmp/out.csv",
+          "error_message" => nil,
+          "collection_id" => "options-20260406T143000Z"
+        },
+        "file_metadata" => {
+          "path" => "/tmp/out.csv",
+          "dataset_type" => "options",
+          "provider_name" => "schwab",
+          "ticker" => "SPXW",
+          "frequency" => nil,
+          "expiration_date" => "2026-04-06",
+          "row_count" => 42,
+          "first_observed_at" => "2026-04-06T14:30:00Z",
+          "last_observed_at" => "2026-04-06T14:30:00Z",
+          "file_mtime" => 1000,
+          "file_size" => 2000,
+          "updated_at" => Time.now.utc.iso8601,
+          "collection_id" => "options-20260406T143000Z"
+        }
       }
-      File.write(File.join(pending_dir, "test.fetch_run.json"), JSON.generate(sidecar))
+      File.write(File.join(pending_dir, "SPXW_exp2026-04-06_20260406T143000Z.sidecar.json"), JSON.generate(sidecar))
 
-      custom = config_with(
-        config,
-        pending_metadata_dir: File.join(dir, "pending_metadata"),
-        pending_fetch_runs_dir: pending_dir
-      )
+      custom = config_with(config, pending_metadata_dir: pending_dir)
       scheduled_job = Tickrake::ScheduledJobConfig.new(
         name: "metadata_sync", type: "metadata_sync", settings: { "batch_size" => 500 }
       )
@@ -212,8 +219,13 @@ RSpec.describe "job execution" do
       expect(rows.first["symbol"]).to eq("$SPX")
       expect(rows.first["output_path"]).to eq("/tmp/out.csv")
 
-      # sidecar should be deleted after ingestion
-      expect(Dir.glob(File.join(pending_dir, "*.fetch_run.json"))).to be_empty
+      metadata = tracker.file_metadata("/tmp/out.csv")
+      expect(metadata).not_to be_nil
+      expect(metadata["ticker"]).to eq("SPXW")
+      expect(metadata["row_count"]).to eq(42)
+
+      # sidecars should be deleted after ingestion
+      expect(Dir.glob(File.join(pending_dir, "*.sidecar.json"))).to be_empty
     end
   end
 

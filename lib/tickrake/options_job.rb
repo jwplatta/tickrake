@@ -184,17 +184,17 @@ module Tickrake
         end
         path = result.fetch(:path)
         @runtime.logger.info("Wrote option chain for #{job.fetch(:symbol)} to #{path}")
-        write_fetch_run_sidecar(
+        write_sidecar(
           job: job, run_time: run_time, collection_id: collection_id,
-          started_at: started_at, status: "success", output_path: path
+          started_at: started_at, status: "success", output_path: path,
+          row_count: result.fetch(:row_count)
         )
-        write_metadata_sidecar(job: job, path: path, row_count: result.fetch(:row_count), sampled_at: run_time, collection_id: collection_id)
         @progress_reporter&.advance(title: option_progress_title(job))
         :success
       rescue StandardError, Timeout::ExitException => e
         http_status = e.respond_to?(:response) ? " HTTP #{e.response&.status}" : ""
         @runtime.logger.error("Failed option fetch for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}:#{http_status} #{e.message}")
-        write_fetch_run_sidecar(
+        write_sidecar(
           job: job, run_time: run_time, collection_id: collection_id,
           started_at: started_at, status: "failed", error_message: "#{http_status} #{e.message}".strip
         )
@@ -324,15 +324,19 @@ module Tickrake
       @runtime.client_factory.build
     end
 
-    def write_fetch_run_sidecar(job:, run_time:, collection_id:, started_at:, status:, output_path: nil, error_message: nil)
-      sidecar = {
+    def write_sidecar(job:, run_time:, collection_id:, started_at:, status:, output_path: nil, error_message: nil, row_count: nil)
+      ticker = job[:option_root] || job.fetch(:symbol)
+      ts = run_time.utc.strftime("%Y%m%dT%H%M%SZ")
+      exp = job.fetch(:expiration_date).iso8601
+
+      fetch_run = {
         "job_type" => @scheduled_job&.name || "options",
         "dataset_type" => "options",
         "symbol" => job.fetch(:symbol),
         "frequency" => nil,
         "option_root" => job[:option_root],
         "requested_buckets" => job.fetch(:requested_buckets),
-        "resolved_expiration" => job.fetch(:expiration_date).iso8601,
+        "resolved_expiration" => exp,
         "scheduled_for" => run_time.utc.iso8601,
         "started_at" => started_at.utc.iso8601,
         "finished_at" => Time.now.utc.iso8601,
@@ -341,37 +345,36 @@ module Tickrake
         "error_message" => error_message,
         "collection_id" => collection_id
       }
-      pending_dir = @runtime.config.pending_fetch_runs_dir
+
+      file_metadata = nil
+      if status == "success" && output_path
+        stat = File.stat(output_path)
+        observed_at = run_time.utc.iso8601
+        file_metadata = {
+          "path" => output_path,
+          "dataset_type" => "options",
+          "provider_name" => job.fetch(:provider_name),
+          "ticker" => ticker,
+          "frequency" => nil,
+          "expiration_date" => exp,
+          "row_count" => row_count,
+          "first_observed_at" => observed_at,
+          "last_observed_at" => observed_at,
+          "file_mtime" => stat.mtime.to_i,
+          "file_size" => stat.size,
+          "updated_at" => Time.now.utc.iso8601,
+          "collection_id" => collection_id
+        }
+      end
+
+      sidecar = { "fetch_run" => fetch_run, "file_metadata" => file_metadata }
+      pending_dir = @runtime.config.pending_metadata_dir
       FileUtils.mkdir_p(pending_dir)
-      sidecar_path = File.join(pending_dir, "#{SecureRandom.uuid}.fetch_run.json")
+      basename = "#{ticker}_exp#{exp}_#{ts}.sidecar.json"
+      sidecar_path = File.join(pending_dir, basename)
       tmp_path = "#{sidecar_path}.tmp"
       File.write(tmp_path, JSON.generate(sidecar))
       File.rename(tmp_path, sidecar_path)
-    end
-
-    def write_metadata_sidecar(job:, path:, row_count:, sampled_at:, collection_id: nil)
-      stat = File.stat(path)
-      observed_at = sampled_at.utc.iso8601
-      ticker = job[:option_root] || job.fetch(:symbol)
-      sidecar = {
-        "path" => path,
-        "dataset_type" => "options",
-        "provider_name" => job.fetch(:provider_name),
-        "ticker" => ticker,
-        "frequency" => nil,
-        "expiration_date" => job.fetch(:expiration_date).iso8601,
-        "row_count" => row_count,
-        "first_observed_at" => observed_at,
-        "last_observed_at" => observed_at,
-        "file_mtime" => stat.mtime.to_i,
-        "file_size" => stat.size,
-        "updated_at" => Time.now.utc.iso8601,
-        "collection_id" => collection_id
-      }
-      pending_dir = @runtime.config.pending_metadata_dir
-      FileUtils.mkdir_p(pending_dir)
-      sidecar_path = File.join(pending_dir, "#{File.basename(path, ".*")}.meta.json")
-      File.write(sidecar_path, JSON.generate(sidecar))
     end
 
     def with_retries(label, on_retry: nil)

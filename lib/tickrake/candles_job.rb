@@ -70,7 +70,7 @@ module Tickrake
         @runtime.logger.info(
           "Wrote #{frequency} candles for #{entry.symbol} to #{path} (requested #{start_date.iso8601} to #{end_date.iso8601}, #{total_candles} rows)"
         )
-        write_fetch_run_sidecar(
+        write_sidecar(
           symbol: canonical_symbol, frequency: frequency, scheduled_for: scheduled_for,
           started_at: started_at, status: "success", output_path: path
         )
@@ -84,7 +84,7 @@ module Tickrake
           retry
         end
         @runtime.logger.error("Failed candle fetch for #{entry.symbol} #{frequency}: #{e.message}")
-        write_fetch_run_sidecar(
+        write_sidecar(
           symbol: canonical_symbol, frequency: frequency, scheduled_for: scheduled_for,
           started_at: started_at, status: "failed", error_message: e.message
         )
@@ -93,8 +93,10 @@ module Tickrake
       end
     end
 
-    def write_fetch_run_sidecar(symbol:, frequency:, scheduled_for:, started_at:, status:, output_path: nil, error_message: nil)
-      sidecar = {
+    def write_sidecar(symbol:, frequency:, scheduled_for:, started_at:, status:, output_path: nil, error_message: nil)
+      ts = scheduled_for.utc.strftime("%Y%m%dT%H%M%SZ")
+
+      fetch_run = {
         "job_type" => @scheduled_job&.name || "candles",
         "dataset_type" => "candles",
         "symbol" => symbol,
@@ -110,9 +112,12 @@ module Tickrake
         "error_message" => error_message,
         "collection_id" => nil
       }
-      pending_dir = @runtime.config.pending_fetch_runs_dir
+
+      sidecar = { "fetch_run" => fetch_run, "file_metadata" => nil }
+      pending_dir = @runtime.config.pending_metadata_dir
       FileUtils.mkdir_p(pending_dir)
-      sidecar_path = File.join(pending_dir, "#{SecureRandom.uuid}.fetch_run.json")
+      basename = "#{symbol}_#{frequency}_#{ts}.sidecar.json"
+      sidecar_path = File.join(pending_dir, basename)
       tmp_path = "#{sidecar_path}.tmp"
       File.write(tmp_path, JSON.generate(sidecar))
       File.rename(tmp_path, sidecar_path)
