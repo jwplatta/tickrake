@@ -145,7 +145,7 @@ RSpec.describe "job execution" do
 
       Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
 
-      sidecars = Dir.glob(File.join(dir, "pending_metadata", "*.sidecar.json"))
+      sidecars = Dir.glob(File.join(dir, "pending_metadata", "*.meta.json"))
       expect(sidecars.length).to eq(1)
       sidecar = JSON.parse(File.read(sidecars.first))
 
@@ -203,7 +203,7 @@ RSpec.describe "job execution" do
           "collection_id" => "options-20260406T143000Z"
         }
       }
-      File.write(File.join(pending_dir, "SPXW_exp2026-04-06_20260406T143000Z.sidecar.json"), JSON.generate(sidecar))
+      File.write(File.join(pending_dir, "SPXW_exp2026-04-06_20260406T143000Z.meta.json"), JSON.generate(sidecar))
 
       custom = config_with(config, pending_metadata_dir: pending_dir)
       scheduled_job = Tickrake::ScheduledJobConfig.new(
@@ -225,7 +225,7 @@ RSpec.describe "job execution" do
       expect(metadata["row_count"]).to eq(42)
 
       # sidecars should be deleted after ingestion
-      expect(Dir.glob(File.join(pending_dir, "*.sidecar.json"))).to be_empty
+      expect(Dir.glob(File.join(pending_dir, "*.meta.json"))).to be_empty
     end
   end
 

@@ -116,7 +116,7 @@ module Tickrake
       sidecar = { "fetch_run" => fetch_run, "file_metadata" => nil }
       pending_dir = @runtime.config.pending_metadata_dir
       FileUtils.mkdir_p(pending_dir)
-      basename = "#{symbol}_#{frequency}_#{ts}.sidecar.json"
+      basename = "#{symbol}_#{frequency}_#{ts}.meta.json"
       sidecar_path = File.join(pending_dir, basename)
       tmp_path = "#{sidecar_path}.tmp"
       File.write(tmp_path, JSON.generate(sidecar))
