@@ -15,13 +15,16 @@ module Tickrake
       sidecar_paths = Dir.glob(File.join(pending_dir, "*.meta.json")).first(batch_size)
       return if sidecar_paths.empty?
 
-      attrs_list = sidecar_paths.map do |path|
-        attrs = JSON.parse(File.read(path)).transform_keys(&:to_sym)
+      sidecars = sidecar_paths.map { |path| JSON.parse(File.read(path)) }
+
+      fetch_runs = sidecars.filter_map { |s| s["fetch_run"] }
+      metadata_list = sidecars.filter_map { |s| s["file_metadata"] || (s["path"] ? s : nil) }.map do |attrs|
+        attrs = attrs.transform_keys(&:to_sym)
         attrs[:updated_at] = Time.iso8601(attrs[:updated_at]) if attrs[:updated_at].is_a?(String)
         attrs
       end
 
-      @runtime.tracker.bulk_upsert_file_metadata(attrs_list)
+      @runtime.tracker.ingest_sidecars(fetch_runs: fetch_runs, metadata_list: metadata_list)
       sidecar_paths.each { |path| File.delete(path) }
 
       @runtime.logger.info("metadata_sync: ingested #{sidecar_paths.length} sidecar(s)")

@@ -36,14 +36,7 @@ module Tickrake
     def fetch_one(entry, frequency, provider, provider_definition, scheduled_for)
       canonical_symbol = canonical_symbol_for(entry.symbol, provider_definition)
       @runtime.logger.info("Fetching #{frequency} candles for #{entry.symbol}")
-      id = @runtime.tracker.record_start(
-        job_type: @scheduled_job&.name || "candles",
-        dataset_type: "candles",
-        symbol: canonical_symbol,
-        frequency: frequency,
-        scheduled_for: scheduled_for,
-        started_at: Time.now
-      )
+      started_at = Time.now
 
       retries = 0
       begin
@@ -77,7 +70,10 @@ module Tickrake
         @runtime.logger.info(
           "Wrote #{frequency} candles for #{entry.symbol} to #{path} (requested #{start_date.iso8601} to #{end_date.iso8601}, #{total_candles} rows)"
         )
-        @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
+        write_sidecar(
+          symbol: canonical_symbol, frequency: frequency, scheduled_for: scheduled_for,
+          started_at: started_at, status: "success", output_path: path
+        )
         progress_reporter&.finish
         :success
       rescue StandardError => e
@@ -88,10 +84,43 @@ module Tickrake
           retry
         end
         @runtime.logger.error("Failed candle fetch for #{entry.symbol} #{frequency}: #{e.message}")
-        @runtime.tracker.record_finish(id: id, status: "failed", finished_at: Time.now, error_message: e.message)
+        write_sidecar(
+          symbol: canonical_symbol, frequency: frequency, scheduled_for: scheduled_for,
+          started_at: started_at, status: "failed", error_message: e.message
+        )
         progress_reporter&.finish
         :failed
       end
+    end
+
+    def write_sidecar(symbol:, frequency:, scheduled_for:, started_at:, status:, output_path: nil, error_message: nil)
+      ts = scheduled_for.utc.strftime("%Y%m%dT%H%M%SZ")
+
+      fetch_run = {
+        "job_type" => @scheduled_job&.name || "candles",
+        "dataset_type" => "candles",
+        "symbol" => symbol,
+        "frequency" => frequency,
+        "option_root" => nil,
+        "requested_buckets" => nil,
+        "resolved_expiration" => nil,
+        "scheduled_for" => scheduled_for.utc.iso8601,
+        "started_at" => started_at.utc.iso8601,
+        "finished_at" => Time.now.utc.iso8601,
+        "status" => status,
+        "output_path" => output_path,
+        "error_message" => error_message,
+        "collection_id" => nil
+      }
+
+      sidecar = { "fetch_run" => fetch_run, "file_metadata" => nil }
+      pending_dir = @runtime.config.pending_metadata_dir
+      FileUtils.mkdir_p(pending_dir)
+      basename = "#{symbol}_#{frequency}_#{ts}.meta.json"
+      sidecar_path = File.join(pending_dir, basename)
+      tmp_path = "#{sidecar_path}.tmp"
+      File.write(tmp_path, JSON.generate(sidecar))
+      File.rename(tmp_path, sidecar_path)
     end
 
     def build_progress_reporter(entry:, frequency:, total:)

@@ -118,6 +118,19 @@ module Tickrake
       end
     end
 
+    def ingest_sidecars(fetch_runs:, metadata_list:)
+      with_transaction do
+        insert_fetch_runs(fetch_runs) if fetch_runs.any?
+        upsert_metadata(metadata_list) if metadata_list.any?
+      end
+    end
+
+    def bulk_insert_fetch_runs(attrs_list)
+      return if attrs_list.empty?
+
+      with_transaction { insert_fetch_runs(attrs_list) }
+    end
+
     def fetch_runs
       synchronize_db { db.execute("SELECT * FROM fetch_runs ORDER BY id") }
     end
@@ -168,32 +181,7 @@ module Tickrake
     def bulk_upsert_file_metadata(attrs_list)
       return if attrs_list.empty?
 
-      with_transaction do
-        attrs_list.each do |attrs|
-          values = normalized_file_metadata_values(attrs)
-          db.execute(
-            <<~SQL,
-              INSERT INTO file_metadata_cache (
-                #{FILE_METADATA_COLUMNS.join(", ")}
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT(path) DO UPDATE SET
-                dataset_type = excluded.dataset_type,
-                provider_name = excluded.provider_name,
-                ticker = excluded.ticker,
-                frequency = excluded.frequency,
-                expiration_date = excluded.expiration_date,
-                row_count = excluded.row_count,
-                first_observed_at = excluded.first_observed_at,
-                last_observed_at = excluded.last_observed_at,
-                file_mtime = excluded.file_mtime,
-                file_size = excluded.file_size,
-                updated_at = excluded.updated_at,
-                collection_id = excluded.collection_id
-            SQL
-            FILE_METADATA_COLUMNS.map { |column| values.fetch(column) }
-          )
-        end
-      end
+      with_transaction { upsert_metadata(attrs_list) }
     end
 
     def intraday_index_rows(provider_name:, root:)
@@ -411,6 +399,63 @@ module Tickrake
     end
 
     private
+
+    def insert_fetch_runs(attrs_list)
+      attrs_list.each do |attrs|
+        db.execute(
+          <<~SQL,
+            INSERT INTO fetch_runs (
+              job_type, dataset_type, symbol, frequency, option_root, requested_buckets,
+              resolved_expiration, scheduled_for, started_at, finished_at, status, output_path,
+              error_message, collection_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          SQL
+          [
+            attrs.fetch("job_type"),
+            attrs.fetch("dataset_type"),
+            attrs.fetch("symbol"),
+            attrs["frequency"],
+            attrs["option_root"],
+            attrs["requested_buckets"] && JSON.dump(attrs["requested_buckets"]),
+            attrs["resolved_expiration"],
+            attrs["scheduled_for"],
+            attrs.fetch("started_at"),
+            attrs["finished_at"],
+            attrs.fetch("status"),
+            attrs["output_path"],
+            attrs["error_message"],
+            attrs["collection_id"]
+          ]
+        )
+      end
+    end
+
+    def upsert_metadata(attrs_list)
+      attrs_list.each do |attrs|
+        values = normalized_file_metadata_values(attrs)
+        db.execute(
+          <<~SQL,
+            INSERT INTO file_metadata_cache (
+              #{FILE_METADATA_COLUMNS.join(", ")}
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(path) DO UPDATE SET
+              dataset_type = excluded.dataset_type,
+              provider_name = excluded.provider_name,
+              ticker = excluded.ticker,
+              frequency = excluded.frequency,
+              expiration_date = excluded.expiration_date,
+              row_count = excluded.row_count,
+              first_observed_at = excluded.first_observed_at,
+              last_observed_at = excluded.last_observed_at,
+              file_mtime = excluded.file_mtime,
+              file_size = excluded.file_size,
+              updated_at = excluded.updated_at,
+              collection_id = excluded.collection_id
+          SQL
+          FILE_METADATA_COLUMNS.map { |column| values.fetch(column) }
+        )
+      end
+    end
 
     def synchronize_db(&block)
       @db_lock.synchronize(&block)
