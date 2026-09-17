@@ -11,7 +11,7 @@ module Tickrake
       Tickrake::LogRetention.new(log_path: log_path, retention_days: LOG_RETENTION_DAYS).prune!
 
       devices = [Logger.new(log_path, LOG_ROTATION_COUNT, LOG_ROTATION_SIZE)]
-      devices << stdout if verbose
+      devices << stdout if verbose || ENV["TICKRAKE_LOG_STDOUT"] == "1"
 
       logger = Logger.new(MultiIO.new(*devices))
       logger.level = Logger::INFO
