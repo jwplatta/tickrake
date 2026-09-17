@@ -342,33 +342,6 @@ storage:
     storage_class: GLACIER_IR
 ```
 
-## Data Loading API
-
-Use `Tickrake::DataLoader` to read stored data through the SQLite metadata cache:
-
-```ruby
-loader = Tickrake::DataLoader.new
-
-loader.load_candles(
-  provider: "schwab",
-  ticker: "SPY",
-  frequency: "1min",
-  start_date: Date.iso8601("2026-04-01"),
-  end_date: Date.iso8601("2026-04-11")
-).each { |row| puts row["datetime_utc"] }
-
-loader.load_option_chains(
-  provider: "schwab",
-  ticker: "$SPX",
-  expiration_date: Date.iso8601("2026-04-17"),
-  start_date: Date.iso8601("2026-04-10"),
-  end_date: Date.iso8601("2026-04-10"),
-  include_metadata: true
-).each { |row| puts row["sampled_at_utc"] }
-```
-
-Both methods return `Enumerator` instances yielding typed Ruby hashes. Pass `timezone: "America/Chicago"` to get local timestamps alongside UTC.
-
 ## Configuration Reference
 
 ### Providers
