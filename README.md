@@ -1,35 +1,16 @@
 # Tickrake
 
-`Tickrake` is a releaseable Ruby gem for scheduled market-data collection. It currently
-fetches data through `schwab_rb`, stores datasets in Tickrake-managed directories, and
-tracks fetch activity plus cached dataset-summary metadata in SQLite.
-
-For gem consumers reading stored data, prefer `Tickrake::DataLoader` instead of scanning
-the raw storage directories directly. This is especially important for large local
-installations where the data tree can contain millions of files.
+Scheduled market-data collection for options, candles, and streaming quotes. Jobs are defined as Ruby DSL scripts and run as Docker containers or standalone processes.
 
 ## Install
-
-Install Tickrake as a global gem:
 
 ```bash
 gem install tickrake
 ```
 
-Tickrake requires:
-- Ruby 3.1+
-- `schwab_rb >= 1.0.3`
-- `ib-api ~> 972.5` for IBKR candle collection
-- exported Schwab credentials in the shell environment
-- a valid Schwab token in `~/.schwab_rb/schwab.db` (managed by `schwab_rb`)
+Requires Ruby 3.1+, `schwab_rb >= 1.0.3`, and optionally `ib-api ~> 972.5` for IBKR.
 
-Required environment variables:
-- `SCHWAB_API_KEY`
-- `SCHWAB_APP_SECRET`
-
-`SCHWAB_APP_CALLBACK_URL` is only needed when you are logging in or refreshing auth setup.
-
-## First Run
+## Setup
 
 Initialize Tickrake's home directory and config:
 
@@ -39,357 +20,317 @@ tickrake validate-config
 tickrake migrate
 ```
 
-Then edit:
+Edit `~/.tickrake/tickrake.yml` to configure providers, universes, storage paths, and timezone.
 
-```text
-~/.tickrake/tickrake.yml
+### Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `SCHWAB_API_KEY` | Yes | Schwab API key |
+| `SCHWAB_APP_SECRET` | Yes | Schwab API secret |
+| `SCHWAB_APP_CALLBACK_URL` | Auth only | Only needed for initial login or token refresh |
+| `TICKRAKE_CONFIG` | No | Path to config file (default: `~/.tickrake/tickrake.yml`) |
+| `TICKRAKE_JOB_FILE` | Docker | Path to a DSL job file for the container to run |
+| `TICKRAKE_LOG_STDOUT` | No | Set to `1` to also send logs to stdout |
+
+A valid Schwab token must exist in `~/.schwab_rb/schwab.db` (managed by `schwab_rb`).
+
+## Defining Jobs
+
+Jobs are defined using the `Tickrake.job` DSL. Each job file is a self-contained Ruby script:
+
+```ruby
+require "tickrake"
+
+Tickrake.job "my_job" do
+  provider :schwab
+  # ... job-specific blocks
+end
 ```
 
-to set:
-- named jobs under `schedule`
-- each job's `type`
-- job-specific universes
-- option job DTE buckets, intervals, and windows
-- `timezone` for scheduler windows and daily run times in local market time
-- `options.snapshot_filename_timezone` for option snapshot filenames, typically `utc`
-- candle job lookback windows and run times
-- optional `manual: true` jobs that are available through config but only run when triggered
+Every job requires a `schedule` block and one typed block that determines the job type.
 
-Run a one-off command to verify the setup:
+### Job Types
+
+#### Options
+
+Fetch option chains at a recurring interval. Requires a provider, a universe of symbols, and DTE (days to expiration) buckets.
+
+```ruby
+Tickrake.job "spx_short_dated_options" do
+  provider :schwab
+  universe "spx_symbols"
+
+  schedule do
+    every 60.seconds
+    weekdays from: "08:31", to: "15:05"
+  end
+
+  options do
+    dte(1..10)
+  end
+end
+```
+
+The `dte` method accepts a single value, a range, or an explicit array: `dte 0`, `dte(1..10)`, `dte [0, 1, 3, 7]`.
+
+#### Candles
+
+Fetch historical price candles. Requires a provider, symbols, frequencies, and a start date.
+
+```ruby
+Tickrake.job "futures_candles" do
+  provider :schwab
+  symbols "/ES", "/NQ", "/RTY", "/YM"
+  lookback 90.days
+
+  schedule do
+    at "16:30"
+    weekdays
+  end
+
+  candles do
+    frequencies "day", "30min", "5min", "1min"
+    start_date "2026-06-01"
+  end
+end
+```
+
+Supported frequencies: `1min`, `5min`, `10min`, `15min`, `30min`, `day`, `week`, `month`.
+
+The `lookback` controls the recurring request window for existing files. If no file exists yet, the configured `start_date` is used.
+
+#### Streaming (Level One / Order Book)
+
+Stream real-time quotes or order book data via Schwab's websocket API. Events are staged as NDJSON files and later ingested by an events ingest job.
+
+```ruby
+Tickrake.job "es_level_one" do
+  provider :schwab
+  symbols "/ES", "/NQ"
+
+  schedule do
+    every 1.seconds
+    weekdays from: "08:30", to: "15:00"
+  end
+
+  level_one do
+    services [:LEVELONE_FUTURES]
+    rotation_interval 900
+  end
+end
+```
+
+Available level one services: `LEVELONE_EQUITIES`, `LEVELONE_OPTIONS`, `LEVELONE_FUTURES`, `LEVELONE_FUTURES_OPTIONS`, `LEVELONE_FOREX`.
+
+Order book jobs follow the same pattern with `order_book do ... end` and services like `NYSE_BOOK`, `NASDAQ_BOOK`, or `OPTIONS_BOOK`.
+
+#### Events Ingest
+
+Reads staged NDJSON event files from streaming jobs, converts them to Parquet, and uploads to a configured datastore.
+
+```ruby
+Tickrake.job "events_ingestor" do
+  schedule do
+    every 60.seconds
+    every_day from: "08:00", to: "17:30"
+  end
+
+  events_ingest do
+    batch_size 20
+    datastore :s3_archive
+  end
+end
+```
+
+#### Metadata Sync
+
+Processes pending metadata written by collection jobs and upserts it into the SQLite metadata cache.
+
+```ruby
+Tickrake.job "metadata_sync" do
+  schedule do
+    every 30.seconds
+    weekdays from: "08:00", to: "16:00"
+  end
+
+  metadata_sync do
+    batch_size 500
+  end
+end
+```
+
+#### Intraday Publisher
+
+Publishes the latest option chain samples as CSV files and JSON indexes to a datastore (typically Minio) for downstream consumers.
+
+```ruby
+Tickrake.job "intraday_publisher" do
+  schedule do
+    every 60.seconds
+    weekdays from: "08:30", to: "15:30"
+  end
+
+  intraday_publish do
+    datastore :minio_intraday
+  end
+end
+```
+
+#### Reconciler
+
+Validates that collected data matches expectations and reports gaps.
+
+```ruby
+Tickrake.job "reconciler" do
+  schedule do
+    at "16:00"
+    weekdays
+  end
+
+  reconcile do
+    providers :schwab
+  end
+end
+```
+
+#### Archival
+
+Compacts raw option sample CSVs into single-day files and archives them to S3. Runs post-close to consolidate the day's snapshots into compacted CSV and Parquet artifacts, upload them to long-term storage, and clean up local source files.
+
+```ruby
+Tickrake.job "postclose_archival" do
+  provider :schwab
+
+  schedule do
+    at "18:05"
+    weekdays
+  end
+
+  maintenance do
+    compact :option_samples, universe: "index_option_roots", delete_sources: true
+    archive :option_samples, universe: "index_option_roots",
+            to: :s3_archive,
+            artifacts: [:csv, :parquet],
+            retain: { csv: false, parquet: true }
+  end
+end
+```
+
+Raw source CSVs are never deleted unless compaction validation succeeds. Local artifacts are never deleted unless their archive upload and remote verification succeeds.
+
+### Scheduling
+
+The `schedule` block supports two styles:
+
+**Recurring** — run at a fixed interval within time windows:
+
+```ruby
+schedule do
+  every 5.seconds
+  weekdays from: "08:30", to: "15:00"
+end
+```
+
+**Daily** — run once at a specific time:
+
+```ruby
+schedule do
+  at "16:30"
+  weekdays
+end
+```
+
+Available window helpers:
+- `weekdays` / `weekdays from: "HH:MM", to: "HH:MM"`
+- `weekends` / `weekends from: "HH:MM", to: "HH:MM"`
+- `every_day` / `every_day from: "HH:MM", to: "HH:MM"`
+- `days [:mon, :wed, :fri], from: "HH:MM", to: "HH:MM"`
+
+Duration helpers: `5.seconds`, `30.seconds`, `1.minutes`, `30.minutes`, `1.hours`, `90.days`.
+
+Times are interpreted in the timezone configured in `tickrake.yml`.
+
+### Universes
+
+Universes are named lists of symbols defined in `tickrake.yml`. Jobs reference them by name:
+
+```ruby
+universe "spx_symbols"
+```
+
+Or define symbols inline for simpler jobs:
+
+```ruby
+symbols "/ES", "/NQ", "/RTY"
+```
+
+For options jobs, you can also define an inline universe with per-ticker option roots:
+
+```ruby
+universe do
+  ticker "$SPX", option_root: "SPXW"
+  ticker "$SPX", option_root: "SPX"
+end
+```
+
+## Running Jobs
+
+### With Docker
+
+Each job runs as its own container. Set `TICKRAKE_JOB_FILE` to the path of the DSL script inside the container:
+
+```yaml
+# docker-compose.yml
+services:
+  spx_0dte_options:
+    image: tickrake:latest
+    env_file:
+      - env/secrets.env
+      - env/prod.env
+    environment:
+      TICKRAKE_JOB_FILE: /jobs/spx_0dte_options.rb
+    volumes:
+      - ./jobs:/jobs:ro
+      - ~/.tickrake:/root/.tickrake
+      - ~/.schwab_rb:/root/.schwab_rb
+    restart: unless-stopped
+```
+
+### Without Docker
+
+Run a job file directly:
 
 ```bash
-tickrake run --job index_options --verbose
-tickrake run --job eod_candles --verbose
-tickrake query --provider schwab
+ruby jobs/spx_0dte_options.rb
 ```
 
-## Commands
+Or use the CLI for one-off runs:
 
 ```bash
-tickrake init
-tickrake validate-config
-tickrake migrate
-tickrake sync-metadata
-tickrake start --job JOB_NAME
-tickrake restart --job JOB_NAME|all [--provider NAME] [--from-config-start]
-tickrake stop --job JOB_NAME|all
-tickrake status
-tickrake logs JOB_NAME|cli [--tail N]
-tickrake run --job JOB_NAME [--verbose] [--from-config-start]
-tickrake run --type candles --provider NAME --ticker SYMBOL --start-date YYYY-MM-DD --end-date YYYY-MM-DD --frequency FREQ
-tickrake run --type options --provider NAME --ticker SYMBOL --expiration-date YYYY-MM-DD [--option-root ROOT]
-tickrake query [--type candles|options] [--provider NAME] [--ticker SYMBOL] [--format text|json]
-tickrake publish-index --provider NAME --type options [--upload]
-tickrake archive-compacted-option-samples --provider NAME --symbol ROOT --sample-date YYYY-MM-DD [--dry-run]
-tickrake prune-orphaned [--dry-run]
+tickrake run --type options --provider schwab --ticker '$SPX' --expiration-date 2026-04-11 --option-root SPXW
+tickrake run --type candles --provider schwab --ticker SPY --start-date 2026-04-01 --end-date 2026-04-11 --frequency 30min
 ```
-
-## Ruby Data Loading API
-
-Use `Tickrake::DataLoader` when application code needs to read stored Tickrake data
-through the SQLite metadata cache instead of crawling the filesystem.
-
-```ruby
-loader = Tickrake::DataLoader.new
-
-loader.load_candles(
-  provider: "ibkr-paper",
-  ticker: "SPY",
-  frequency: "1min",
-  start_date: Date.iso8601("2026-04-01"),
-  end_date: Date.iso8601("2026-04-11")
-).each do |row|
-  puts row["datetime_utc"]
-end
-```
-
-```ruby
-loader = Tickrake::DataLoader.new
-
-loader.load_option_chains(
-  provider: "schwab",
-  ticker: "$SPX",
-  expiration_date: Date.iso8601("2026-04-17"),
-  start_date: Date.iso8601("2026-04-10"),
-  end_date: Date.iso8601("2026-04-10"),
-  frequency: "5min",
-  include_metadata: true
-).each do |row|
-  puts row["sampled_at_utc"]
-  puts row["metadata"]["sampled_at_utc"]
-end
-```
-
-Both methods return `Enumerator` instances and yield plain Ruby hashes containing the
-CSV row fields. Pass `include_metadata: true` to attach a separate `metadata` hash
-with fields such as `sampled_at_utc`, `expiration_date`, and `option_root` that
-identify the chain sample being replayed.
-
-Returned rows are typed for Ruby consumers rather than left as raw CSV strings.
-Candle timestamps are returned as `Time`, candle prices as `Float`, candle volume as
-`Integer`, option `expiration_date` as `Date`, and option numeric fields as `Float`
-or `Integer`. Blank numeric CSV cells are returned as `nil`.
-
-### Timezone support
-
-Both `load_candles` and `load_option_chains` accept an optional `timezone:` parameter
-(a TZInfo timezone identifier string such as `"America/New_York"` or
-`"America/Chicago"`). When provided:
-
-- `start_date` and `end_date` are interpreted as **midnight in that timezone** rather
-  than midnight UTC, so the date range matches the local trading calendar.
-- Every returned row includes **both** a UTC timestamp and a local timestamp:
-  - Candles: `"datetime_utc"` and `"datetime_tz"`
-  - Option chains: `"sampled_at_utc"` and `"sampled_at_tz"`
-
-```ruby
-loader = Tickrake::DataLoader.new
-
-loader.load_candles(
-  provider: "ibkr-paper",
-  ticker: "SPY",
-  frequency: "1min",
-  start_date: Date.iso8601("2026-04-10"),
-  end_date: Date.iso8601("2026-04-10"),
-  timezone: "America/New_York"
-).each do |row|
-  puts row["datetime_utc"]   # => 2026-04-10 13:30:00 UTC
-  puts row["datetime_tz"]    # => 2026-04-10 09:30:00 -0400
-end
-```
-
-```ruby
-loader.load_option_chains(
-  provider: "schwab",
-  ticker: "AAPL",
-  start_date: Date.iso8601("2026-05-01"),
-  end_date: Date.iso8601("2026-05-01"),
-  timezone: "America/Chicago"
-).each do |row|
-  puts row["sampled_at_utc"]  # => 2026-05-01 18:30:00 UTC
-  puts row["sampled_at_tz"]   # => 2026-05-01 13:30:00 -0500
-end
-```
-
-Omitting `timezone:` (or passing `"UTC"`) returns timestamps in UTC and sets
-`datetime_tz`/`sampled_at_tz` equal to their `_utc` counterparts.
 
 ## Storage
 
-- Market data root: `~/.tickrake/data`
-- Candle payloads: `~/.tickrake/data/history/<provider>`
-- Option payloads: `~/.tickrake/data/options/<provider>/<YYYY>/<MM>/<DD>`
-- Option snapshot filenames can use `options.snapshot_filename_timezone` independently of scheduler `timezone`.
-- Optional compacted-artifact archive mirror: `s3://<bucket>/<prefix?>/options/<provider>/<YYYY>/<MM>/<DD>/...`
-- Tickrake config: `~/.tickrake/tickrake.yml`
-- Tickrake metadata DB: `~/.tickrake/tickrake.sqlite3`
-- Tickrake logs: `~/.tickrake/logs/*.log`
-- Tickrake job state: `~/.tickrake/jobs/*.json`
-- Tickrake lockfiles: `~/.tickrake/*.lock`
-
-The SQLite database is migrated additively when you explicitly run `tickrake migrate`.
-Tickrake creates missing tables or adds missing columns only through that command. DB-backed
-commands fail fast if migrations are pending rather than mutating the database on startup.
-
-## Index Data
-
-For S&P 500 membership backfills, run migrations first, then import the canonical CSVs:
-
-```bash
-tickrake migrate
-tickrake import-index-data \
-  --memberships data/market_index_memberships.csv \
-  --tickers data/tickers.csv \
-  --alias-history data/ticker_aliases.csv
-tickrake query --type members --index SP500 --as-of 2018-01-01
+```
+~/.tickrake/
+├── tickrake.yml                    # config
+├── tickrake.sqlite3                # metadata cache
+├── logs/                           # per-job rotating logs
+│   ├── spx_0dte_options.log
+│   └── stock_options.log
+└── data/
+    ├── history/<provider>/         # candle CSVs
+    │   └── SPY_day.csv
+    └── options/<provider>/YYYY/MM/DD/
+        ├── SPXW_exp2026-04-11_2026-04-11_10-30-00.csv   # raw snapshots
+        ├── SPXW_samples_2026-04-11.csv                   # compacted
+        └── SPXW_samples_2026-04-11.parquet               # compacted
 ```
 
-## Config
-
-Run `tickrake init` to generate the default config in `~/.tickrake/`, then edit the
-named jobs under `schedule`, their universes, their timing, and the shared runtime
-policy.
-
-Tickrake currently supports these provider adapters:
-
-- `schwab`
-- `ibkr`
-
-Configure named providers under `providers:` and choose one as the default:
-
-```yaml
-default_provider: schwab
-providers:
-  schwab:
-    adapter: schwab
-    settings:
-      rate_limit_max_requests: 120
-      rate_limit_interval_seconds: 60
-      restart_after_consecutive_failures: 3
-      restart_cooldown_seconds: 30
-  ibkr-paper:
-    adapter: ibkr
-    settings:
-      host: 127.0.0.1
-      port: 4002
-      client_id: 1001
-```
-
-Provider `settings` carry rate limiting and scheduler resilience controls. For Schwab:
-
-- `rate_limit_max_requests` and `rate_limit_interval_seconds` configure a SQLite-backed token bucket rate limiter that coordinates API call throughput across all containers sharing the same SQLite database.
-- `restart_after_consecutive_failures: 3` and `restart_cooldown_seconds: 30` cause the scheduler to exit non-zero after repeated failures so `tickrake start --restart` can recycle it.
-
-Jobs can set a provider default, and universe entries can still override that per symbol:
-
-```yaml
-default_provider: schwab
-providers:
-  schwab:
-    adapter: schwab
-    settings:
-      rate_limit_max_requests: 120
-      rate_limit_interval_seconds: 60
-      restart_after_consecutive_failures: 3
-      restart_cooldown_seconds: 30
-  ibkr-paper:
-    adapter: ibkr
-    settings:
-      host: 127.0.0.1
-      port: 4002
-      client_id: 1001
-schedule:
-  index_options:
-    type: options
-    provider: schwab
-    interval_seconds: 300
-    windows:
-      - days: [mon, tue, wed, thu, fri]
-        start: "08:30"
-        end: "15:00"
-    dte_buckets: [0DTE, 1DTE, 30DTE]
-    universe:
-      - symbol: $SPX
-        option_root: SPXW
-      - symbol: SPY
-        provider: ibkr-paper
-  eod_candles:
-    type: candles
-    provider: ibkr-paper
-    run_at: "16:05"
-    days: [mon, tue, wed, thu, fri]
-    lookback_days: 7
-    universe:
-      - symbol: /ES
-        provider: schwab
-        start_date: "2020-01-01"
-        frequencies: [day, 30min, 5min, 1min]
-      - symbol: SPY
-        start_date: "2020-01-01"
-        frequencies: [day]
-  spx_min_candles:
-    type: candles
-    provider: ibkr-paper
-    interval_seconds: 120
-    windows:
-      - days: [mon, tue, wed, thu, fri]
-        start: "08:30"
-        end: "15:00"
-    lookback_days: 7
-    universe:
-      - symbol: $SPX
-        start_date: "2026-03-01"
-        frequencies: [30min, 5min, 1min]
-  manual_candles:
-    type: candles
-    manual: true
-    provider: ibkr-paper
-    lookback_days: 7
-    universe:
-      - symbol: SPY
-        start_date: "2020-01-01"
-        frequencies: [day, 1min]
-      - symbol: QQQ
-        start_date: "2020-01-01"
-        frequencies: [day, 1min]
-  manual_compact_spxw:
-    type: maintenance
-    manual: true
-    provider: schwab
-    tasks:
-      - compact:
-          subject: option_samples
-          option_root: SPXW
-          delete_sources: false
-  postclose_option_maintenance:
-    type: maintenance
-    provider: schwab
-    run_at: "18:05"
-    days: [mon, tue, wed, thu, fri]
-    tasks:
-      - compact:
-          subject: option_samples
-          universe: index_option_roots
-          delete_sources: true
-      - archive:
-          subject: option_samples
-          universe: index_option_roots
-          destination: s3_archive
-          artifacts: [csv, parquet]
-          retain_local:
-            csv: false
-            parquet: true
-```
-
-Manual jobs stay under `schedule` so they can reuse the same configured universes and
-provider precedence as scheduled jobs. Run them with `tickrake run --job JOB_NAME`.
-They are not started by `tickrake start --job all` or `tickrake restart --job all`, and
-they cannot be launched as background schedulers.
-
-Maintenance jobs now use ordered `tasks:` entries. For option-sample maintenance:
-- `compact` writes compacted CSV/parquet artifacts, validates the compacted CSV against
-  the raw sample CSVs, and optionally deletes raw source CSVs only after validation
-  succeeds.
-- `archive` uploads selected compacted artifacts to `storage.s3_archive`, verifies the
-  remote objects, and then applies per-artifact `retain_local` rules.
-
-Maintenance jobs support manual date ranges:
-
-```bash
-tickrake run --job manual_compact_spxw --start-date 2025-12-18 --end-date 2025-12-19
-```
-
-The legacy helper scripts still exist for the current one-off workflow:
-
-```bash
-ruby scripts/process_compacted_option_samples.rb --provider schwab --ticker SPXW --start-date 2025-12-18 --end-date 2025-12-18
-ruby scripts/cleanup_compacted_option_samples.rb --provider schwab --ticker SPXW --start-date 2025-12-18 --end-date 2025-12-18
-```
-
-Safety guarantees:
-- Raw source CSVs are never deleted unless compaction validation succeeds.
-- Local compacted CSV/parquet files are never deleted unless their archive upload and
-  remote verification succeeds for that specific artifact.
-
-Provider precedence is:
-- CLI `--provider`
-- per-symbol `provider:`
-- job-level `provider:`
-- global `default_provider`
-
-You can also still select which configured provider to use on each command:
-
-```bash
-tickrake run --job eod_candles --provider ibkr-paper
-tickrake run --job index_options --provider schwab
-tickrake run --type candles --provider ibkr-paper --ticker SPY --start-date 2026-04-01 --end-date 2026-04-11 --frequency 30min
-tickrake run --type options --provider schwab --ticker '$SPX' --expiration-date 2026-04-11 --option-root SPXW
-tickrake start --job eod_candles --provider ibkr-paper
-tickrake query --provider ibkr-paper
-```
-
-For storage, prefer setting `storage.data_dir` and let Tickrake derive the history and
-options roots from it:
+Configure storage in `tickrake.yml`:
 
 ```yaml
 storage:
@@ -401,142 +342,64 @@ storage:
     storage_class: GLACIER_IR
 ```
 
-That produces provider-separated output paths like:
+## Data Loading API
 
-- `~/.tickrake/data/history/schwab/SPY_day.csv`
-- `~/.tickrake/data/history/ibkr-paper/SPY_day.csv`
-- `~/.tickrake/data/options/schwab/2026/04/11/SPXW_exp2026-04-11_2026-04-11_10-30-00.csv`
-- `~/.tickrake/data/options/schwab/2026/04/11/SPXW_samples_2026-04-11.csv`
-- `~/.tickrake/data/options/schwab/2026/04/11/SPXW_samples_2026-04-11.parquet`
+Use `Tickrake::DataLoader` to read stored data through the SQLite metadata cache:
 
-If you need a custom layout, you can still set:
+```ruby
+loader = Tickrake::DataLoader.new
+
+loader.load_candles(
+  provider: "schwab",
+  ticker: "SPY",
+  frequency: "1min",
+  start_date: Date.iso8601("2026-04-01"),
+  end_date: Date.iso8601("2026-04-11")
+).each { |row| puts row["datetime_utc"] }
+
+loader.load_option_chains(
+  provider: "schwab",
+  ticker: "$SPX",
+  expiration_date: Date.iso8601("2026-04-17"),
+  start_date: Date.iso8601("2026-04-10"),
+  end_date: Date.iso8601("2026-04-10"),
+  include_metadata: true
+).each { |row| puts row["sampled_at_utc"] }
+```
+
+Both methods return `Enumerator` instances yielding typed Ruby hashes. Pass `timezone: "America/Chicago"` to get local timestamps alongside UTC.
+
+## Configuration Reference
+
+### Providers
 
 ```yaml
-storage:
-  history_dir: /mnt/market-data/history
-  options_dir: /mnt/market-data/options
+default_provider: schwab
+providers:
+  schwab:
+    adapter: schwab
+    settings:
+      rate_limit_max_requests: 120
+      rate_limit_interval_seconds: 60
+      restart_after_consecutive_failures: 3
+      restart_cooldown_seconds: 30
+  ibkr-paper:
+    adapter: ibkr
+    settings:
+      host: 127.0.0.1
+      port: 4002
+      client_id: 1001
 ```
 
-When `history_dir` or `options_dir` are set explicitly, they override the derived
-subdirectories from `data_dir`. Tickrake still appends the provider name underneath
-those roots.
+### Provider Precedence
 
-## Querying Stored Data
+When multiple providers are configured, resolution order is:
 
-Use `tickrake query` to inspect the data already persisted on disk without printing raw
-rows. Queries use the Tickrake SQLite database as the authoritative cache for summary
-metadata and stored file paths.
+1. CLI `--provider` flag
+2. Per-symbol `provider:` in the universe
+3. Job-level `provider`
+4. Global `default_provider`
 
-To migrate older flat option snapshot folders into the dated layout, run:
+### Logging
 
-```bash
-ruby scripts/migrate_option_snapshot_paths.rb [--config path/to/tickrake.yml]
-```
-
-At least one of `--provider` or `--ticker` is required.
-
-Available filters:
-
-- `--type candles|options`
-- `--provider NAME`
-- `--ticker SYMBOL`
-- `--frequency FREQ` for candle queries only
-- `--start-date YYYY-MM-DD` filters candle coverage dates or option sample datetimes
-- `--end-date YYYY-MM-DD` filters candle coverage dates or option sample datetimes
-- `--exp-date YYYY-MM-DD` filters option snapshots by expiration date
-- `--limit N` limits option snapshots after filtering
-- `--ascending true|false` sorts option snapshots by sample datetime and defaults to `true`
-- `--format text|json`
-
-Examples:
-
-```bash
-tickrake query --provider ibkr-paper
-tickrake query --type candles --provider ibkr-paper --ticker SPY
-tickrake query --type candles --provider ibkr-paper --ticker '$SPX' --frequency 30min
-tickrake query --type options --provider schwab --ticker '$SPX'
-tickrake query --type options --provider schwab --ticker 'SPXW' --start-date 2026-03-30 --end-date 2026-03-30 --exp-date 2026-04-06
-tickrake query --type options --provider schwab --ticker 'SPXW' --exp-date 2026-04-06 --limit 5 --ascending false
-tickrake query --type candles --provider ibkr-paper --ticker SPY --format json
-```
-
-Text output is grouped by provider, dataset type, and ticker. Candle summaries include
-frequency, row count, available timestamp range, and file path. Option summaries list
-each matching snapshot with its root symbol, expiration date, sample datetime, and file
-path.
-
-## Metadata Sync
-
-Use `tickrake sync-metadata` to explicitly insert missing candle metadata rows into
-the SQLite `file_metadata_cache` for files already present under `history/`.
-
-- scans candle files only
-- ignores `options/` entirely
-- never modifies candle CSV contents
-- only inserts rows when the cache path is missing
-
-Examples:
-
-```bash
-tickrake sync-metadata
-tickrake sync-metadata --provider ibkr-paper
-```
-
-## Provider Status
-
-- `schwab` supports candles and the existing options collection workflow.
-- `ibkr` currently supports candle collection only.
-
-If you run a candles job or direct candles request with an `ibkr` provider entry,
-Tickrake uses Interactive Brokers historical data through `ib-api`. Options jobs and
-direct options requests still require a `schwab` provider and will raise an error
-otherwise.
-
-For candle collection, each symbol uses a `frequencies:` array. Supported values are `minute`, `5min`, `10min`, `15min`,
-`30min`, `day`, `week`, and `month`.
-
-For one-off direct candle fetches, you can bypass the configured candle universe and run a
-single request with `--ticker`, `--start-date`, `--end-date`, and `--frequency`.
-For one-off direct option fetches, you can bypass the configured options universe with
-`--ticker` and `--expiration-date`, plus optional `--option-root`.
-
-Each `type: candles` job has its own `lookback_days`, which controls the normal recurring
-candle request window for existing files. If a symbol/frequency has no existing CSV yet,
-Tickrake uses the configured `start_date` instead. Use `tickrake run --job JOB_NAME
---from-config-start` when you want to force a full backfill from the configured
-`start_date` even if a history file already exists.
-
-Candle jobs support two schedule styles:
-
-- daily collection with `run_at` plus `days`
-- recurring collection inside market windows with `interval_seconds` plus `windows`
-
-One-off and direct CLI operational commands write structured logs to `~/.tickrake/logs/cli.log`.
-Configured jobs write to separate rotating log files named after the job key:
-
-- `~/.tickrake/logs/index_options.log`
-- `~/.tickrake/logs/eod_candles.log`
-
-Tickrake rotates each log with a fixed-file policy of 5 files at 10 MB each and prunes
-files older than 14 days within each log family.
-Add `--verbose` to one-off commands to also mirror log output to the console while
-the command runs.
-
-## Background Jobs
-
-Use `tickrake start --job JOB_NAME` to launch configured schedulers as background
-processes. Tickrake records process metadata in `~/.tickrake/jobs/` and writes scheduler
-output into job-specific rotating log files.
-
-Use `tickrake status` to see configured jobs plus any orphaned/stale registry entries, and
-`tickrake stop --job JOB_NAME` or `tickrake stop --job all` to request a graceful
-shutdown. The long-running runners trap `TERM` and `INT`, finish the current iteration,
-and then exit.
-
-Use `tickrake restart --job JOB_NAME` or `tickrake restart --job all` to stop and
-relaunch background jobs. Restart reuses the last recorded config path, provider, and
-candle backfill flag for that job unless you pass explicit flags such as `--config`,
-`--provider`, or `--from-config-start`.
-
-Use `tickrake logs cli` or `tickrake logs JOB_NAME` to print the relevant log stream, and
-add `--tail 100` to inspect just the most recent lines.
+Each job writes to a rotating log file at `~/.tickrake/logs/<job_name>.log` (5 files, 10 MB each, 14-day retention). Set `TICKRAKE_LOG_STDOUT=1` to also emit logs to stdout for Docker log aggregation.
