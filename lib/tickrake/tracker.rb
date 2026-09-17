@@ -118,6 +118,40 @@ module Tickrake
       end
     end
 
+    def bulk_insert_fetch_runs(attrs_list)
+      return if attrs_list.empty?
+
+      with_transaction do
+        attrs_list.each do |attrs|
+          db.execute(
+            <<~SQL,
+              INSERT INTO fetch_runs (
+                job_type, dataset_type, symbol, frequency, option_root, requested_buckets,
+                resolved_expiration, scheduled_for, started_at, finished_at, status, output_path,
+                error_message, collection_id
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            SQL
+            [
+              attrs.fetch("job_type"),
+              attrs.fetch("dataset_type"),
+              attrs.fetch("symbol"),
+              attrs["frequency"],
+              attrs["option_root"],
+              attrs["requested_buckets"] && JSON.dump(attrs["requested_buckets"]),
+              attrs["resolved_expiration"],
+              attrs["scheduled_for"],
+              attrs.fetch("started_at"),
+              attrs["finished_at"],
+              attrs.fetch("status"),
+              attrs["output_path"],
+              attrs["error_message"],
+              attrs["collection_id"]
+            ]
+          )
+        end
+      end
+    end
+
     def fetch_runs
       synchronize_db { db.execute("SELECT * FROM fetch_runs ORDER BY id") }
     end

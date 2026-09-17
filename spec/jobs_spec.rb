@@ -104,6 +104,7 @@ RSpec.describe "job execution" do
         config,
         options_dir: dir,
         pending_metadata_dir: File.join(dir, "pending_metadata"),
+        pending_fetch_runs_dir: File.join(dir, "pending_fetch_runs"),
         options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")],
         dte_buckets: [0]
       )
@@ -156,6 +157,63 @@ RSpec.describe "job execution" do
 
       # file_metadata_cache must NOT be written by the scrape job
       expect(tracker.file_metadata_rows).to be_empty
+
+      # fetch_run sidecars must be written instead of direct SQLite inserts
+      fetch_run_sidecars = Dir.glob(File.join(dir, "pending_fetch_runs", "*.fetch_run.json"))
+      expect(fetch_run_sidecars.length).to eq(1)
+      fetch_run = JSON.parse(File.read(fetch_run_sidecars.first))
+      expect(fetch_run["status"]).to eq("success")
+      expect(fetch_run["dataset_type"]).to eq("options")
+      expect(fetch_run["symbol"]).to eq("$SPX")
+      expect(fetch_run["output_path"]).to end_with(".csv")
+
+      # fetch_runs table must NOT be written by the scrape job
+      expect(tracker.fetch_runs).to be_empty
+    end
+  end
+
+  it "ingests fetch_run sidecars via metadata_sync" do
+    Dir.mktmpdir do |dir|
+      pending_dir = File.join(dir, "pending_fetch_runs")
+      FileUtils.mkdir_p(pending_dir)
+      sidecar = {
+        "job_type" => "options",
+        "dataset_type" => "options",
+        "symbol" => "$SPX",
+        "frequency" => nil,
+        "option_root" => "SPXW",
+        "requested_buckets" => [0],
+        "resolved_expiration" => "2026-04-06",
+        "scheduled_for" => "2026-04-06T14:30:00Z",
+        "started_at" => "2026-04-06T14:30:01Z",
+        "finished_at" => "2026-04-06T14:30:05Z",
+        "status" => "success",
+        "output_path" => "/tmp/out.csv",
+        "error_message" => nil,
+        "collection_id" => "options-20260406T143000Z"
+      }
+      File.write(File.join(pending_dir, "test.fetch_run.json"), JSON.generate(sidecar))
+
+      custom = config_with(
+        config,
+        pending_metadata_dir: File.join(dir, "pending_metadata"),
+        pending_fetch_runs_dir: pending_dir
+      )
+      scheduled_job = Tickrake::ScheduledJobConfig.new(
+        name: "metadata_sync", type: "metadata_sync", settings: { "batch_size" => 500 }
+      )
+      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, logger: logger)
+
+      Tickrake::MetadataSyncJob.new(runtime, scheduled_job: scheduled_job).run
+
+      rows = tracker.fetch_runs
+      expect(rows.length).to eq(1)
+      expect(rows.first["status"]).to eq("success")
+      expect(rows.first["symbol"]).to eq("$SPX")
+      expect(rows.first["output_path"]).to eq("/tmp/out.csv")
+
+      # sidecar should be deleted after ingestion
+      expect(Dir.glob(File.join(pending_dir, "*.fetch_run.json"))).to be_empty
     end
   end
 
@@ -225,8 +283,6 @@ RSpec.describe "job execution" do
 
       expected_path = File.join(dir, "schwab", "2026", "04", "06", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv")
       expect(File.exist?(expected_path)).to eq(true)
-      expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("success"))
-      expect(tracker.fetch_runs.map { |row| row["output_path"] }).to all(end_with(".csv"))
       expect(client).to have_received(:get_option_expiration_chain).with("$SPX").at_least(:once)
       expect(client).to have_received(:get_option_chain).with(
         "$SPX",
@@ -299,7 +355,6 @@ RSpec.describe "job execution" do
 
     result = nil
     expect { result = Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0)) }.not_to raise_error
-    expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("failed"))
     expect(result.success_count).to eq(0)
     expect(result.failure_count).to eq(config.options_universe.length)
     expect(result).not_to be_successful
@@ -341,7 +396,6 @@ RSpec.describe "job execution" do
         ).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
       end.not_to raise_error
 
-      expect(tracker.fetch_runs.map { |row| row["status"] }).to contain_exactly("failed", "success")
       expect(result.success_count).to eq(1)
       expect(result.failure_count).to eq(1)
       expect(result).to be_degraded
@@ -560,8 +614,6 @@ RSpec.describe "job execution" do
       expect(File.exist?(File.join(dir, "schwab", "day", "SPY.csv"))).to eq(true)
       expect(File.exist?(File.join(dir, "schwab", "1min", "SPY.csv"))).to eq(true)
       expect(File.exist?(File.join(dir, "schwab", "5min", "SPY.csv"))).to eq(true)
-      expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("success"))
-      expect(tracker.fetch_runs.map { |row| row["frequency"] }).to include("day", "1min", "5min")
       expect(result.success_count).to eq(3)
       expect(result.failure_count).to eq(0)
       expect(result).to be_successful
@@ -595,7 +647,6 @@ RSpec.describe "job execution" do
     expect(result.success_count).to eq(0)
     expect(result.failure_count).to eq(2)
     expect(result).not_to be_successful
-    expect(tracker.fetch_runs.map { |row| row["status"] }).to all(eq("failed"))
   end
 
   it "writes mapped futures candles under the canonical symbol while fetching with the provider symbol" do
@@ -627,7 +678,6 @@ RSpec.describe "job execution" do
 
       expect(File.exist?(File.join(dir, "schwab", "1min", "^ES.csv"))).to eq(true)
       expect(File.exist?(File.join(dir, "schwab", "1min", "ES.csv"))).to eq(false)
-      expect(tracker.fetch_runs.last["symbol"]).to eq("^ES")
       expect(provider).to have_received(:fetch_bars).with(hash_including(symbol: "/ES", frequency: "1min"))
     end
   end

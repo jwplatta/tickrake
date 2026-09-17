@@ -188,7 +188,7 @@ module Tickrake
     attr_reader :timezone, :sqlite_path, :providers, :default_provider_name, :data_dir, :candles_dir, :options_dir, :max_workers,
                 :retry_count, :retry_delay_seconds, :option_fetch_timeout_seconds, :candle_fetch_timeout_seconds, :jobs, :import_jobs,
                 :option_root_tickers, :option_snapshot_filename_timezone, :datastores, :universes, :pending_metadata_dir,
-                :pending_events_dir
+                :pending_events_dir, :pending_fetch_runs_dir
 
     def initialize(
       timezone:,
@@ -200,6 +200,7 @@ module Tickrake
       datastores: {},
       pending_metadata_dir: nil,
       pending_events_dir: nil,
+      pending_fetch_runs_dir: nil,
       universes: {},
       data_dir:,
       candles_dir: nil,
@@ -222,6 +223,7 @@ module Tickrake
       @data_dir = data_dir
       @pending_metadata_dir = pending_metadata_dir || (@data_dir && File.join(@data_dir, "pending_metadata"))
       @pending_events_dir = pending_events_dir || (@data_dir && File.join(@data_dir, "pending_events"))
+      @pending_fetch_runs_dir = pending_fetch_runs_dir || (@data_dir && File.join(@data_dir, "pending_fetch_runs"))
       @universes = universes
       @candles_dir = candles_dir
       @options_dir = options_dir

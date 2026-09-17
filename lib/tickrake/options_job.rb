@@ -167,18 +167,7 @@ module Tickrake
       @runtime.logger.info(
         "Fetching option chain for #{job.fetch(:symbol)} provider=#{job.fetch(:provider_name)} bucket=#{requested_bucket} resolved_exp=#{job.fetch(:expiration_date)} root=#{job[:option_root] || '-'}"
       )
-      id = @runtime.tracker.record_start(
-        job_type: @scheduled_job&.name || "options",
-        dataset_type: "options",
-        symbol: job.fetch(:symbol),
-        option_root: job[:option_root],
-        requested_buckets: job.fetch(:requested_buckets),
-        resolved_expiration: job.fetch(:expiration_date).iso8601,
-        scheduled_for: run_time,
-        started_at: Time.now,
-        collection_id: collection_id
-      )
-
+      started_at = Time.now
       retries = 0
       begin
         result = with_retries("#{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}", on_retry: ->(attempt, error) {
@@ -195,14 +184,20 @@ module Tickrake
         end
         path = result.fetch(:path)
         @runtime.logger.info("Wrote option chain for #{job.fetch(:symbol)} to #{path}")
-        @runtime.tracker.record_finish(id: id, status: "success", finished_at: Time.now, output_path: path)
+        write_fetch_run_sidecar(
+          job: job, run_time: run_time, collection_id: collection_id,
+          started_at: started_at, status: "success", output_path: path
+        )
         write_metadata_sidecar(job: job, path: path, row_count: result.fetch(:row_count), sampled_at: run_time, collection_id: collection_id)
         @progress_reporter&.advance(title: option_progress_title(job))
         :success
       rescue StandardError, Timeout::ExitException => e
         http_status = e.respond_to?(:response) ? " HTTP #{e.response&.status}" : ""
         @runtime.logger.error("Failed option fetch for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}:#{http_status} #{e.message}")
-        @runtime.tracker.record_finish(id: id, status: "failed", finished_at: Time.now, error_message: "#{http_status} #{e.message}".strip)
+        write_fetch_run_sidecar(
+          job: job, run_time: run_time, collection_id: collection_id,
+          started_at: started_at, status: "failed", error_message: "#{http_status} #{e.message}".strip
+        )
         @progress_reporter&.advance(title: "#{option_progress_title(job)} failed")
         :failed
       end
@@ -327,6 +322,31 @@ module Tickrake
 
     def client
       @runtime.client_factory.build
+    end
+
+    def write_fetch_run_sidecar(job:, run_time:, collection_id:, started_at:, status:, output_path: nil, error_message: nil)
+      sidecar = {
+        "job_type" => @scheduled_job&.name || "options",
+        "dataset_type" => "options",
+        "symbol" => job.fetch(:symbol),
+        "frequency" => nil,
+        "option_root" => job[:option_root],
+        "requested_buckets" => job.fetch(:requested_buckets),
+        "resolved_expiration" => job.fetch(:expiration_date).iso8601,
+        "scheduled_for" => run_time.utc.iso8601,
+        "started_at" => started_at.utc.iso8601,
+        "finished_at" => Time.now.utc.iso8601,
+        "status" => status,
+        "output_path" => output_path,
+        "error_message" => error_message,
+        "collection_id" => collection_id
+      }
+      pending_dir = @runtime.config.pending_fetch_runs_dir
+      FileUtils.mkdir_p(pending_dir)
+      sidecar_path = File.join(pending_dir, "#{SecureRandom.uuid}.fetch_run.json")
+      tmp_path = "#{sidecar_path}.tmp"
+      File.write(tmp_path, JSON.generate(sidecar))
+      File.rename(tmp_path, sidecar_path)
     end
 
     def write_metadata_sidecar(job:, path:, row_count:, sampled_at:, collection_id: nil)

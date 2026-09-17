@@ -8,6 +8,13 @@ module Tickrake
     end
 
     def run
+      ingest_metadata_sidecars
+      ingest_fetch_run_sidecars
+    end
+
+    private
+
+    def ingest_metadata_sidecars
       pending_dir = @runtime.config.pending_metadata_dir
       return unless Dir.exist?(pending_dir)
 
@@ -24,9 +31,25 @@ module Tickrake
       @runtime.tracker.bulk_upsert_file_metadata(attrs_list)
       sidecar_paths.each { |path| File.delete(path) }
 
-      @runtime.logger.info("metadata_sync: ingested #{sidecar_paths.length} sidecar(s)")
+      @runtime.logger.info("metadata_sync: ingested #{sidecar_paths.length} metadata sidecar(s)")
 
       @runtime.tracker.evict_stale_metadata(older_than_days: 10)
+    end
+
+    def ingest_fetch_run_sidecars
+      pending_dir = @runtime.config.pending_fetch_runs_dir
+      return unless Dir.exist?(pending_dir)
+
+      batch_size = @scheduled_job.settings.fetch("batch_size", 500)
+      sidecar_paths = Dir.glob(File.join(pending_dir, "*.fetch_run.json")).first(batch_size)
+      return if sidecar_paths.empty?
+
+      attrs_list = sidecar_paths.map { |path| JSON.parse(File.read(path)) }
+
+      @runtime.tracker.bulk_insert_fetch_runs(attrs_list)
+      sidecar_paths.each { |path| File.delete(path) }
+
+      @runtime.logger.info("metadata_sync: ingested #{sidecar_paths.length} fetch_run sidecar(s)")
     end
   end
 end
