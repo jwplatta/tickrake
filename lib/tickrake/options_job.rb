@@ -83,14 +83,18 @@ module Tickrake
     end
 
     def resolve_expiration(expiration_chain, bucket, option_root)
-      expiration = Array(expiration_chain.expiration_list).find do |candidate|
+      all_expirations = Array(expiration_chain.expiration_list)
+      expiration = all_expirations.find do |candidate|
         candidate.days_to_expiration == bucket && root_matches?(candidate, option_root)
       end
 
       return expiration if expiration
 
+      available_dtes = all_expirations.map(&:days_to_expiration).sort.first(10)
+      available_roots = all_expirations.flat_map { |e| expiration_roots(e) }.uniq.sort
       @runtime.logger.info(
-        "Skipping option fetch bucket=#{bucket} root=#{option_root || '-'} because Schwab reported no matching expiration."
+        "Skipping option fetch bucket=#{bucket} root=#{option_root || '-'} — no matching expiration. " \
+        "Schwab returned #{all_expirations.length} expirations with DTEs=#{available_dtes.inspect} roots=#{available_roots.inspect}"
       )
       nil
     end
@@ -196,8 +200,9 @@ module Tickrake
         @progress_reporter&.advance(title: option_progress_title(job))
         :success
       rescue StandardError, Timeout::ExitException => e
-        @runtime.logger.error("Failed option fetch for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}: #{e.message}")
-        @runtime.tracker.record_finish(id: id, status: "failed", finished_at: Time.now, error_message: e.message)
+        http_status = e.respond_to?(:response) ? " HTTP #{e.response&.status}" : ""
+        @runtime.logger.error("Failed option fetch for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}:#{http_status} #{e.message}")
+        @runtime.tracker.record_finish(id: id, status: "failed", finished_at: Time.now, error_message: "#{http_status} #{e.message}".strip)
         @progress_reporter&.advance(title: "#{option_progress_title(job)} failed")
         :failed
       end
@@ -362,7 +367,10 @@ module Tickrake
           retry
         end
 
-        @runtime.logger.error("Exhausted retries for #{label}: #{e.message}") if on_retry.nil?
+        if on_retry.nil?
+          http_status = e.respond_to?(:response) ? " HTTP #{e.response&.status}" : ""
+          @runtime.logger.error("Exhausted retries for #{label}:#{http_status} #{e.message}")
+        end
         raise
       end
     end
