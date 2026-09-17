@@ -5,7 +5,7 @@ RSpec.describe Tickrake::JobRunner do
 
   describe ".run with restart: false" do
     it "runs OptionsMonitorRunner for options jobs" do
-      job = instance_double(Tickrake::ScheduledJobConfig, type: "options")
+      job = instance_double(Tickrake::ScheduledJobConfig, type: "options", windows: [:stub])
       runner = instance_double(Tickrake::OptionsMonitorRunner, run: nil)
       allow(Tickrake::OptionsMonitorRunner).to receive(:new).with(runtime, scheduled_job: job).and_return(runner)
 
@@ -15,7 +15,7 @@ RSpec.describe Tickrake::JobRunner do
     end
 
     it "runs CandlesSchedulerRunner for candles jobs" do
-      job = instance_double(Tickrake::ScheduledJobConfig, type: "candles")
+      job = instance_double(Tickrake::ScheduledJobConfig, type: "candles", windows: [:stub])
       runner = instance_double(Tickrake::CandlesSchedulerRunner, run: nil)
       allow(Tickrake::CandlesSchedulerRunner).to receive(:new).with(runtime, scheduled_job: job, from_config_start: true).and_return(runner)
 
@@ -25,7 +25,7 @@ RSpec.describe Tickrake::JobRunner do
     end
 
     it "runs MaintenanceSchedulerRunner for maintenance jobs" do
-      job = instance_double(Tickrake::ScheduledJobConfig, type: "maintenance")
+      job = instance_double(Tickrake::ScheduledJobConfig, type: "maintenance", windows: [:stub])
       runner = instance_double(Tickrake::MaintenanceSchedulerRunner, run: nil)
       allow(Tickrake::MaintenanceSchedulerRunner).to receive(:new).with(runtime, scheduled_job: job).and_return(runner)
 
@@ -35,7 +35,7 @@ RSpec.describe Tickrake::JobRunner do
     end
 
     it "raises for unknown job types" do
-      job = instance_double(Tickrake::ScheduledJobConfig, type: "unknown")
+      job = instance_double(Tickrake::ScheduledJobConfig, type: "unknown", windows: [:stub])
 
       expect do
         described_class.run(runtime, job, from_config_start: false, restart: false)

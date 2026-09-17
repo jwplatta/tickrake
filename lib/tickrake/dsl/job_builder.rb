@@ -102,9 +102,7 @@ module Tickrake
         inferred_type = infer_type
         provider_optional = %w[metadata_sync intraday_publish events_ingest reconciler].include?(inferred_type)
         raise Tickrake::Error, "job `#{@name}` requires provider" if @provider.nil? && !provider_optional
-        raise Tickrake::Error, "job `#{@name}` requires a schedule block" if @schedule_builder.nil?
-
-        schedule = @schedule_builder.build!
+        schedule = @schedule_builder&.build! || {}
 
         case inferred_type
         when "options"         then build_options_job!(config, schedule)
