@@ -33,9 +33,24 @@ module Tickrake
       DualLogger.new(text_logger, json_logger)
     end
 
+    TEXT_DETAIL_KEYS = %i[symbol option_root expiration_date row_count duration_ms
+                          success_count failure_count reason pid event
+                          error_class error_message path collection_id
+                          service task_count bucket].freeze
+
     def self.text_formatter
       proc do |severity, datetime, _progname, message|
-        "[#{datetime.utc.iso8601}] #{severity} #{message}\n"
+        text = if message.is_a?(Hash)
+                 msg = message[:msg] || message["msg"]
+                 details = TEXT_DETAIL_KEYS.filter_map do |key|
+                   value = message[key] || message[key.to_s]
+                   "#{key}=#{value}" unless value.nil?
+                 end
+                 details.empty? ? (msg || message.to_s) : "#{msg} #{details.join(' ')}"
+               else
+                 message
+               end
+        "[#{datetime.utc.iso8601}] #{severity} #{text}\n"
       end
     end
 
