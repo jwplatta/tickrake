@@ -2,14 +2,16 @@
 
 module Tickrake
   class ClientFactory
-    def initialize(config)
+    def initialize(config, logger: nil)
       @config = config
+      @logger = logger
     end
 
     def build
       api_key = ENV.fetch("SCHWAB_API_KEY")
       app_secret = ENV.fetch("SCHWAB_APP_SECRET")
       db_path = ENV["SCHWAB_DATABASE_PATH"] || SchwabRb.configuration.database_path
+      @logger&.info({ msg: "Opening Schwab database", event: "schwab_db_open", path: db_path })
       database = SchwabRb::Storage::Database.new(db_path)
       client = SchwabRb::Auth.init_client_from_database(api_key, app_secret, database: database)
       client.refresh!

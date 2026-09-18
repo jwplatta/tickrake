@@ -16,7 +16,7 @@ module Tickrake
     def run
       Tickrake::Lockfile.new("tickrake-#{@scheduled_job.name}").synchronize do
         install_signal_handlers
-        @runtime.logger.info({ msg: "[order_book:#{@scheduled_job.name}] Starting order book runner.", event: "runner_start" })
+        @runtime.logger.info({ msg: "[order_book:#{@scheduled_job.name}] Starting order book runner.", event: "runner_start", pid: Process.pid })
         @runtime.with_timezone do
           loop do
             now = Time.now
@@ -35,7 +35,7 @@ module Tickrake
             sleep(POLL_INTERVAL_SECONDS)
           end
         end
-        @runtime.logger.info({ msg: "[order_book:#{@scheduled_job.name}] Order book runner stopped.", event: "runner_stop" })
+        @runtime.logger.info({ msg: "[order_book:#{@scheduled_job.name}] Order book runner stopped.", event: "runner_stop", reason: @shutdown_reason || "clean_exit" })
       end
     ensure
       stop_session if @in_session
@@ -84,6 +84,7 @@ module Tickrake
       %w[TERM INT].each do |signal|
         Signal.trap(signal) do
           @shutdown_requested = true
+          @shutdown_reason = signal
         end
       end
     end

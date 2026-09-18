@@ -17,7 +17,7 @@ module Tickrake
 
     def run
       install_signal_handlers
-      @runtime.logger.info("Starting scheduler supervisor for #{@scheduled_job.name}.")
+      @runtime.logger.info({ msg: "Starting scheduler supervisor for #{@scheduled_job.name}.", event: "supervisor_start", pid: Process.pid })
 
       until @shutdown_requested
         exit_status = spawn_scheduler
@@ -44,7 +44,7 @@ module Tickrake
         @sleeper.sleep(restart_delay)
       end
     ensure
-      @runtime.logger.info("Stopped scheduler supervisor for #{@scheduled_job.name}.")
+      @runtime.logger.info({ msg: "Stopped scheduler supervisor for #{@scheduled_job.name}.", event: "supervisor_stop", reason: @shutdown_reason || "clean_exit" })
     end
 
     private
@@ -91,6 +91,7 @@ module Tickrake
       %w[TERM INT].each do |signal|
         Signal.trap(signal) do
           @shutdown_requested = true
+          @shutdown_reason = signal
           Process.kill(signal, @child_pid) rescue Errno::ESRCH if @child_pid
         end
       end
