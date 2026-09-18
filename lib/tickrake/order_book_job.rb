@@ -88,10 +88,10 @@ module Tickrake
 
     def handle_event(event, service:)
       received_at = (Time.now.to_f * 1000).to_i
-      entries = Array(event.try(:content) || event[:content] || event["content"] || [event])
+      entries = Array(event["content"] || event[:content] || [event])
 
       entries.each do |entry|
-        symbol = entry.try(:key) || entry[:key] || entry["key"] || entry.try(:symbol) || entry[:symbol] || entry["symbol"]
+        symbol = entry["key"] || entry[:key]
         next unless symbol
 
         @events_writer.write(
@@ -100,26 +100,15 @@ module Tickrake
           "symbol"       => symbol.to_s,
           "service"      => service,
           "received_at"  => received_at,
-          "book_time_ms" => extract_book_time(entry),
-          "bids_json"    => extract_bids_json(entry),
-          "asks_json"    => extract_asks_json(entry)
+          "book_time_ms" => (entry["1"] || entry[:book_time])&.to_i,
+          "bids_json"    => extract_json(entry["2"] || entry[:bids]),
+          "asks_json"    => extract_json(entry["3"] || entry[:asks])
         )
       end
     end
 
-    def extract_book_time(entry)
-      (entry.try(:book_time) || entry[:book_time] || entry["book_time"] ||
-       entry.try(:timestamp) || entry[:timestamp] || entry["timestamp"])&.to_i
-    end
-
-    def extract_bids_json(entry)
-      bids = entry.try(:bids) || entry[:bids] || entry["bids"]
-      JSON.dump(bids) if bids
-    end
-
-    def extract_asks_json(entry)
-      asks = entry.try(:asks) || entry[:asks] || entry["asks"]
-      JSON.dump(asks) if asks
+    def extract_json(data)
+      JSON.dump(data) if data
     end
 
     def log_prefix
