@@ -197,7 +197,8 @@ module Tickrake
       def build_maintenance_job!(config, schedule)
         raise Tickrake::Error, "maintenance job `#{@name}` requires a maintenance block" if @maintenance_builder.nil?
 
-        tasks = @maintenance_builder.build!
+        built = @maintenance_builder.build!
+        tasks = built[:tasks]
         tasks.each do |step|
           next unless step.action == "archive"
           unless config.datastores.key?(step.destination)
@@ -218,7 +219,10 @@ module Tickrake
           universe: [],
           tasks: tasks,
           task: nil,
-          settings: {},
+          settings: {
+            "start_date" => built[:start_date],
+            "end_date" => built[:end_date]
+          }.compact,
           manual: false
         )
       end

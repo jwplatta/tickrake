@@ -5,6 +5,16 @@ module Tickrake
     class MaintenanceBuilder
       def initialize
         @tasks = []
+        @start_date = nil
+        @end_date = nil
+      end
+
+      def start_date(date)
+        @start_date = date.is_a?(Date) ? date : Date.iso8601(date.to_s)
+      end
+
+      def end_date(date)
+        @end_date = date.is_a?(Date) ? date : Date.iso8601(date.to_s)
       end
 
       def compact(subject, universe: nil, universes: [], delete_sources: false)
@@ -46,7 +56,7 @@ module Tickrake
       end
 
       def build!
-        @tasks
+        { tasks: @tasks, start_date: @start_date, end_date: @end_date }
       end
     end
   end
