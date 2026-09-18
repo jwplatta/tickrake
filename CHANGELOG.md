@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - Added `tickrake prune-orphaned` command to remove `file_metadata_cache` rows whose files no longer exist on disk. Supports `--dry-run` to preview removals without deleting.
 
 ### Fixed
+- Fixed `JobRunner` routing so daily-scheduled jobs (`at` + `weekdays`) are dispatched to scheduler runners instead of running once and exiting. Previously only interval-windowed jobs were treated as scheduled.
 - Fixed order book event handler to use direct hash access (`event["content"]`, numeric field indices) instead of `.try()` which depends on ActiveSupport and silently swallows missing keys.
 - Fixed `ScheduledRunResult#successful?` to treat zero-task runs (`success_count=0, failure_count=0`) as successful instead of degraded. This prevents holiday or off-hours iterations from triggering the consecutive failure counter when no option expirations are available.
 

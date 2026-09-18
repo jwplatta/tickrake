@@ -126,7 +126,7 @@ module Tickrake
     end
 
     def write_tickers_cache(provider, roots)
-      cache_dir = File.join(File.expand_path("~/.tickrake/data/index_cache"), provider)
+      cache_dir = File.join(@runtime.config.data_dir, "index_cache", provider)
       FileUtils.mkdir_p(cache_dir)
       cache_path = File.join(cache_dir, "tickers_cache.json")
       payload = {
