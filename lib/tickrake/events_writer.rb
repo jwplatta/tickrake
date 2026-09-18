@@ -20,6 +20,7 @@ module Tickrake
         maybe_rotate
         @current_file.puts(JSON.generate(event_hash))
         @current_file.flush
+        @current_event_count += 1
       end
     end
 
@@ -59,6 +60,7 @@ module Tickrake
       @current_path = File.join(@pending_events_dir, filename)
       @current_file = File.open(@current_path, "a")
       @current_opened_at = Time.now
+      @current_event_count = 0
     end
 
     def finalize_current_file
@@ -67,10 +69,11 @@ module Tickrake
       @current_file.close
       final_path = @current_path.sub(/\.tmp$/, "")
       File.rename(@current_path, final_path)
-      @logger.info("events_writer: rotated #{File.basename(final_path)}")
+      @logger.info({ msg: "file_rotated", event: "file_rotated", file: File.basename(final_path), event_count: @current_event_count })
       @current_file = nil
       @current_path = nil
       @current_opened_at = nil
+      @current_event_count = 0
     end
   end
 end
