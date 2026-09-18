@@ -51,7 +51,9 @@ module Tickrake
       when "candles"
         Tickrake::CandlesJob.new(runtime, scheduled_job: job).run
       when "maintenance"
-        Tickrake::MaintenanceJob.new(runtime, scheduled_job: job).run
+        start_date = job.settings["start_date"]
+        end_date = job.settings["end_date"]
+        Tickrake::MaintenanceJob.new(runtime, scheduled_job: job, start_date: start_date, end_date: end_date).run
       when "intraday_publish"
         Tickrake::IntradayPublisherJob.new(runtime, scheduled_job: job).run
       when "events_ingest"

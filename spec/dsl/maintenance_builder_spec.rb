@@ -8,7 +8,7 @@ RSpec.describe Tickrake::DSL::MaintenanceBuilder do
   describe "#compact" do
     it "adds a compact MaintenanceStepConfig" do
       builder.compact(:option_samples, universe: "spx_symbols", delete_sources: true)
-      tasks = builder.build!
+      tasks = builder.build![:tasks]
       expect(tasks.length).to eq(1)
       step = tasks.first
       expect(step).to be_a(Tickrake::MaintenanceStepConfig)
@@ -22,7 +22,7 @@ RSpec.describe Tickrake::DSL::MaintenanceBuilder do
 
     it "supports universes: array" do
       builder.compact(:option_samples, universes: %w[stock_option_symbols etf_option_symbols], delete_sources: true)
-      step = builder.build!.first
+      step = builder.build![:tasks].first
       expect(step.universe).to be_nil
       expect(step.universes).to eq(%w[stock_option_symbols etf_option_symbols])
     end
@@ -33,7 +33,7 @@ RSpec.describe Tickrake::DSL::MaintenanceBuilder do
       builder.archive(:option_samples, universe: "spx_symbols",
                       to: :s3_archive, artifacts: %i[csv parquet],
                       retain: { parquet: true })
-      tasks = builder.build!
+      tasks = builder.build![:tasks]
       expect(tasks.length).to eq(1)
       step = tasks.first
       expect(step.action).to eq("archive")
@@ -47,7 +47,7 @@ RSpec.describe Tickrake::DSL::MaintenanceBuilder do
     it "defaults all retain_local values to false when retain is empty" do
       builder.archive(:option_samples, universe: "spx_symbols",
                       to: :s3_archive, artifacts: %i[csv parquet])
-      step = builder.build!.first
+      step = builder.build![:tasks].first
       expect(step.retain_local).to eq("csv" => false, "parquet" => false)
     end
 
@@ -56,7 +56,7 @@ RSpec.describe Tickrake::DSL::MaintenanceBuilder do
                       universes: %w[stock_option_symbols etf_option_symbols],
                       to: :s3_archive, artifacts: %i[csv parquet],
                       retain: { parquet: true })
-      step = builder.build!.first
+      step = builder.build![:tasks].first
       expect(step.universe).to be_nil
       expect(step.universes).to eq(%w[stock_option_symbols etf_option_symbols])
     end
@@ -67,12 +67,12 @@ RSpec.describe Tickrake::DSL::MaintenanceBuilder do
       builder.compact(:option_samples, universe: "spx_symbols", delete_sources: true)
       builder.archive(:option_samples, universe: "spx_symbols",
                       to: :s3_archive, artifacts: %i[csv parquet])
-      tasks = builder.build!
+      tasks = builder.build![:tasks]
       expect(tasks.map(&:action)).to eq(%w[compact archive])
     end
 
     it "returns an empty array with no tasks" do
-      expect(builder.build!).to eq([])
+      expect(builder.build![:tasks]).to eq([])
     end
   end
 end
