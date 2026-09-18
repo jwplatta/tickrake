@@ -15,14 +15,15 @@ module Tickrake
     end
 
     def run(now: Time.now)
-      @runtime.logger.info("Starting options scrape at #{now.utc.iso8601}")
       run_time = now
       collection_id = "options-#{run_time.utc.strftime("%Y%m%dT%H%M%SZ")}"
+      @runtime.logger.info({ msg: "scrape_start", event: "scrape_start", collection_id: collection_id, scheduled_for: run_time.utc.iso8601 })
       queue = build_queue(run_time.to_date)
-      @runtime.logger.info("Resolved #{queue.length} option fetch tasks. collection_id=#{collection_id}")
+      @runtime.logger.info({ msg: "queue_resolved", event: "queue_resolved", task_count: queue.length, collection_id: collection_id })
       result = process_queue(queue, run_time, collection_id)
       @progress_reporter&.finish
-      @runtime.logger.info("Completed options scrape at #{Time.now.utc.iso8601}")
+      elapsed_ms = ((Time.now - run_time) * 1000).round
+      @runtime.logger.info({ msg: "scrape_end", event: "scrape_end", collection_id: collection_id, success_count: result.success_count, failure_count: result.failure_count, duration_ms: elapsed_ms })
       result
     end
 
@@ -163,40 +164,42 @@ module Tickrake
     end
 
     def fetch_one(job, run_time, collection_id)
+      symbol = job.fetch(:symbol)
+      expiration_date = job.fetch(:expiration_date)
+      provider_name = job.fetch(:provider_name)
+      option_root = job[:option_root]
       requested_bucket = job.fetch(:requested_buckets).join(",")
-      @runtime.logger.info(
-        "Fetching option chain for #{job.fetch(:symbol)} provider=#{job.fetch(:provider_name)} bucket=#{requested_bucket} resolved_exp=#{job.fetch(:expiration_date)} root=#{job[:option_root] || '-'}"
-      )
+      @runtime.logger.info({ msg: "fetch_start", event: "fetch_start", symbol: symbol, option_root: option_root, bucket: requested_bucket, expiration_date: expiration_date.to_s, collection_id: collection_id })
       started_at = Time.now
-      retries = 0
       begin
-        result = with_retries("#{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}", on_retry: ->(attempt, error) {
-          @runtime.logger.warn("Retry #{attempt} for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}: #{error.message}")
+        result = with_retries("#{symbol} exp=#{expiration_date}", on_retry: ->(attempt, error) {
+          @runtime.logger.warn({ msg: "fetch_retry", event: "fetch_retry", symbol: symbol, expiration_date: expiration_date.to_s, attempt: attempt, error_class: error.class.name, error_message: error.message })
         }) do
           write_option_chain(
             client: client,
-            provider_name: job.fetch(:provider_name),
-            symbol: job.fetch(:symbol),
-            expiration_date: job.fetch(:expiration_date),
+            provider_name: provider_name,
+            symbol: symbol,
+            expiration_date: expiration_date,
             timestamp: run_time,
-            root: job[:option_root]
+            root: option_root
           )
         end
-        path = result.fetch(:path)
-        @runtime.logger.info("Wrote option chain for #{job.fetch(:symbol)} to #{path}")
+        elapsed_ms = ((Time.now - started_at) * 1000).round
+        @runtime.logger.info({ msg: "fetch_success", event: "fetch_success", symbol: symbol, option_root: option_root, expiration_date: expiration_date.to_s, row_count: result.fetch(:row_count), duration_ms: elapsed_ms, path: result.fetch(:path), collection_id: collection_id })
         write_sidecar(
           job: job, run_time: run_time, collection_id: collection_id,
-          started_at: started_at, status: "success", output_path: path,
+          started_at: started_at, status: "success", output_path: result.fetch(:path),
           row_count: result.fetch(:row_count)
         )
         @progress_reporter&.advance(title: option_progress_title(job))
         :success
       rescue StandardError, Timeout::ExitException => e
-        http_status = e.respond_to?(:response) ? " HTTP #{e.response&.status}" : ""
-        @runtime.logger.error("Failed option fetch for #{job.fetch(:symbol)} exp=#{job.fetch(:expiration_date)}:#{http_status} #{e.message}")
+        elapsed_ms = ((Time.now - started_at) * 1000).round
+        http_status = e.respond_to?(:response) ? e.response&.status : nil
+        @runtime.logger.error({ msg: "fetch_failed", event: "fetch_failed", symbol: symbol, option_root: option_root, expiration_date: expiration_date.to_s, error_class: e.class.name, error_message: e.message, http_status: http_status, duration_ms: elapsed_ms, collection_id: collection_id })
         write_sidecar(
           job: job, run_time: run_time, collection_id: collection_id,
-          started_at: started_at, status: "failed", error_message: "#{http_status} #{e.message}".strip
+          started_at: started_at, status: "failed", error_message: "#{http_status ? "HTTP #{http_status} " : ""}#{e.message}".strip
         )
         @progress_reporter&.advance(title: "#{option_progress_title(job)} failed")
         :failed

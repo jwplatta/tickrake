@@ -117,7 +117,8 @@ RSpec.describe Tickrake::CLI do
       verbose: false,
       stdout: stdout,
       log_path: Tickrake::PathSupport.named_log_path("index_options"),
-      config_path: Tickrake::PathSupport.config_path
+      config_path: Tickrake::PathSupport.config_path,
+      context: { job_name: "index_options", job_type: "options", provider: nil }
     ).and_return(runtime)
     allow(Tickrake::ProgressReporter).to receive(:build).with(total: 4, title: "Options", output: stdout).and_return(progress_reporter)
     allow(Tickrake::OptionsJob).to receive(:new).with(runtime, progress_reporter: progress_reporter, scheduled_job: index_options_job).and_return(job)
@@ -154,7 +155,8 @@ RSpec.describe Tickrake::CLI do
       verbose: false,
       stdout: stdout,
       log_path: Tickrake::PathSupport.named_log_path("manual_options"),
-      config_path: Tickrake::PathSupport.config_path
+      config_path: Tickrake::PathSupport.config_path,
+      context: { job_name: "manual_options", job_type: "options", provider: nil }
     ).and_return(runtime)
     allow(Tickrake::ProgressReporter).to receive(:build).with(total: 2, title: "Options", output: stdout).and_return(progress_reporter)
     allow(Tickrake::OptionsJob).to receive(:new).with(runtime, progress_reporter: progress_reporter, scheduled_job: manual_options_job).and_return(job)
@@ -187,7 +189,8 @@ RSpec.describe Tickrake::CLI do
       verbose: false,
       stdout: stdout,
       log_path: Tickrake::PathSupport.named_log_path("eod_candles"),
-      config_path: Tickrake::PathSupport.config_path
+      config_path: Tickrake::PathSupport.config_path,
+      context: { job_name: "eod_candles", job_type: "candles", provider: nil }
     ).and_return(runtime)
     allow(Tickrake::CandlesJob).to receive(:new).with(
       runtime,
@@ -220,7 +223,8 @@ RSpec.describe Tickrake::CLI do
       verbose: false,
       stdout: stdout,
       log_path: Tickrake::PathSupport.named_log_path("compact_spxw"),
-      config_path: Tickrake::PathSupport.config_path
+      config_path: Tickrake::PathSupport.config_path,
+      context: { job_name: "compact_spxw", job_type: "maintenance", provider: "schwab" }
     ).and_return(runtime)
     allow(Tickrake::ProgressReporter).to receive(:build).with(
       total: 2,

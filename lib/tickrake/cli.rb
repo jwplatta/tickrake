@@ -95,7 +95,8 @@ module Tickrake
         verbose: common_options[:verbose],
         stdout: @stdout,
         log_path: Tickrake::PathSupport.named_log_path(job.name),
-        config_path: common_options[:config_path]
+        config_path: common_options[:config_path],
+        context: { job_name: job.name, job_type: job.type, provider: job.provider }
       )
 
       if options[:scheduler]
@@ -123,7 +124,8 @@ module Tickrake
         verbose: common_options[:verbose],
         stdout: @stdout,
         log_path: Tickrake::PathSupport.named_log_path(options[:type]),
-        config_path: common_options[:config_path]
+        config_path: common_options[:config_path],
+        context: { job_name: options[:type], job_type: options[:type], provider: options[:provider] }
       )
 
       case options[:type]
