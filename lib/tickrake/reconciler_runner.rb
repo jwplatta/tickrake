@@ -17,7 +17,7 @@ module Tickrake
     def run
       Tickrake::Lockfile.new("tickrake-#{@scheduled_job.name}").synchronize do
         install_signal_handlers
-        @runtime.logger.info("Starting reconciler scheduler job #{@scheduled_job.name}.")
+        @runtime.logger.info({ msg: "Starting reconciler scheduler job #{@scheduled_job.name}.", event: "runner_start", pid: Process.pid })
         @runtime.with_timezone do
           until @shutdown_requested
             now = Time.now
@@ -27,7 +27,7 @@ module Tickrake
             interruptible_sleep(sleep_seconds(now))
           end
         end
-        @runtime.logger.info("Stopped reconciler scheduler job #{@scheduled_job.name}.")
+        @runtime.logger.info({ msg: "Stopped reconciler scheduler job #{@scheduled_job.name}.", event: "runner_stop", reason: @shutdown_reason || "clean_exit" })
       end
     ensure
       Tickrake::JobRegistry.new.delete(@scheduled_job.name)
@@ -80,6 +80,7 @@ module Tickrake
       %w[TERM INT].each do |signal|
         Signal.trap(signal) do
           @shutdown_requested = true
+          @shutdown_reason = signal
         end
       end
     end

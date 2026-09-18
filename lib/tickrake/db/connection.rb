@@ -3,9 +3,10 @@
 module Tickrake
   module DB
     class << self
-      def connection(path)
+      def connection(path, logger: nil)
         return @connection if defined?(@connection)
 
+        logger&.info({ msg: "Opening tickrake database", event: "tickrake_db_open", path: path })
         @connection = SQLite3::Database.new(path).tap do |d|
           d.results_as_hash = true
           d.busy_timeout(30_000)
