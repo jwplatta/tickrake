@@ -16,7 +16,7 @@ module Tickrake
     def run
       Tickrake::Lockfile.new("tickrake-#{@scheduled_job.name}").synchronize do
         install_signal_handlers
-        @runtime.logger.info("[order_book:#{@scheduled_job.name}] Starting order book runner.")
+        @runtime.logger.info({ msg: "[order_book:#{@scheduled_job.name}] Starting order book runner.", event: "runner_start" })
         @runtime.with_timezone do
           loop do
             now = Time.now
@@ -35,7 +35,7 @@ module Tickrake
             sleep(POLL_INTERVAL_SECONDS)
           end
         end
-        @runtime.logger.info("[order_book:#{@scheduled_job.name}] Order book runner stopped.")
+        @runtime.logger.info({ msg: "[order_book:#{@scheduled_job.name}] Order book runner stopped.", event: "runner_stop" })
       end
     ensure
       stop_session if @in_session
@@ -47,12 +47,11 @@ module Tickrake
 
     def start_session(window_start)
       @in_session = true
-      @runtime.logger.info("[order_book:#{@scheduled_job.name}] Window opened, starting session.")
+      @runtime.logger.info({ msg: "[order_book:#{@scheduled_job.name}] Window opened, starting session.", event: "session_start" })
       @stream_thread = Thread.new do
         @job.run_session(window_start: window_start)
       rescue StandardError => e
-        @runtime.logger.error("[order_book:#{@scheduled_job.name}] Session error: #{e.class}: #{e.message}")
-        @runtime.logger.error(Array(e.backtrace).first(5).join("\n"))
+        @runtime.logger.error({ msg: "[order_book:#{@scheduled_job.name}] Session error: #{e.class}: #{e.message}", event: "session_error", error_class: e.class.name, error_message: e.message, backtrace: Array(e.backtrace).first(5).join(" | ") })
       ensure
         @in_session = false
       end
@@ -61,7 +60,7 @@ module Tickrake
     def stop_session
       return unless @in_session
 
-      @runtime.logger.info("[order_book:#{@scheduled_job.name}] Window closed or shutdown, stopping session.")
+      @runtime.logger.info({ msg: "[order_book:#{@scheduled_job.name}] Window closed or shutdown, stopping session.", event: "session_stop" })
       @job.stop
       @stream_thread&.join(60)
       @stream_thread = nil

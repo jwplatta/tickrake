@@ -36,7 +36,7 @@ module Tickrake
         @runtime.logger.error("events_ingestor: failed to process #{File.basename(path)}: #{e.class}: #{e.message}")
       end
 
-      @runtime.logger.info("events_ingestor: processed #{files.size} file(s), #{total_events} event(s)") if total_events > 0
+      @runtime.logger.info({ msg: "batch_complete", event: "batch_complete", files_processed: files.size, event_count: total_events }) if total_events > 0
     end
 
     private
@@ -80,14 +80,14 @@ module Tickrake
             flush_start: flush_start, provider_definition: provider_definition
           )
           @level_one_writer.write(path, rows: group)
-          @runtime.logger.info("events_ingestor: wrote #{path} (#{group.size} events)")
+          @runtime.logger.info({ msg: "parquet_written", event: "parquet_written", data_type: "level_one", symbol: symbol, provider: provider, event_count: group.size, path: path })
         when "order_book"
           path = @storage_paths.order_book_path(
             provider: provider, symbol: symbol,
             flush_start: flush_start, provider_definition: provider_definition
           )
           @order_book_writer.write(path, rows: group)
-          @runtime.logger.info("events_ingestor: wrote #{path} (#{group.size} events)")
+          @runtime.logger.info({ msg: "parquet_written", event: "parquet_written", data_type: "order_book", symbol: symbol, provider: provider, event_count: group.size, path: path })
         else
           @runtime.logger.warn("events_ingestor: unknown job_type `#{job_type}` — skipping group")
           next
