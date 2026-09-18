@@ -1,12 +1,14 @@
 # frozen_string_literal: true
 
+require "json"
+
 module Tickrake
   class LoggerFactory
     LOG_ROTATION_COUNT = 5
     LOG_ROTATION_SIZE = 10 * 1024 * 1024
     LOG_RETENTION_DAYS = 14
 
-    def self.build(verbose:, stdout:, log_path: Tickrake::PathSupport.cli_log_path)
+    def self.build(verbose:, stdout:, log_path: Tickrake::PathSupport.cli_log_path, context: {})
       FileUtils.mkdir_p(File.dirname(log_path))
       Tickrake::LogRetention.new(log_path: log_path, retention_days: LOG_RETENTION_DAYS).prune!
 
@@ -15,11 +17,38 @@ module Tickrake
 
       logger = Logger.new(MultiIO.new(*devices))
       logger.level = Logger::INFO
-      logger.formatter = proc do |severity, datetime, _progname, message|
-        "[#{datetime.utc.iso8601}] #{severity} #{message}\n"
-      end
+      logger.formatter = build_formatter(context)
       logger
     end
+
+    def self.build_formatter(context)
+      if ENV["TICKRAKE_LOG_FORMAT"] == "json"
+        json_formatter(context)
+      else
+        text_formatter
+      end
+    end
+
+    def self.text_formatter
+      proc do |severity, datetime, _progname, message|
+        "[#{datetime.utc.iso8601}] #{severity} #{message}\n"
+      end
+    end
+
+    def self.json_formatter(context)
+      base = context.reject { |_, v| v.nil? }
+      proc do |severity, datetime, _progname, message|
+        entry = { ts: datetime.utc.iso8601, level: severity }.merge(base)
+        if message.is_a?(Hash)
+          entry.merge!(message)
+        else
+          entry[:msg] = message.to_s
+        end
+        "#{JSON.generate(entry)}\n"
+      end
+    end
+
+    private_class_method :build_formatter, :text_formatter, :json_formatter
 
     class MultiIO
       def initialize(*targets)

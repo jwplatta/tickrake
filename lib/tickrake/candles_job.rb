@@ -13,7 +13,7 @@ module Tickrake
     end
 
     def run(now: Time.now)
-      @runtime.logger.info("Starting candle scrape at #{now.utc.iso8601}")
+      @runtime.logger.info({ msg: "scrape_start", event: "scrape_start", data_type: "candles", scheduled_for: now.utc.iso8601 })
       success_count = 0
       failure_count = 0
       selected_universe.each do |entry|
@@ -27,7 +27,8 @@ module Tickrake
           end
         end
       end
-      @runtime.logger.info("Completed candle scrape at #{Time.now.utc.iso8601}")
+      elapsed_ms = ((Time.now - now) * 1000).round
+      @runtime.logger.info({ msg: "scrape_end", event: "scrape_end", data_type: "candles", success_count: success_count, failure_count: failure_count, duration_ms: elapsed_ms })
       ScheduledRunResult.new(success_count: success_count, failure_count: failure_count)
     end
 
@@ -35,7 +36,7 @@ module Tickrake
 
     def fetch_one(entry, frequency, provider, provider_definition, scheduled_for)
       canonical_symbol = canonical_symbol_for(entry.symbol, provider_definition)
-      @runtime.logger.info("Fetching #{frequency} candles for #{entry.symbol}")
+      @runtime.logger.info({ msg: "fetch_start", event: "fetch_start", symbol: entry.symbol, frequency: frequency, data_type: "candles" })
       started_at = Time.now
 
       retries = 0
@@ -67,9 +68,8 @@ module Tickrake
           progress_reporter&.advance(title: progress_title(entry: entry, frequency: frequency, index: index, total: ranges.length))
         end
 
-        @runtime.logger.info(
-          "Wrote #{frequency} candles for #{entry.symbol} to #{path} (requested #{start_date.iso8601} to #{end_date.iso8601}, #{total_candles} rows)"
-        )
+        elapsed_ms = ((Time.now - started_at) * 1000).round
+        @runtime.logger.info({ msg: "fetch_success", event: "fetch_success", symbol: entry.symbol, frequency: frequency, data_type: "candles", row_count: total_candles, duration_ms: elapsed_ms, path: path })
         write_sidecar(
           symbol: canonical_symbol, frequency: frequency, scheduled_for: scheduled_for,
           started_at: started_at, status: "success", output_path: path
@@ -79,11 +79,12 @@ module Tickrake
       rescue StandardError => e
         retries += 1
         if retries <= @runtime.config.retry_count
-          @runtime.logger.warn("Retry #{retries} for #{entry.symbol} #{frequency}: #{e.message}")
+          @runtime.logger.warn({ msg: "fetch_retry", event: "fetch_retry", symbol: entry.symbol, frequency: frequency, attempt: retries, error_class: e.class.name, error_message: e.message })
           sleep @runtime.config.retry_delay_seconds
           retry
         end
-        @runtime.logger.error("Failed candle fetch for #{entry.symbol} #{frequency}: #{e.message}")
+        elapsed_ms = ((Time.now - started_at) * 1000).round
+        @runtime.logger.error({ msg: "fetch_failed", event: "fetch_failed", symbol: entry.symbol, frequency: frequency, data_type: "candles", error_class: e.class.name, error_message: e.message, duration_ms: elapsed_ms })
         write_sidecar(
           symbol: canonical_symbol, frequency: frequency, scheduled_for: scheduled_for,
           started_at: started_at, status: "failed", error_message: e.message
