@@ -150,24 +150,57 @@ module Tickrake
         return
       end
 
-      manifests = keys.flat_map do |key|
+      manifests = keys.filter_map do |key|
         raw = s3_archive.download_content(key)
         JSON.parse(raw)
       rescue StandardError => e
         @runtime.logger.warn("reconciler: failed to parse candle manifest #{key}: #{e.message}")
-        []
+        nil
       end
 
-      # Group by (ticker, frequency) and keep only the latest archived_at per group.
-      by_ticker_freq = manifests.group_by { |m| [m.fetch("ticker", nil), m.fetch("frequency", nil)] }
-      by_ticker_freq.each do |(ticker, frequency), group|
-        latest = group.max_by { |m| m.fetch("archived_at", "") }
-        # TODO: build and upload a candle index entry once candle data lands in S3.
-        @runtime.logger.debug(
-          "reconciler: candle manifest found provider=#{provider} ticker=#{ticker} " \
-          "frequency=#{frequency} archived_at=#{latest&.fetch('archived_at', nil)}"
-        )
+      writer = Tickrake::Index::AtomicJsonWriter.new
+      symbols = []
+
+      manifests.each do |manifest|
+        symbol = manifest.fetch("symbol")
+        symbols << symbol
+
+        local_path = candle_symbol_index_local_path(provider, symbol)
+        writer.write(local_path, manifest)
+        s3_archive.upload(local_path)
+        @runtime.logger.info("reconciler: wrote candle index for provider=#{provider} symbol=#{symbol}")
       end
+
+      write_candles_index(provider, symbols.sort.uniq, s3_archive)
+      write_candles_cache(provider, symbols.sort.uniq)
+    end
+
+    def candle_symbol_index_local_path(provider, symbol)
+      File.join(@runtime.config.candles_dir, provider, "#{symbol}.json")
+    end
+
+    def write_candles_index(provider, symbols, s3_archive)
+      payload = {
+        "provider"   => provider,
+        "updated_at" => Time.now.utc.iso8601,
+        "symbols"    => symbols
+      }
+      local_path = File.join(@runtime.config.candles_dir, provider, "candles.json")
+      Tickrake::Index::AtomicJsonWriter.new.write(local_path, payload)
+      s3_archive.upload(local_path)
+      @runtime.logger.info("reconciler: wrote candles.json for provider=#{provider} symbols=#{symbols.length}")
+    end
+
+    def write_candles_cache(provider, symbols)
+      cache_dir = File.join(@runtime.config.data_dir, "index_cache", provider)
+      FileUtils.mkdir_p(cache_dir)
+      cache_path = File.join(cache_dir, "candles_cache.json")
+      payload = {
+        "generated_at" => Time.now.utc.iso8601,
+        "symbols"      => symbols
+      }
+      Tickrake::Index::AtomicJsonWriter.new.write(cache_path, payload)
+      @runtime.logger.info("reconciler: wrote candles cache for provider=#{provider} path=#{cache_path}")
     end
   end
 end
