@@ -81,6 +81,17 @@ module Tickrake
         )
       end
 
+      def fundamentals_path(provider:, sample_date:)
+        File.join(
+          @config.data_dir,
+          "fundamentals",
+          provider.to_s,
+          sample_date.strftime("%Y"),
+          sample_date.strftime("%m"),
+          "#{sample_date.strftime("%d")}.parquet"
+        )
+      end
+
       def option_samples_dir(provider:, sample_date:)
         File.join(
           provider_options_dir(provider),

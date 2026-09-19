@@ -21,6 +21,7 @@ module Tickrake
         @intraday_publish_builder = nil
         @events_ingest_builder = nil
         @reconcile_builder = nil
+        @fundamentals_builder = nil
       end
 
       def provider(name)
@@ -98,6 +99,11 @@ module Tickrake
         @reconcile_builder.instance_eval(&block) if block
       end
 
+      def fundamentals(&block)
+        @fundamentals_builder = FundamentalsBuilder.new
+        @fundamentals_builder.instance_eval(&block) if block
+      end
+
       def build!(config)
         inferred_type = infer_type
         provider_optional = %w[metadata_sync intraday_publish events_ingest reconciler].include?(inferred_type)
@@ -114,6 +120,7 @@ module Tickrake
         when "intraday_publish" then build_intraday_publish_job!(config, schedule)
         when "events_ingest"    then build_events_ingest_job!(config, schedule)
         when "reconciler"       then build_reconcile_job!(schedule)
+        when "fundamentals"     then build_fundamentals_job!(schedule)
         else raise Tickrake::Error, "job `#{@name}` has unknown type: #{inferred_type.inspect}"
         end
       end
@@ -239,7 +246,8 @@ module Tickrake
           "metadata_sync"    => @metadata_sync_builder,
           "intraday_publish" => @intraday_publish_builder,
           "events_ingest"    => @events_ingest_builder,
-          "reconciler"       => @reconcile_builder
+          "reconciler"       => @reconcile_builder,
+          "fundamentals"     => @fundamentals_builder
         }
         present = builders.select { |_, b| !b.nil? }
         raise Tickrake::Error, "job `#{@name}` requires a typed block (e.g. `level_one do`, `candles do`)" if present.empty?
@@ -382,6 +390,27 @@ module Tickrake
           tasks: [],
           task: nil,
           settings: @reconcile_builder.build!,
+          manual: false
+        )
+      end
+
+      def build_fundamentals_job!(schedule)
+        raise Tickrake::Error, "fundamentals job `#{@name}` requires a fundamentals block" if @fundamentals_builder.nil?
+
+        Tickrake::ScheduledJobConfig.new(
+          name: @name,
+          type: "fundamentals",
+          provider: @provider,
+          interval_seconds: schedule[:interval_seconds],
+          windows: schedule[:windows],
+          run_at: schedule[:run_at],
+          days: schedule[:days],
+          lookback_days: nil,
+          dte_buckets: [],
+          universe: @inline_symbols,
+          tasks: [],
+          task: nil,
+          settings: @fundamentals_builder.build!,
           manual: false
         )
       end
