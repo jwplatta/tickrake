@@ -1,15 +1,19 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# One-off script to compact existing candle CSVs into per-year parquet files.
+# Backfill script: compact candle CSVs → per-year parquet, archive to S3,
+# write manifests, and build reconciler indexes.
 #
 # Usage:
 #   bundle exec ruby scripts/backfill_candles_to_parquet.rb [--provider schwab] [--dry-run]
 #
 # What it does:
 #   1. Globs all candle CSVs under {candles_dir}/{provider}/
-#   2. For each: reads CSV, splits by year, merges with existing parquet, writes parquet
-#   3. Truncates CSV to headers-only after successful compaction
+#   2. Compacts each into per-year parquet files (merge + dedup)
+#   3. Archives parquet files to S3
+#   4. Writes per-symbol manifest JSONs
+#   5. Builds reconciler indexes (per-symbol + candles.json)
+#   6. Truncates CSV to headers-only after successful compaction
 
 require_relative "../lib/tickrake"
 
@@ -35,8 +39,18 @@ unless Dir.exist?(provider_dir)
   exit 1
 end
 
+# Build S3 archive
+archive_config = config.s3_archive
+unless archive_config
+  logger.error("No s3_archive datastore configured. Cannot archive or write manifests.")
+  exit 1
+end
+s3_archive = Tickrake::Storage::S3Archive.new(config)
+
 csv_files = Dir.glob(File.join(provider_dir, "**", "*.csv"))
 logger.info("Found #{csv_files.size} candle CSV file(s) for provider=#{provider}")
+
+compact_results = []
 
 csv_files.each do |csv_path|
   relative = csv_path.delete_prefix("#{provider_dir}/")
@@ -63,15 +77,74 @@ csv_files.each do |csv_path|
   logger.info("COMPACT #{symbol} #{frequency} (#{row_count} rows)")
 
   if dry_run
-    logger.info("  [dry-run] would compact #{csv_path}")
+    logger.info("  [dry-run] would compact + archive #{csv_path}")
     next
   end
 
+  # Compact
   result = Tickrake::Maintenance::Candles::Compactor.new(context: context).run
-  if result.successful?
-    logger.info("  OK: #{result.row_count} rows → #{result.years_written.join(", ")} year(s)")
+  unless result.successful?
+    logger.error("  COMPACT FAILED: #{result.errors.join(", ")}")
+    next
+  end
+  logger.info("  COMPACTED: #{result.row_count} rows → #{result.years_written.join(", ")} year(s)")
+
+  next if result.years_written.empty?
+
+  # Archive + manifest
+  archiver = Tickrake::Maintenance::Candles::Archiver.new(
+    context: context, s3_archive: s3_archive
+  )
+  archive_result = archiver.upload(years: result.years_written)
+  if archive_result.successful?
+    logger.info("  ARCHIVED: #{archive_result.artifact_results.size} file(s) to S3")
   else
-    logger.error("  FAILED: #{result.errors.join(", ")}")
+    logger.error("  ARCHIVE FAILED: #{archive_result.errors.join(", ")}")
+  end
+
+  compact_results << { symbol: symbol, frequency: frequency }
+end
+
+# Build reconciler indexes
+unless dry_run || compact_results.empty?
+  logger.info("Building reconciler indexes...")
+
+  manifest_writer = Tickrake::Index::AtomicJsonWriter.new
+  prefix = "manifests/candles/#{provider}/"
+  keys = s3_archive.list_keys(prefix: prefix)
+
+  symbols = []
+  keys.each do |key|
+    raw = s3_archive.download_content(key)
+    manifest = JSON.parse(raw)
+    symbol = manifest.fetch("symbol")
+    symbols << symbol
+
+    local_path = File.join(candles_dir, provider, "#{symbol}.json")
+    manifest_writer.write(local_path, manifest)
+    s3_archive.upload(local_path)
+    logger.info("  INDEX: #{symbol}.json")
+  rescue StandardError => e
+    logger.warn("  Failed to process manifest #{key}: #{e.message}")
+  end
+
+  symbols = symbols.sort.uniq
+  unless symbols.empty?
+    candles_index = {
+      "provider" => provider,
+      "updated_at" => Time.now.utc.iso8601,
+      "symbols" => symbols
+    }
+    index_path = File.join(candles_dir, provider, "candles.json")
+    manifest_writer.write(index_path, candles_index)
+    s3_archive.upload(index_path)
+    logger.info("  INDEX: candles.json (#{symbols.size} symbols)")
+
+    cache_dir = File.join(config.data_dir, "index_cache", provider)
+    FileUtils.mkdir_p(cache_dir)
+    cache_path = File.join(cache_dir, "candles_cache.json")
+    manifest_writer.write(cache_path, { "generated_at" => Time.now.utc.iso8601, "symbols" => symbols })
+    logger.info("  CACHE: #{cache_path}")
   end
 end
 
