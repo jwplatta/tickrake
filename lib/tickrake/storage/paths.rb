@@ -92,6 +92,13 @@ module Tickrake
         )
       end
 
+      def candle_compacted_path(provider:, symbol:, frequency:, year:)
+        File.join(
+          @config.candles_dir, provider.to_s, frequency.to_s,
+          year.to_s, "#{sanitize_symbol(symbol)}.parquet"
+        )
+      end
+
       def option_samples_dir(provider:, sample_date:)
         File.join(
           provider_options_dir(provider),

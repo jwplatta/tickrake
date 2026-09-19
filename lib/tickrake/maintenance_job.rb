@@ -39,41 +39,16 @@ module Tickrake
         step_results = []
         artifacts_written = []
 
-        selected_dates(now).each do |sample_date|
-          processed_dates << sample_date
-          maintenance_targets.each do |target|
-            provider_name = target.fetch(:provider_name)
-            option_root = target.fetch(:option_root)
+        option_steps = Array(@scheduled_job.tasks).select { |s| s.subject != "candles" }
+        candle_steps = Array(@scheduled_job.tasks).select { |s| s.subject == "candles" }
 
-            last_compact_result = nil
-            Array(@scheduled_job.tasks).each do |step|
-              next unless step_matches_target?(step, provider_name: provider_name, option_root: option_root)
+        unless option_steps.empty?
+          run_option_steps(now, option_steps, processed_dates: processed_dates,
+                           step_results: step_results, artifacts_written: artifacts_written)
+        end
 
-              context = Tickrake::Maintenance::OptionSamples::Context.new(
-                config: @runtime.config,
-                tracker: @runtime.tracker,
-                provider_name: provider_name,
-                option_root: option_root,
-                sample_date: sample_date,
-                logger: @runtime.logger
-              )
-
-              result = run_step(context: context, step: step, last_compact_result: last_compact_result)
-              last_compact_result = result if step.action == "compact" && result.successful?
-              artifacts_written.concat(step_artifacts(result))
-              step_results << StepExecution.new(
-                action: step.action,
-                provider_name: provider_name,
-                option_root: option_root,
-                sample_date: sample_date,
-                success: result.successful?,
-                artifacts_written: step_artifacts(result),
-                errors: step_errors(result)
-              )
-              break if result.respond_to?(:skipped?) && result.skipped?
-              break unless result.successful?
-            end
-          end
+        unless candle_steps.empty?
+          run_candle_steps(candle_steps, step_results: step_results, artifacts_written: artifacts_written)
         end
 
         @runtime.logger.info(
@@ -90,6 +65,102 @@ module Tickrake
     end
 
     private
+
+    def run_option_steps(now, steps, processed_dates:, step_results:, artifacts_written:)
+      selected_dates(now).each do |sample_date|
+        processed_dates << sample_date
+        maintenance_targets(steps).each do |target|
+          provider_name = target.fetch(:provider_name)
+          option_root = target.fetch(:option_root)
+
+          last_compact_result = nil
+          steps.each do |step|
+            next unless step_matches_target?(step, provider_name: provider_name, option_root: option_root)
+
+            context = Tickrake::Maintenance::OptionSamples::Context.new(
+              config: @runtime.config,
+              tracker: @runtime.tracker,
+              provider_name: provider_name,
+              option_root: option_root,
+              sample_date: sample_date,
+              logger: @runtime.logger
+            )
+
+            result = run_step(context: context, step: step, last_compact_result: last_compact_result)
+            last_compact_result = result if step.action == "compact" && result.successful?
+            artifacts_written.concat(step_artifacts(result))
+            step_results << StepExecution.new(
+              action: step.action,
+              provider_name: provider_name,
+              option_root: option_root,
+              sample_date: sample_date,
+              success: result.successful?,
+              artifacts_written: step_artifacts(result),
+              errors: step_errors(result)
+            )
+            break if result.respond_to?(:skipped?) && result.skipped?
+            break unless result.successful?
+          end
+        end
+      end
+    end
+
+    def run_candle_steps(steps, step_results:, artifacts_written:)
+      candle_targets.each do |target|
+        context = Tickrake::Maintenance::Candles::Context.new(
+          config: @runtime.config,
+          provider_name: target[:provider_name],
+          frequency: target[:frequency],
+          symbol: target[:symbol],
+          logger: @runtime.logger
+        )
+
+        last_compact_result = nil
+        steps.each do |step|
+          result = run_candle_step(context: context, step: step, last_compact_result: last_compact_result)
+          last_compact_result = result if step.action == "compact" && result.successful?
+          artifacts_written.concat(step_artifacts(result))
+          step_results << StepExecution.new(
+            action: step.action,
+            provider_name: target[:provider_name],
+            option_root: target[:symbol],
+            sample_date: nil,
+            success: result.successful?,
+            artifacts_written: step_artifacts(result),
+            errors: step_errors(result)
+          )
+          break if result.respond_to?(:skipped?) && result.skipped?
+          break unless result.successful?
+        end
+      end
+    end
+
+    def run_candle_step(context:, step:, last_compact_result: nil)
+      case step.action
+      when "compact"
+        Tickrake::Maintenance::Candles::Compactor.new(context: context).run
+      when "archive"
+        years = last_compact_result&.years_written || []
+        return Tickrake::Maintenance::Candles::CompactResult.new(
+          success: true, provider_name: context.provider_name,
+          symbol: context.symbol, frequency: context.frequency,
+          row_count: 0, years_written: [], errors: []
+        ) if years.empty?
+
+        s3_archive = archive_s3_archive_for_destination(step.destination)
+        return Tickrake::Maintenance::Candles::ArchiveResult.new(
+          success: false, provider_name: context.provider_name,
+          symbol: context.symbol, frequency: context.frequency,
+          artifact_results: [], errors: ["No S3 archive configured for #{step.destination}"]
+        ) unless s3_archive
+
+        Tickrake::Maintenance::Candles::Archiver.new(
+          context: context, s3_archive: s3_archive
+        ).upload(years: years)
+      else
+        raise Tickrake::Error, "Unknown maintenance action `#{step.action}`."
+      end
+    end
 
     def run_step(context:, step:, last_compact_result: nil)
       case step.action
@@ -219,8 +290,35 @@ module Tickrake
       @runtime.provider_override_name || step.provider || @scheduled_job.provider || @runtime.config.default_provider_name
     end
 
-    def maintenance_targets
-      @maintenance_targets ||= Array(@scheduled_job.tasks).flat_map do |step|
+    def candle_targets
+      candles_dir = @runtime.config.candles_dir
+      return [] unless candles_dir && Dir.exist?(candles_dir)
+
+      provider_name = @runtime.provider_override_name || @scheduled_job.provider || @runtime.config.default_provider_name
+      provider_dir = File.join(candles_dir, provider_name.to_s)
+      return [] unless Dir.exist?(provider_dir)
+
+      Dir.glob(File.join(provider_dir, "**", "*.csv")).filter_map do |csv_path|
+        relative = csv_path.delete_prefix("#{provider_dir}/")
+        parts = relative.split("/")
+        next unless parts.size == 2
+
+        frequency = parts[0]
+        symbol = File.basename(parts[1], ".csv")
+        { provider_name: provider_name, frequency: frequency, symbol: symbol }
+      end
+    end
+
+    def archive_s3_archive_for_destination(destination_name)
+      archive_config = @runtime.config.archives[destination_name]
+      return nil unless archive_config
+
+      Tickrake::Storage::S3Archive.new(@runtime.config, archive_config: archive_config)
+    end
+
+    def maintenance_targets(steps = nil)
+      steps ||= Array(@scheduled_job.tasks)
+      @maintenance_targets ||= steps.flat_map do |step|
         option_roots_for(step).map do |option_root|
           {
             provider_name: provider_name_for(step),
