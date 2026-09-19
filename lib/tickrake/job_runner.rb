@@ -38,6 +38,8 @@ module Tickrake
         Tickrake::ReconcilerRunner.new(runtime, scheduled_job: job).run
       when "fundamentals"
         Tickrake::FundamentalsSchedulerRunner.new(runtime, scheduled_job: job).run
+      when "chart_stream"
+        Tickrake::ChartStreamRunner.new(runtime, scheduled_job: job).run
       else
         raise Tickrake::Error, "Unknown job type `#{job.type}`."
       end
@@ -69,7 +71,7 @@ module Tickrake
         Tickrake::ReconcilerJob.new(runtime, scheduled_job: job).run
       when "fundamentals"
         Tickrake::FundamentalsJob.new(runtime, scheduled_job: job).run
-      when "order_book", "level_one"
+      when "order_book", "level_one", "chart_stream"
         raise Tickrake::Error, "#{job.type} jobs require a schedule (streaming jobs cannot run once)."
       else
         raise Tickrake::Error, "Unknown job type `#{job.type}`."

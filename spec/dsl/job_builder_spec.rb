@@ -522,6 +522,45 @@ RSpec.describe Tickrake::DSL::JobBuilder do
     end
   end
 
+  describe "chart_stream job" do
+    subject(:job) do
+      build("test_chart_stream") do
+        provider :schwab
+        symbols "SPY", "QQQ"
+        schedule { weekdays from: "09:30", to: "16:00" }
+        chart_stream do
+          services [:chart_equity]
+          flush_interval 30
+        end
+      end
+    end
+
+    it "infers type as chart_stream" do
+      expect(job.type).to eq("chart_stream")
+    end
+
+    it "stores ChartStreamConfig in settings" do
+      expect(job.settings).to be_a(Tickrake::ChartStreamConfig)
+      expect(job.settings.services).to eq([:chart_equity])
+      expect(job.settings.flush_interval_seconds).to eq(30)
+    end
+
+    it "sets universe from inline symbols" do
+      expect(job.universe).to eq(%w[SPY QQQ])
+    end
+
+    it "raises without a chart_stream block" do
+      expect do
+        build("bad") do
+          provider :schwab
+          symbols "SPY"
+          schedule { weekdays from: "09:30", to: "16:00" }
+          type :chart_stream
+        end
+      end.to raise_error(Tickrake::Error, /requires a chart_stream block/)
+    end
+  end
+
   describe "intraday_publish job" do
     def build_intraday_publish(name, &block)
       builder = described_class.new(name)
