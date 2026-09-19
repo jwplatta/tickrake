@@ -22,6 +22,7 @@ module Tickrake
         @events_ingest_builder = nil
         @reconcile_builder = nil
         @fundamentals_builder = nil
+        @chart_stream_builder = nil
       end
 
       def provider(name)
@@ -104,6 +105,11 @@ module Tickrake
         @fundamentals_builder.instance_eval(&block) if block
       end
 
+      def chart_stream(&block)
+        @chart_stream_builder = ChartStreamBuilder.new
+        @chart_stream_builder.instance_eval(&block)
+      end
+
       def build!(config)
         inferred_type = infer_type
         provider_optional = %w[metadata_sync intraday_publish events_ingest reconciler].include?(inferred_type)
@@ -121,6 +127,7 @@ module Tickrake
         when "events_ingest"    then build_events_ingest_job!(config, schedule)
         when "reconciler"       then build_reconcile_job!(schedule)
         when "fundamentals"     then build_fundamentals_job!(schedule)
+        when "chart_stream"     then build_chart_stream_job!(schedule)
         else raise Tickrake::Error, "job `#{@name}` has unknown type: #{inferred_type.inspect}"
         end
       end
@@ -247,7 +254,8 @@ module Tickrake
           "intraday_publish" => @intraday_publish_builder,
           "events_ingest"    => @events_ingest_builder,
           "reconciler"       => @reconcile_builder,
-          "fundamentals"     => @fundamentals_builder
+          "fundamentals"     => @fundamentals_builder,
+          "chart_stream"     => @chart_stream_builder
         }
         present = builders.select { |_, b| !b.nil? }
         raise Tickrake::Error, "job `#{@name}` requires a typed block (e.g. `level_one do`, `candles do`)" if present.empty?
@@ -411,6 +419,29 @@ module Tickrake
           tasks: [],
           task: nil,
           settings: @fundamentals_builder.build!,
+          manual: false
+        )
+      end
+
+      def build_chart_stream_job!(schedule)
+        raise Tickrake::Error, "chart_stream job `#{@name}` requires a chart_stream block" if @chart_stream_builder.nil?
+
+        chart_stream_config = @chart_stream_builder.build!(job_name: @name, inline_symbols: @inline_symbols)
+
+        Tickrake::ScheduledJobConfig.new(
+          name: @name,
+          type: "chart_stream",
+          provider: @provider,
+          interval_seconds: schedule[:interval_seconds],
+          windows: schedule[:windows],
+          run_at: schedule[:run_at],
+          days: schedule[:days],
+          lookback_days: nil,
+          dte_buckets: [],
+          universe: @inline_symbols,
+          tasks: [],
+          task: nil,
+          settings: chart_stream_config,
           manual: false
         )
       end
