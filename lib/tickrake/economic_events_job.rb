@@ -63,7 +63,7 @@ module Tickrake
       write_events(rows, source: "bls", category: "economic", now: now)
       rows.length
     rescue StandardError => e
-      @runtime.logger.error({ msg: "economic_events_source_failed", source: "bls", error: e.message })
+      @runtime.logger.error({ msg: "economic_events_source_failed", error_class: e.class.name, error_message: "bls: #{e.message}" })
       0
     end
 
@@ -72,7 +72,7 @@ module Tickrake
       write_events(rows, source: "fred", category: "economic", now: now)
       rows.length
     rescue StandardError => e
-      @runtime.logger.error({ msg: "economic_events_source_failed", source: "fred", error: e.message })
+      @runtime.logger.error({ msg: "economic_events_source_failed", error_class: e.class.name, error_message: "fred: #{e.message}" })
       0
     end
 
@@ -81,7 +81,7 @@ module Tickrake
       write_events(rows, source: "fred", category: "fomc", now: now)
       rows.length
     rescue StandardError => e
-      @runtime.logger.error({ msg: "economic_events_source_failed", source: "fomc", error: e.message })
+      @runtime.logger.error({ msg: "economic_events_source_failed", error_class: e.class.name, error_message: "fomc: #{e.message}" })
       0
     end
 
@@ -90,7 +90,7 @@ module Tickrake
       write_events(rows, source: "alpha_vantage", category: "earnings", now: now)
       rows.length
     rescue StandardError => e
-      @runtime.logger.error({ msg: "economic_events_source_failed", source: "alpha_vantage", error: e.message })
+      @runtime.logger.error({ msg: "economic_events_source_failed", error_class: e.class.name, error_message: "alpha_vantage: #{e.message}" })
       0
     end
 

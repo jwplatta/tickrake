@@ -32,7 +32,7 @@ module Tickrake
         response = Net::HTTP.get_response(uri)
         raise Tickrake::Error, "Alpha Vantage error #{response.code}: #{response.body[0, 200]}" unless response.is_a?(Net::HTTPSuccess)
 
-        response.body
+        response.body.encode("UTF-8", invalid: :replace, undef: :replace)
       end
 
       def parse_csv(body, from_date, to_date, fetched_at)
