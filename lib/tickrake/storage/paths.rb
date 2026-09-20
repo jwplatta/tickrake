@@ -81,6 +81,18 @@ module Tickrake
         )
       end
 
+      def economic_events_path(source:, category:, event_date:)
+        File.join(
+          @config.data_dir,
+          "economic_events",
+          source.to_s,
+          category.to_s,
+          event_date.strftime("%Y"),
+          event_date.strftime("%m"),
+          "#{event_date.strftime("%d")}.parquet"
+        )
+      end
+
       def fundamentals_path(provider:, sample_date:)
         File.join(
           @config.data_dir,

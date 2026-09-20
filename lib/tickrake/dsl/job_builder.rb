@@ -23,6 +23,7 @@ module Tickrake
         @reconcile_builder = nil
         @fundamentals_builder = nil
         @chart_stream_builder = nil
+        @economic_events_builder = nil
       end
 
       def provider(name)
@@ -110,9 +111,14 @@ module Tickrake
         @chart_stream_builder.instance_eval(&block)
       end
 
+      def economic_events(&block)
+        @economic_events_builder = EconomicEventsBuilder.new
+        @economic_events_builder.instance_eval(&block) if block
+      end
+
       def build!(config)
         inferred_type = infer_type
-        provider_optional = %w[metadata_sync intraday_publish events_ingest reconciler].include?(inferred_type)
+        provider_optional = %w[metadata_sync intraday_publish events_ingest reconciler economic_events].include?(inferred_type)
         raise Tickrake::Error, "job `#{@name}` requires provider" if @provider.nil? && !provider_optional
         schedule = @schedule_builder&.build! || {}
 
@@ -127,7 +133,8 @@ module Tickrake
         when "events_ingest"    then build_events_ingest_job!(config, schedule)
         when "reconciler"       then build_reconcile_job!(schedule)
         when "fundamentals"     then build_fundamentals_job!(schedule)
-        when "chart_stream"     then build_chart_stream_job!(schedule)
+        when "chart_stream"      then build_chart_stream_job!(schedule)
+        when "economic_events"   then build_economic_events_job!(schedule)
         else raise Tickrake::Error, "job `#{@name}` has unknown type: #{inferred_type.inspect}"
         end
       end
@@ -255,7 +262,8 @@ module Tickrake
           "events_ingest"    => @events_ingest_builder,
           "reconciler"       => @reconcile_builder,
           "fundamentals"     => @fundamentals_builder,
-          "chart_stream"     => @chart_stream_builder
+          "chart_stream"     => @chart_stream_builder,
+          "economic_events"  => @economic_events_builder
         }
         present = builders.select { |_, b| !b.nil? }
         raise Tickrake::Error, "job `#{@name}` requires a typed block (e.g. `level_one do`, `candles do`)" if present.empty?
@@ -442,6 +450,27 @@ module Tickrake
           tasks: [],
           task: nil,
           settings: chart_stream_config,
+          manual: false
+        )
+      end
+
+      def build_economic_events_job!(schedule)
+        raise Tickrake::Error, "economic_events job `#{@name}` requires an economic_events block" if @economic_events_builder.nil?
+
+        Tickrake::ScheduledJobConfig.new(
+          name: @name,
+          type: "economic_events",
+          provider: nil,
+          interval_seconds: schedule[:interval_seconds],
+          windows: schedule[:windows],
+          run_at: schedule[:run_at],
+          days: schedule[:days],
+          lookback_days: nil,
+          dte_buckets: [],
+          universe: [],
+          tasks: [],
+          task: nil,
+          settings: @economic_events_builder.build!,
           manual: false
         )
       end
