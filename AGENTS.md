@@ -7,6 +7,7 @@ Applies to Codex and Gemini. Keep changes small, additive, and compatible with e
 - Check the worktree before editing. Do not revert unrelated user changes.
 - Use [CONTRIBUTING.md](CONTRIBUTING.md) as the default guide for code-change workflow, branch naming, commits, tests, changelog handling, and PR hygiene, but allow explicit user direction or clear task context to override it when appropriate.
 - If you need shared agent skills, use the `skillex` skill. Pull before using or updating a shared skill, and push updates when the skill itself changes.
+- Use the `project-backlog` skill to log bugs, feature requests, chores, and documentation tasks into `docs/backlog/`.
 
 ## Project Rules
 

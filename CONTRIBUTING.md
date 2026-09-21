@@ -52,6 +52,15 @@ bundle exec rspec
 - Prefer extending Tickrake for scheduling, orchestration, and tracking concerns.
 - Keep broker/API primitives in the underlying client gem when possible.
 
+## Backlog
+
+Bugs, feature requests, chores, and documentation tasks are tracked as individual markdown files in `docs/backlog/`. Before starting work, check the backlog for relevant context. When discovering new issues or ideas during development, log them rather than silently dropping them.
+
+- Copy `docs/backlog/template.md` to create a new item. Name the file descriptively (snake_case).
+- Fill in all frontmatter fields: `type`, `tags`, `title`, `description`, `date`, `status`, `priority`, `source`.
+- Use tags to group related items into a project or multi-step body of work.
+- Search: `python3 .codex/skills/project-backlog/scripts/search.py --priority high`
+
 ## Pull requests
 
 - Keep commits focused and intentional.

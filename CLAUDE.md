@@ -20,6 +20,14 @@
 - Tests do not need to be comprehensive, but must cover major code paths and obvious error cases.
 - Run `bundle exec rspec` before opening a pull request.
 
+## Backlog
+
+- Bug reports, feature requests, chores, and documentation tasks go in `docs/backlog/` as individual markdown files.
+- Use the `project-backlog` skill to create items and search the backlog.
+- Copy `docs/backlog/template.md` for each new item. Fill in all frontmatter fields — do not leave stubs.
+- Use tags to group related items into a project or multi-step body of work.
+- Search: `python3 .claude/skills/project-backlog/scripts/search.py --priority high`
+
 ## Project Rules
 
 - Prefer small classes with a single responsibility over large multi-purpose classes.
