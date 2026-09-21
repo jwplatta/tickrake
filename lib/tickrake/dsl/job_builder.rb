@@ -24,6 +24,7 @@ module Tickrake
         @fundamentals_builder = nil
         @chart_stream_builder = nil
         @economic_events_builder = nil
+        @stream_builder = nil
       end
 
       def provider(name)
@@ -116,6 +117,11 @@ module Tickrake
         @economic_events_builder.instance_eval(&block) if block
       end
 
+      def stream(&block)
+        @stream_builder = StreamBuilder.new
+        @stream_builder.instance_eval(&block)
+      end
+
       def build!(config)
         inferred_type = infer_type
         provider_optional = %w[metadata_sync intraday_publish events_ingest reconciler economic_events].include?(inferred_type)
@@ -135,6 +141,7 @@ module Tickrake
         when "fundamentals"     then build_fundamentals_job!(schedule)
         when "chart_stream"      then build_chart_stream_job!(schedule)
         when "economic_events"   then build_economic_events_job!(schedule)
+        when "stream"            then build_stream_job!(schedule)
         else raise Tickrake::Error, "job `#{@name}` has unknown type: #{inferred_type.inspect}"
         end
       end
@@ -263,7 +270,8 @@ module Tickrake
           "reconciler"       => @reconcile_builder,
           "fundamentals"     => @fundamentals_builder,
           "chart_stream"     => @chart_stream_builder,
-          "economic_events"  => @economic_events_builder
+          "economic_events"  => @economic_events_builder,
+          "stream"           => @stream_builder
         }
         present = builders.select { |_, b| !b.nil? }
         raise Tickrake::Error, "job `#{@name}` requires a typed block (e.g. `level_one do`, `candles do`)" if present.empty?
@@ -471,6 +479,30 @@ module Tickrake
           tasks: [],
           task: nil,
           settings: @economic_events_builder.build!,
+          manual: false
+        )
+      end
+
+      def build_stream_job!(schedule)
+        raise Tickrake::Error, "stream job `#{@name}` requires a stream block" if @stream_builder.nil?
+
+        stream_config = @stream_builder.build!(job_name: @name)
+        all_symbols = stream_config.subscriptions.flat_map(&:symbols).uniq
+
+        Tickrake::ScheduledJobConfig.new(
+          name: @name,
+          type: "stream",
+          provider: @provider,
+          interval_seconds: schedule[:interval_seconds] || 60,
+          windows: schedule[:windows] || [],
+          run_at: schedule[:run_at],
+          days: schedule[:days],
+          lookback_days: nil,
+          dte_buckets: [],
+          universe: all_symbols,
+          tasks: [],
+          task: nil,
+          settings: stream_config,
           manual: false
         )
       end

@@ -172,6 +172,10 @@ module Tickrake
       type == "level_one"
     end
 
+    def stream?
+      type == "stream"
+    end
+
     def interval_schedule?
       !interval_seconds.nil?
     end

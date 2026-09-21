@@ -5,12 +5,15 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added consolidated `stream` job type (`StreamJob`, `StreamRunner`, `DSL::StreamBuilder`, `StreamConfig`): allows combining multiple streaming services (Level 1 equities/futures/options, Level 2 order books, and candle chart streams) over a single Schwab WebSocket connection. Dynamically adds (`ADD`) and removes (`UNSUBS`) subscriptions as their individual schedule windows open and close.
+- Upgraded `schwab_rb` dependency to `>= 1.0.4`.
 - Added diagnostic logging to all runners: structured start/stop events with PID, shutdown reason tracking (SIGTERM, SIGINT, clean_exit), and optional Schwab/tickrake database open events in `ClientFactory` and `DB.connection`.
 - Added `start_date` and `end_date` support to maintenance DSL jobs for explicit date-range-scoped maintenance runs.
 - Added one-shot job execution: omitting the `schedule` block from a DSL job runs it once and exits. Batch jobs like `metadata_sync` loop until drained. Streaming jobs (`level_one`, `order_book`) require a schedule.
 - Added `tickrake prune-orphaned` command to remove `file_metadata_cache` rows whose files no longer exist on disk. Supports `--dry-run` to preview removals without deleting.
 
 ### Fixed
+- Fixed `LevelOneJob` stream stall: added a liveness watchdog that tracks `last_event_at` by local receipt time, logs a `stream_stale` event when no data arrives within a configurable timeout (default 60s), stops the dead stream, and reconnects with exponential backoff (up to 10 attempts, capped at 120s delay).
 - Fixed `JobRunner` routing so daily-scheduled jobs (`at` + `weekdays`) are dispatched to scheduler runners instead of running once and exiting. Previously only interval-windowed jobs were treated as scheduled.
 - Fixed order book event handler to use direct hash access (`event["content"]`, numeric field indices) instead of `.try()` which depends on ActiveSupport and silently swallows missing keys.
 - Fixed `ScheduledRunResult#successful?` to treat zero-task runs (`success_count=0, failure_count=0`) as successful instead of degraded. This prevents holiday or off-hours iterations from triggering the consecutive failure counter when no option expirations are available.

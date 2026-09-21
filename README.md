@@ -1,5 +1,9 @@
 # Tickrake
 
+[![CI](https://github.com/jwplatta/tickrake/actions/workflows/ci.yml/badge.svg)](https://github.com/jwplatta/tickrake/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/jwplatta/tickrake/actions/workflows/ci.yml)
+[![Lint](https://img.shields.io/badge/lint-passing-brightgreen.svg)](https://github.com/jwplatta/tickrake/actions/workflows/ci.yml)
+
 Scheduled market-data collection for options, candles, and streaming quotes. Jobs are defined as Ruby DSL scripts and run as Docker containers or standalone processes.
 
 ## Install
@@ -8,7 +12,7 @@ Scheduled market-data collection for options, candles, and streaming quotes. Job
 gem install tickrake
 ```
 
-Requires Ruby 3.1+, `schwab_rb >= 1.0.3`, and optionally `ib-api ~> 972.5` for IBKR.
+Requires Ruby 3.1+, `schwab_rb >= 1.0.4`, and optionally `ib-api ~> 972.5` for IBKR.
 
 ## Setup
 
@@ -134,6 +138,57 @@ end
 Available level one services: `LEVELONE_EQUITIES`, `LEVELONE_OPTIONS`, `LEVELONE_FUTURES`, `LEVELONE_FUTURES_OPTIONS`, `LEVELONE_FOREX`.
 
 Order book jobs follow the same pattern with `order_book do ... end` and services like `NYSE_BOOK`, `NASDAQ_BOOK`, or `OPTIONS_BOOK`.
+
+#### Consolidated Stream (Multiplexed)
+
+Schwab allows only **one WebSocket streamer connection per account**. To avoid connection conflicts across containers, define a single `stream` job combining multiple services, symbols, and schedule windows over one shared connection:
+
+```ruby
+Tickrake.job "market_streams" do
+  provider :schwab
+  stale_timeout 60
+
+  level_one "equities" do
+    symbols "SPY", "QQQ", "IWM"
+    services [:level_one_equities]
+    rotation_interval 300
+    schedule do
+      weekdays from: "08:30", to: "15:00"
+    end
+  end
+
+  level_one "futures" do
+    symbols "/ES"
+    services [:level_one_futures]
+    rotation_interval 300
+    schedule do
+      days %w[sun mon tue wed thu], from: "17:00", to: "23:59"
+      days %w[mon tue wed thu fri], from: "00:00", to: "16:00"
+    end
+  end
+
+  order_book "equity_books" do
+    symbols "SPY", "QQQ", "IWM"
+    services [:nyse_book, :nasdaq_book]
+    rotation_interval 300
+    schedule do
+      weekdays from: "08:30", to: "15:00"
+    end
+  end
+
+  chart_stream "futures_candles" do
+    symbols "/ES"
+    services [:chart_futures]
+    flush_interval 60
+    schedule do
+      days %w[sun mon tue wed thu], from: "17:00", to: "23:59"
+      days %w[mon tue wed thu fri], from: "00:00", to: "16:00"
+    end
+  end
+end
+```
+
+The runner keeps the connection open while any subscription is in-window, dynamically sending `ADD` when a subscription's window opens and `UNSUBS` when it closes without dropping the stream.
 
 #### Events Ingest
 

@@ -42,6 +42,8 @@ module Tickrake
         Tickrake::EconomicEventsSchedulerRunner.new(runtime, scheduled_job: job).run
       when "chart_stream"
         Tickrake::ChartStreamRunner.new(runtime, scheduled_job: job).run
+      when "stream"
+        Tickrake::StreamRunner.new(runtime, scheduled_job: job).run
       else
         raise Tickrake::Error, "Unknown job type `#{job.type}`."
       end
@@ -75,7 +77,7 @@ module Tickrake
         Tickrake::FundamentalsJob.new(runtime, scheduled_job: job).run
       when "economic_events"
         Tickrake::EconomicEventsJob.new(runtime, scheduled_job: job).run
-      when "order_book", "level_one", "chart_stream"
+      when "order_book", "level_one", "chart_stream", "stream"
         raise Tickrake::Error, "#{job.type} jobs require a schedule (streaming jobs cannot run once)."
       else
         raise Tickrake::Error, "Unknown job type `#{job.type}`."
