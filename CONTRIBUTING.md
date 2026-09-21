@@ -56,7 +56,7 @@ bundle exec rspec
 
 Bugs, feature requests, chores, and documentation tasks are tracked as individual markdown files in `docs/backlog/`. Before starting work, check the backlog for relevant context. When discovering new issues or ideas during development, log them rather than silently dropping them.
 
-- Copy `docs/backlog/template.md` to create a new item. Name the file descriptively (snake_case).
+- Copy the template from `.claude/skills/project-backlog/template.md` (or `.codex/skills/project-backlog/template.md`) to create a new item in `docs/backlog/`. Name the file descriptively (snake_case).
 - Fill in all frontmatter fields: `type`, `tags`, `title`, `description`, `date`, `status`, `priority`, `source`.
 - Use tags to group related items into a project or multi-step body of work.
 - Search: `python3 .codex/skills/project-backlog/scripts/search.py --priority high`

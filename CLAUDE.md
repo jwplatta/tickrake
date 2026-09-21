@@ -24,7 +24,7 @@
 
 - Bug reports, feature requests, chores, and documentation tasks go in `docs/backlog/` as individual markdown files.
 - Use the `project-backlog` skill to create items and search the backlog.
-- Copy `docs/backlog/template.md` for each new item. Fill in all frontmatter fields — do not leave stubs.
+- Copy `.claude/skills/project-backlog/template.md` to `docs/backlog/<name>.md` for each new item. Fill in all frontmatter fields — do not leave stubs.
 - Use tags to group related items into a project or multi-step body of work.
 - Search: `python3 .claude/skills/project-backlog/scripts/search.py --priority high`
 
