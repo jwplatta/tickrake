@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added consolidated `stream` job type (`StreamJob`, `StreamRunner`, `DSL::StreamBuilder`, `StreamConfig`): allows combining multiple streaming services (Level 1 equities/futures/options, Level 2 order books, and candle chart streams) over a single Schwab WebSocket connection. Dynamically adds (`ADD`) and removes (`UNSUBS`) subscriptions as their individual schedule windows open and close.
+- Upgraded `schwab_rb` dependency to `>= 1.0.4`.
 - Added diagnostic logging to all runners: structured start/stop events with PID, shutdown reason tracking (SIGTERM, SIGINT, clean_exit), and optional Schwab/tickrake database open events in `ClientFactory` and `DB.connection`.
 - Added `start_date` and `end_date` support to maintenance DSL jobs for explicit date-range-scoped maintenance runs.
 - Added one-shot job execution: omitting the `schedule` block from a DSL job runs it once and exits. Batch jobs like `metadata_sync` loop until drained. Streaming jobs (`level_one`, `order_book`) require a schedule.
