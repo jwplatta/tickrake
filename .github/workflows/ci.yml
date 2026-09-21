@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test & Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies (DuckDB & SQLite)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libsqlite3-dev libssl-dev unzip
+
+          # Install DuckDB C library (required to build and run the duckdb gem on linux-amd64)
+          DUCKDB_VERSION=1.5.4
+          curl -fsSL "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          sudo unzip -o /tmp/libduckdb.zip -d /tmp/libduckdb
+          sudo cp /tmp/libduckdb/duckdb.h /usr/local/include/
+          sudo cp /tmp/libduckdb/libduckdb.so /usr/local/lib/
+          sudo ldconfig
+          rm -rf /tmp/libduckdb /tmp/libduckdb.zip
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Check Ruby syntax
+        run: |
+          find lib exe spec -name "*.rb" -exec ruby -c {} +
+          ruby -c exe/tickrake
+
+      - name: Run RSpec tests
+        run: bundle exec rspec
