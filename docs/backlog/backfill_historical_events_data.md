@@ -3,7 +3,7 @@ type: chore
 tags: [events, backfill]
 title: Backfill historical events data
 description: Write a script in tickrake to backfill historical economic/calendar events data
-date: 2026-09-21
+created: 2026-09-21
 updated: 2026-09-21
 status: not-started
 priority: medium

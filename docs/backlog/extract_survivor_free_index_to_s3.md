@@ -3,7 +3,7 @@ type: feature
 tags: [s3, index]
 title: Extract survivor-free index to S3
 description: Extract the survivor-free index from tickrake and publish it to S3 for downstream access
-date: 2026-09-21
+created: 2026-09-21
 updated: 2026-09-21
 status: not-started
 priority: medium

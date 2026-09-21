@@ -3,7 +3,7 @@ type: feature
 tags: [intraday, candles, options-monitor]
 title: Publish intraday candles to intraday store
 description: Publish intraday candles so the options-monitor can access them via the intraday store
-date: 2026-09-21
+created: 2026-09-21
 updated: 2026-09-21
 status: not-started
 priority: medium

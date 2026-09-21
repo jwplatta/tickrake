@@ -3,7 +3,7 @@ type: bug
 tags: [candles, streaming, symbol-map]
 title: /ES candle stream not using symbol map
 description: The candle stream for /ES writes to ES.csv instead of ^ES.csv, indicating the symbol map is not being applied
-date: 2026-09-21
+created: 2026-09-21
 updated: 2026-09-21
 status: not-started
 priority: high
