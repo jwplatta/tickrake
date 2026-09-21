@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Scan staged changes for secrets before they enter git history.
+# Requires gitleaks: brew install gitleaks
+
+if ! command -v gitleaks &>/dev/null; then
+  echo "gitleaks not found — skipping secret scan (brew install gitleaks)" >&2
+  exit 0
+fi
+
+gitleaks protect --staged --redact --no-banner
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "gitleaks found potential secrets in staged files. Commit blocked."
+  echo "Review the findings above, remove any secrets, and try again."
+  exit 1
+fi
