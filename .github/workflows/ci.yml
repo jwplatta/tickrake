@@ -30,7 +30,7 @@ jobs:
           sudo cp /tmp/libduckdb/duckdb.h /usr/local/include/
           sudo cp /tmp/libduckdb/libduckdb.so /usr/local/lib/
           sudo ldconfig
-          rm -rf /tmp/libduckdb /tmp/libduckdb.zip
+          sudo rm -rf /tmp/libduckdb /tmp/libduckdb.zip
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
