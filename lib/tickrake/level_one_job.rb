@@ -14,6 +14,18 @@ module Tickrake
       "LEVELONE_FOREX"           => { quote_time: "8",  trade_time: "9",  mark: "29" }
     }.freeze
 
+    # How often the watchdog loop checks liveness (seconds).
+    WATCHDOG_POLL_SECONDS = 10
+
+    # Default stale threshold — reconnect if no event received within this window.
+    DEFAULT_STALE_TIMEOUT_SECONDS = 60
+
+    # Reconnect backoff: initial delay, multiplier, and cap (seconds).
+    RECONNECT_INITIAL_DELAY = 5
+    RECONNECT_BACKOFF_MULTIPLIER = 2
+    RECONNECT_MAX_DELAY = 120
+    RECONNECT_MAX_ATTEMPTS = 10
+
     def initialize(runtime, scheduled_job:)
       @runtime = runtime
       @scheduled_job = scheduled_job
@@ -21,7 +33,13 @@ module Tickrake
       @job_name = scheduled_job.name
       @provider = scheduled_job.provider
 
+      @stale_timeout = (@level_one_config.respond_to?(:stale_timeout_seconds) &&
+                        @level_one_config.stale_timeout_seconds) ||
+                       DEFAULT_STALE_TIMEOUT_SECONDS
+
       @stop_requested = false
+      @last_event_at  = nil
+      @last_event_mu  = Mutex.new
 
       @events_writer = Tickrake::EventsWriter.new(
         pending_events_dir: runtime.config.pending_events_dir,
@@ -33,9 +51,60 @@ module Tickrake
 
     def run_session(window_start:)
       @stop_requested = false
+      attempts = 0
 
       @events_writer.recover_stale_files
 
+      loop do
+        break if @stop_requested
+
+        attempts += 1
+        stream = nil
+
+        begin
+          stream = build_stream
+          @last_event_mu.synchronize { @last_event_at = Time.now }
+
+          stream.start_async
+          logger.info({ msg: "#{log_prefix} Stream connected.", event: "stream_connect", attempt: attempts })
+
+          watchdog(stream)
+        rescue => e
+          logger.error({
+            msg: "#{log_prefix} Stream error: #{e.class}: #{e.message}",
+            event: "session_error",
+            error_class: e.class.name,
+            error_message: e.message,
+            backtrace: Array(e.backtrace).first(5).join(" | ")
+          })
+        ensure
+          stream&.stop rescue nil
+          @events_writer.close
+        end
+
+        break if @stop_requested
+
+        if attempts >= RECONNECT_MAX_ATTEMPTS
+          logger.error({ msg: "#{log_prefix} Exceeded max reconnect attempts (#{RECONNECT_MAX_ATTEMPTS}), giving up.", event: "session_error" })
+          break
+        end
+
+        delay = [RECONNECT_INITIAL_DELAY * (RECONNECT_BACKOFF_MULTIPLIER**(attempts - 1)), RECONNECT_MAX_DELAY].min
+        logger.info({ msg: "#{log_prefix} Reconnecting in #{delay}s (attempt #{attempts}).", event: "reconnect_attempt", delay: delay, attempt: attempts })
+        sleep(delay) unless @stop_requested
+      end
+    end
+
+    def stop
+      @stop_requested = true
+    end
+
+    def close; end
+
+    private
+
+    # Build and subscribe a fresh stream client.
+    def build_stream
       client = Tickrake::ClientFactory.new(@runtime.config).build
       stream = SchwabRb::Stream::Client.new(client)
       symbols = @scheduled_job.universe
@@ -47,24 +116,38 @@ module Tickrake
         end
       end
 
-      stream.start_async
-
-      wait_for_stop
-    ensure
-      stream&.stop rescue nil
-      @events_writer.close
+      stream
     end
 
-    def stop
-      @stop_requested = true
+    # Block until a stop is requested or the stream goes stale, then return.
+    # Logs a +stream_stale+ event and returns (causing the caller to reconnect)
+    # if no event arrives within @stale_timeout seconds.
+    def watchdog(stream)
+      loop do
+        sleep(WATCHDOG_POLL_SECONDS)
+
+        break if @stop_requested
+
+        last = @last_event_mu.synchronize { @last_event_at }
+        elapsed = last ? (Time.now - last) : @stale_timeout + 1
+
+        if elapsed > @stale_timeout
+          logger.warn({
+            msg: "#{log_prefix} No events for #{elapsed.round}s — stream stale, reconnecting.",
+            event: "stream_stale",
+            elapsed_seconds: elapsed.round,
+            stale_timeout: @stale_timeout
+          })
+          stream&.stop rescue nil
+          break
+        end
+      end
     end
-
-    def close; end
-
-    private
 
     def handle_event(event, service:)
       received_at = (Time.now.to_f * 1000).to_i
+      @last_event_mu.synchronize { @last_event_at = Time.now }
+
       entries = Array(event["content"] || event[:content] || [event])
 
       entries.each do |entry|
@@ -121,10 +204,8 @@ module Tickrake
       }
     end
 
-    def wait_for_stop
-      until @stop_requested
-        sleep(0.25)
-      end
+    def logger
+      @runtime.logger
     end
 
     def log_prefix
