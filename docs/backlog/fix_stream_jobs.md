@@ -5,7 +5,7 @@ title: Fix stream jobs in tickrake
 description: Level 1 stream jobs silently stall — no exception raised, websocket goes dead, data stops flowing
 created: 2026-09-21
 updated: 2026-09-21
-status: not-started
+status: completed
 priority: high
 source: claude/tickrake
 ---
