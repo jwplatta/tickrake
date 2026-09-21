@@ -8,7 +8,7 @@ PATH
       ib-api (~> 972.5)
       parquet
       ruby-progressbar (~> 1.13)
-      schwab_rb (>= 1.0.3)
+      schwab_rb (>= 1.0.4)
       sqlite3 (>= 1.6)
 
 GEM
@@ -144,6 +144,8 @@ GEM
       bigdecimal
     parquet (0.8.0-arm64-darwin)
       bigdecimal
+    parquet (0.8.0-x86_64-linux)
+      bigdecimal
     prism (1.9.0)
     protocol-hpack (1.5.1)
     protocol-http (0.59.0)
@@ -210,6 +212,7 @@ GEM
       version_gem (~> 1.1, >= 1.1.14)
     sqlite3 (2.9.6-aarch64-linux-gnu)
     sqlite3 (2.9.6-arm64-darwin)
+    sqlite3 (2.9.6-x86_64-linux-gnu)
     terminal-table (3.0.2)
       unicode-display_width (>= 1.1.1, < 3)
     tilt (2.9.0)
@@ -223,6 +226,7 @@ GEM
 PLATFORMS
   aarch64-linux
   arm64-darwin
+  x86_64-linux
 
 DEPENDENCIES
   rake (~> 13.0)
