@@ -92,4 +92,33 @@ RSpec.describe Tickrake::Storage::Paths do
 
     expect(path).to eq("/tmp/data/options/schwab/2026/04/10/SPXW_samples_2026-04-10.parquet")
   end
+
+  it "builds economic_events path under source/category/YYYY/MM/DD" do
+    config = Tickrake::Config.new(
+      timezone: "America/Chicago",
+      sqlite_path: "/tmp/tickrake.sqlite3",
+      providers: {},
+      default_provider_name: "schwab",
+      option_root_tickers: {},
+      option_snapshot_filename_timezone: "utc",
+      data_dir: "/tmp/data",
+      candles_dir: "/tmp/data/candles",
+      options_dir: "/tmp/data/options",
+      max_workers: 2,
+      retry_count: 1,
+      retry_delay_seconds: 0,
+      option_fetch_timeout_seconds: 30,
+      candle_fetch_timeout_seconds: 30,
+      import_jobs: [],
+      jobs: []
+    )
+
+    path = described_class.new(config).economic_events_path(
+      source: "bls",
+      category: "economic",
+      event_date: Date.new(2026, 10, 14)
+    )
+
+    expect(path).to eq("/tmp/data/economic_events/bls/economic/2026/10/14.parquet")
+  end
 end

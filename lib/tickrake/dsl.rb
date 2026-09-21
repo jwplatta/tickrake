@@ -20,6 +20,7 @@ require_relative "dsl/events_ingest_builder"
 require_relative "dsl/reconcile_builder"
 require_relative "dsl/fundamentals_builder"
 require_relative "dsl/chart_stream_builder"
+require_relative "dsl/economic_events_builder"
 require_relative "dsl/job_builder"
 
 module Tickrake

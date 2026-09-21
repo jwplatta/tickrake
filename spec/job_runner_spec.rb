@@ -34,6 +34,16 @@ RSpec.describe Tickrake::JobRunner do
       expect(runner).to have_received(:run)
     end
 
+    it "runs EconomicEventsSchedulerRunner for economic_events jobs" do
+      job = instance_double(Tickrake::ScheduledJobConfig, type: "economic_events", interval_schedule?: true, daily_schedule?: false)
+      runner = instance_double(Tickrake::EconomicEventsSchedulerRunner, run: nil)
+      allow(Tickrake::EconomicEventsSchedulerRunner).to receive(:new).with(runtime, scheduled_job: job).and_return(runner)
+
+      described_class.run(runtime, job, from_config_start: false, restart: false)
+
+      expect(runner).to have_received(:run)
+    end
+
     it "raises for unknown job types" do
       job = instance_double(Tickrake::ScheduledJobConfig, type: "unknown", interval_schedule?: true, daily_schedule?: false)
 
