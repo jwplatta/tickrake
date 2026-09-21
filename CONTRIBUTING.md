@@ -19,7 +19,7 @@ bundle exec exe/tickrake init
 
 1. Start from a focused branch named `feature/...`, `fix/...`, `chore/...`, or `refactor/...`.
 2. Keep changes targeted. Do not mix unrelated cleanup into the same branch.
-3. Add or update specs for behavior changes.
+3. Add or update specs for behavior changes. When adding new functionality, write basic unit tests covering major code paths and obvious error cases. Tests do not need to be comprehensive, but they should give reasonable confidence the feature works and fails gracefully.
 4. Update the `Unreleased` section in [`CHANGELOG.md`](CHANGELOG.md) for user-visible changes. Skip changelog updates for internal-only refactors, tests, docs, or tooling.
 5. Bump `lib/tickrake/version.rb` only when cutting a release, and always pair that bump with a versioned changelog entry.
 6. Use semantic versioning for releases: patch for backward-compatible fixes, minor for backward-compatible features, major for breaking changes.
