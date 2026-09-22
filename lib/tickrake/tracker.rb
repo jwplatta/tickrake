@@ -184,7 +184,13 @@ module Tickrake
       with_transaction { upsert_metadata(attrs_list) }
     end
 
-    def intraday_index_rows(provider_name:, root:)
+    def intraday_index_rows(provider_name:, root:, date: nil)
+      date_clause = date ? "?" : "date('now')"
+      binds = [provider_name, root]
+      binds << date if date
+      binds.concat([provider_name, root])
+      binds << date if date
+
       synchronize_db do
         db.execute(
           <<~SQL,
@@ -206,7 +212,7 @@ module Tickrake
               WHERE dataset_type = 'options'
                 AND provider_name = ?
                 AND ticker = ?
-                AND date(last_observed_at) = date('now')
+                AND date(last_observed_at) = #{date_clause}
               GROUP BY expiration_date
             ) latest
               ON f.expiration_date = latest.expiration_date
@@ -214,10 +220,41 @@ module Tickrake
             WHERE f.dataset_type = 'options'
               AND f.provider_name = ?
               AND f.ticker = ?
-              AND date(f.last_observed_at) = date('now')
+              AND date(f.last_observed_at) = #{date_clause}
             ORDER BY f.expiration_date
           SQL
-          [provider_name, root, provider_name, root]
+          binds
+        )
+      end
+    end
+
+    def intraday_series_rows(provider_name:, root:, date: nil)
+      date_clause = date ? "?" : "date('now')"
+      binds = [provider_name, root]
+      binds << date if date
+
+      synchronize_db do
+        db.execute(
+          <<~SQL,
+            SELECT
+              f.provider_name,
+              f.ticker AS root,
+              f.collection_id,
+              date(f.last_observed_at) AS sample_date,
+              f.last_observed_at AS sampled_at,
+              f.expiration_date,
+              f.path,
+              f.row_count,
+              f.file_size,
+              f.updated_at
+            FROM file_metadata_cache f
+            WHERE f.dataset_type = 'options'
+              AND f.provider_name = ?
+              AND f.ticker = ?
+              AND date(f.last_observed_at) = #{date_clause}
+            ORDER BY f.expiration_date, f.last_observed_at ASC
+          SQL
+          binds
         )
       end
     end
@@ -238,16 +275,20 @@ module Tickrake
       end
     end
 
-    def intraday_active_roots
+    def intraday_active_roots(date: nil)
+      date_clause = date ? "?" : "date('now')"
+      binds = date ? [date] : []
+
       synchronize_db do
         db.execute(
-          <<~SQL
+          <<~SQL,
             SELECT DISTINCT provider_name, ticker AS root
             FROM file_metadata_cache
             WHERE dataset_type = 'options'
-              AND date(last_observed_at) = date('now')
+              AND date(last_observed_at) = #{date_clause}
             ORDER BY provider_name, ticker
           SQL
+          binds
         ).map { |row| { provider_name: row.fetch("provider_name"), root: row.fetch("root") } }
       end
     end

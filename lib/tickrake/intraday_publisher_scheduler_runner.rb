@@ -35,7 +35,7 @@ module Tickrake
 
     def run_iteration(now)
       execute_iteration_with_resilience(now) do
-        @job.run
+        @job.run(now: now)
       end
     end
 

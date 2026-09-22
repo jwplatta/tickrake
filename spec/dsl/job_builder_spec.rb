@@ -581,6 +581,31 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       expect(job.provider).to be_nil
       expect(job.interval_seconds).to eq(60)
       expect(job.settings.fetch("datastore_name")).to eq("minio_intraday")
+      expect(job.settings.fetch("clear_at")).to eq("00:00")
+    end
+
+    it "supports custom clear_at in the DSL" do
+      job = build_intraday_publish("intraday_publisher") do
+        schedule { every 60.seconds; weekdays from: "08:30", to: "15:30" }
+        intraday_publish do
+          datastore :minio_intraday
+          clear_at "04:30"
+        end
+      end
+
+      expect(job.settings.fetch("clear_at")).to eq("04:30")
+    end
+
+    it "raises when clear_at has an invalid clock format" do
+      expect do
+        build_intraday_publish("bad") do
+          schedule { every 60.seconds; weekdays from: "08:30", to: "15:30" }
+          intraday_publish do
+            datastore :minio_intraday
+            clear_at "not-a-clock"
+          end
+        end
+      end.to raise_error(Tickrake::Error, /Invalid clock value for clear_at/)
     end
 
     it "raises without a datastore" do

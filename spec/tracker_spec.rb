@@ -428,4 +428,83 @@ RSpec.describe Tickrake::Tracker do
     end
   end
 
+  describe "intraday methods" do
+    it "queries active roots, latest snapshots, and full intraday series" do
+      Dir.mktmpdir do |dir|
+        tracker = described_class.new(File.join(dir, "tickrake.sqlite3"))
+        target_date = "2026-09-21"
+
+        # Insert multiple snapshots for SPY (exp 2026-09-21 and exp 2026-09-22) across different times
+        tracker.bulk_upsert_file_metadata([
+          {
+            path: "/tmp/options/schwab/2026/09/21/SPY_exp2026-09-21_2026-09-21_14-30-00.csv",
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPY",
+            expiration_date: "2026-09-21",
+            row_count: 50,
+            last_observed_at: "2026-09-21T14:30:00Z",
+            file_mtime: 1744462800,
+            file_size: 1024
+          },
+          {
+            path: "/tmp/options/schwab/2026/09/21/SPY_exp2026-09-21_2026-09-21_14-35-00.csv",
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPY",
+            expiration_date: "2026-09-21",
+            row_count: 52,
+            last_observed_at: "2026-09-21T14:35:00Z",
+            file_mtime: 1744463100,
+            file_size: 1040
+          },
+          {
+            path: "/tmp/options/schwab/2026/09/21/SPY_exp2026-09-22_2026-09-21_14-30-00.csv",
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPY",
+            expiration_date: "2026-09-22",
+            row_count: 60,
+            last_observed_at: "2026-09-21T14:30:00Z",
+            file_mtime: 1744462800,
+            file_size: 1200
+          },
+          # Prior day snapshot (should be excluded when querying target_date)
+          {
+            path: "/tmp/options/schwab/2026/09/20/SPY_exp2026-09-21_2026-09-20_14-30-00.csv",
+            dataset_type: "options",
+            provider_name: "schwab",
+            ticker: "SPY",
+            expiration_date: "2026-09-21",
+            row_count: 48,
+            last_observed_at: "2026-09-20T14:30:00Z",
+            file_mtime: 1744376400,
+            file_size: 1000
+          }
+        ])
+
+        # intraday_active_roots
+        active_roots = tracker.intraday_active_roots(date: target_date)
+        expect(active_roots).to eq([{ provider_name: "schwab", root: "SPY" }])
+
+        # intraday_index_rows (latest per expiration)
+        latest_rows = tracker.intraday_index_rows(provider_name: "schwab", root: "SPY", date: target_date)
+        expect(latest_rows.size).to eq(2)
+        expect(latest_rows.map { |r| r["expiration_date"] }).to eq(["2026-09-21", "2026-09-22"])
+        # For exp 2026-09-21, latest is the 14:35 snapshot (row_count 52)
+        exp_0dte = latest_rows.find { |r| r["expiration_date"] == "2026-09-21" }
+        expect(exp_0dte["sampled_at"]).to eq("2026-09-21T14:35:00Z")
+        expect(exp_0dte["row_count"]).to eq(52)
+
+        # intraday_series_rows (all chronological snapshots for target_date)
+        series_rows = tracker.intraday_series_rows(provider_name: "schwab", root: "SPY", date: target_date)
+        expect(series_rows.size).to eq(3)
+        expect(series_rows.map { |r| r["sampled_at"] }).to eq([
+          "2026-09-21T14:30:00Z",
+          "2026-09-21T14:35:00Z",
+          "2026-09-21T14:30:00Z"
+        ])
+      end
+    end
+  end
 end
