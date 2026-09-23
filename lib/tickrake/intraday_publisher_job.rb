@@ -5,12 +5,15 @@ module Tickrake
     def initialize(runtime, scheduled_job:)
       @runtime = runtime
       @scheduled_job = scheduled_job
+      @last_cleared_date = nil
     end
 
-    def run
+    def run(now: Time.now)
       datastore_name = @scheduled_job.settings.fetch("datastore_name")
       datastore_config = @runtime.config.datastore(datastore_name)
       store = Storage::S3Archive.new(@runtime.config, datastore_config: datastore_config)
+
+      check_daily_clear(store, now)
 
       options_indexes = publish_options(store, datastore_config)
       candle_indexes = publish_candles(store, datastore_config)
@@ -19,6 +22,26 @@ module Tickrake
     end
 
     private
+
+    def check_daily_clear(store, now)
+      clear_at = @scheduled_job.settings["clear_at"]
+      return unless clear_at
+
+      target_hour, target_min = clear_at.split(":").map { |p| Integer(p, 10) }
+      today_str = now.strftime("%Y-%m-%d")
+
+      current_minutes = (now.hour * 60) + now.min
+      target_minutes = (target_hour * 60) + target_min
+
+      if current_minutes >= target_minutes && @last_cleared_date != today_str
+        keys_to_clear = store.list_keys(prefix: "intraday/")
+        unless keys_to_clear.empty?
+          store.delete_keys(keys_to_clear)
+          @runtime.logger.info("intraday_publisher: cleared #{keys_to_clear.size} key(s) from intraday store at #{clear_at}")
+        end
+        @last_cleared_date = today_str
+      end
+    end
 
     def publish_options(store, datastore_config)
       active_roots = @runtime.tracker.intraday_active_roots
@@ -29,17 +52,42 @@ module Tickrake
       active_roots.group_by { |r| r[:provider_name] }.each do |provider_name, pairs|
         pairs.each do |pair|
           root = pair[:root]
-          rows = @runtime.tracker.intraday_index_rows(provider_name: provider_name, root: root)
-          next if rows.empty?
+          latest_rows = @runtime.tracker.intraday_index_rows(provider_name: provider_name, root: root)
+          series_rows = @runtime.tracker.intraday_series_rows(provider_name: provider_name, root: root)
+          next if latest_rows.empty? && series_rows.empty?
 
-          uploaded_keys = []
-          option_files = rows.map do |row|
+          sample_date = (series_rows.first || latest_rows.first).fetch("sample_date")
+
+          existing_series_keys = store.list_keys(prefix: "intraday/#{provider_name}/options/#{sample_date}/#{root}_exp")
+          series_files = series_rows.map do |row|
             expiration = row.fetch("expiration_date")
-            csv_key = "intraday/#{provider_name}/options/#{root}_exp#{expiration}.csv"
-            store.upload_file(row.fetch("path"), key: csv_key)
-            uploaded_keys << csv_key
+            sampled_at = row.fetch("sampled_at")
+            filename = File.basename(row.fetch("path"))
+            csv_key = "intraday/#{provider_name}/options/#{sample_date}/#{filename}"
             remote_uri = "s3://#{datastore_config.bucket}/#{csv_key}"
-            @runtime.logger.info("intraday_publisher: uploaded #{row.fetch("path")} → #{remote_uri} (#{row.fetch("row_count")} rows)")
+
+            unless existing_series_keys.include?(csv_key)
+              store.upload_file(row.fetch("path"), key: csv_key)
+              @runtime.logger.info("intraday_publisher: uploaded series #{row.fetch("path")} → #{remote_uri} (#{row.fetch("row_count")} rows)")
+            end
+
+            {
+              "expiration_date" => expiration,
+              "sampled_at" => sampled_at,
+              "format" => "csv",
+              "uri" => remote_uri,
+              "row_count" => row.fetch("row_count")
+            }
+          end
+
+          uploaded_latest_keys = []
+          latest_files = latest_rows.map do |row|
+            expiration = row.fetch("expiration_date")
+            csv_key = "intraday/#{provider_name}/options/latest/#{root}_exp#{expiration}.csv"
+            store.upload_file(row.fetch("path"), key: csv_key)
+            uploaded_latest_keys << csv_key
+            remote_uri = "s3://#{datastore_config.bucket}/#{csv_key}"
+            @runtime.logger.info("intraday_publisher: uploaded latest #{row.fetch("path")} → #{remote_uri} (#{row.fetch("row_count")} rows)")
             {
               "expiration_date" => expiration,
               "format" => "csv",
@@ -48,19 +96,22 @@ module Tickrake
             }
           end
 
-          stale_keys = store.list_keys(prefix: "intraday/#{provider_name}/options/#{root}_exp") - uploaded_keys
-          unless stale_keys.empty?
-            store.delete_keys(stale_keys)
-            @runtime.logger.info("intraday_publisher: evicted #{stale_keys.size} stale option key(s): #{stale_keys.join(", ")}")
+          stale_latest_keys = store.list_keys(prefix: "intraday/#{provider_name}/options/latest/#{root}_exp") - uploaded_latest_keys
+          unless stale_latest_keys.empty?
+            store.delete_keys(stale_latest_keys)
+            @runtime.logger.info("intraday_publisher: evicted #{stale_latest_keys.size} stale option key(s): #{stale_latest_keys.join(", ")}")
           end
 
-          first = rows.first
+          first_latest = latest_rows.first || series_rows.last
           key = [provider_name, root]
           indexes[key] = {
-            "sample_date" => first.fetch("sample_date"),
-            "sampled_at" => first.fetch("sampled_at"),
+            "sample_date" => sample_date,
             "status" => "complete",
-            "files" => option_files
+            "latest" => {
+              "sampled_at" => first_latest.fetch("sampled_at"),
+              "files" => latest_files
+            },
+            "series" => series_files
           }
         end
       end

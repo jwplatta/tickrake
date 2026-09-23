@@ -14,12 +14,13 @@ RSpec.describe Tickrake::IntradayPublisherJob do
   let(:tracker) do
     instance_double(Tickrake::Tracker,
                     intraday_active_roots: [],
-                    intraday_index_rows: [])
+                    intraday_index_rows: [],
+                    intraday_series_rows: [])
   end
   let(:runtime) { instance_double(Tickrake::Runtime, config: config, logger: logger, tracker: tracker) }
   let(:scheduled_job) do
     instance_double(Tickrake::ScheduledJobConfig,
-                    settings: { "datastore_name" => "minio_intraday" })
+                    settings: { "datastore_name" => "minio_intraday", "clear_at" => "00:00" })
   end
   let(:store) do
     instance_double(Tickrake::Storage::S3Archive,
@@ -41,7 +42,7 @@ RSpec.describe Tickrake::IntradayPublisherJob do
       FileUtils.mkdir_p(provider_dir)
       File.write(File.join(provider_dir, "SPY.csv"), "datetime,open,high,low,close,volume\n2026-09-19T14:30:00Z,450,451,449,450,100000\n")
 
-      job.run
+      job.run(now: Time.utc(2026, 9, 21, 14, 0, 0))
 
       expect(store).to have_received(:upload_file).with(
         File.join(provider_dir, "SPY.csv"),
@@ -64,7 +65,7 @@ RSpec.describe Tickrake::IntradayPublisherJob do
       FileUtils.mkdir_p(provider_dir)
       File.write(File.join(provider_dir, "SPY.csv"), "datetime,open,high,low,close,volume\n")
 
-      job.run
+      job.run(now: Time.utc(2026, 9, 21, 14, 0, 0))
 
       expect(store).not_to have_received(:upload_file)
     end
@@ -78,65 +79,126 @@ RSpec.describe Tickrake::IntradayPublisherJob do
         .with(prefix: "intraday/schwab/candles/")
         .and_return(["intraday/schwab/candles/1min/SPY.csv", "intraday/schwab/candles/1min/OLD.csv"])
 
-      job.run
+      job.run(now: Time.utc(2026, 9, 21, 14, 0, 0))
 
       expect(store).to have_received(:delete_keys).with(["intraday/schwab/candles/1min/OLD.csv"])
     end
   end
 
-  describe "unified index with options and candles" do
-    it "includes both option_chains and candles in the same index" do
+  describe "options time series and top-of-series publishing" do
+    let(:sample_file_1) { "/tmp/options/schwab/2026/09/21/SPY_exp2026-09-21_2026-09-21_14-30-00.csv" }
+    let(:sample_file_2) { "/tmp/options/schwab/2026/09/21/SPY_exp2026-09-21_2026-09-21_14-35-00.csv" }
+
+    before do
       allow(tracker).to receive(:intraday_active_roots).and_return([{ provider_name: "schwab", root: "SPY" }])
-      allow(tracker).to receive(:intraday_index_rows)
-        .with(provider_name: "schwab", root: "SPY")
-        .and_return([{
-          "expiration_date" => "2026-09-20",
-          "path" => "/tmp/spy_exp.csv",
+      allow(tracker).to receive(:intraday_series_rows).with(provider_name: "schwab", root: "SPY").and_return([
+        {
+          "expiration_date" => "2026-09-21",
+          "path" => sample_file_1,
           "row_count" => 50,
-          "sample_date" => "2026-09-19",
-          "sampled_at" => "2026-09-19T14:30:00Z"
-        }])
-      allow(store).to receive(:list_keys).with(prefix: "intraday/schwab/options/SPY_exp").and_return([])
+          "sample_date" => "2026-09-21",
+          "sampled_at" => "2026-09-21T14:30:00Z"
+        },
+        {
+          "expiration_date" => "2026-09-21",
+          "path" => sample_file_2,
+          "row_count" => 52,
+          "sample_date" => "2026-09-21",
+          "sampled_at" => "2026-09-21T14:35:00Z"
+        }
+      ])
+      allow(tracker).to receive(:intraday_index_rows).with(provider_name: "schwab", root: "SPY").and_return([
+        {
+          "expiration_date" => "2026-09-21",
+          "path" => sample_file_2,
+          "row_count" => 52,
+          "sample_date" => "2026-09-21",
+          "sampled_at" => "2026-09-21T14:35:00Z"
+        }
+      ])
+    end
 
-      provider_dir = File.join(candles_dir, "schwab", "1min")
-      FileUtils.mkdir_p(provider_dir)
-      File.write(File.join(provider_dir, "SPY.csv"), "datetime,open,high,low,close,volume\n2026-09-19T14:30:00Z,450,451,449,450,100000\n")
-      allow(store).to receive(:list_keys).with(prefix: "intraday/schwab/candles/").and_return([])
+    it "uploads time series snapshots and latest pointer, and constructs clean index" do
+      job.run(now: Time.utc(2026, 9, 21, 14, 35, 0))
 
-      job.run
+      # Verifies time series files uploaded with timestamp in key
+      expect(store).to have_received(:upload_file).with(
+        sample_file_1,
+        key: "intraday/schwab/options/2026-09-21/SPY_exp2026-09-21_2026-09-21_14-30-00.csv"
+      )
+      expect(store).to have_received(:upload_file).with(
+        sample_file_2,
+        key: "intraday/schwab/options/2026-09-21/SPY_exp2026-09-21_2026-09-21_14-35-00.csv"
+      )
 
+      # Verifies top of series uploaded to latest/
+      expect(store).to have_received(:upload_file).with(
+        sample_file_2,
+        key: "intraday/schwab/options/latest/SPY_exp2026-09-21.csv"
+      )
+
+      # Verifies index structure
       expect(store).to have_received(:upload_content).with("intraday/schwab/SPY.json", anything) do |_key, content|
         index = JSON.parse(content)
-        expect(index).to have_key("option_chains")
-        expect(index).to have_key("candles")
-        expect(index["option_chains"]["files"].first["expiration_date"]).to eq("2026-09-20")
-        expect(index["candles"]["files"].first["frequency"]).to eq("1min")
+        expect(index["provider"]).to eq("schwab")
+        expect(index["root"]).to eq("SPY")
+
+        chains = index["option_chains"]
+        expect(chains["sample_date"]).to eq("2026-09-21")
+        expect(chains["status"]).to eq("complete")
+
+        # Top of series
+        expect(chains["latest"]["sampled_at"]).to eq("2026-09-21T14:35:00Z")
+        expect(chains["latest"]["files"].size).to eq(1)
+        expect(chains["latest"]["files"].first["uri"]).to eq("s3://test-bucket/intraday/schwab/options/latest/SPY_exp2026-09-21.csv")
+        expect(chains["latest"]["files"].first["row_count"]).to eq(52)
+
+        # Full time series
+        expect(chains["series"].size).to eq(2)
+        expect(chains["series"][0]["sampled_at"]).to eq("2026-09-21T14:30:00Z")
+        expect(chains["series"][0]["uri"]).to eq("s3://test-bucket/intraday/schwab/options/2026-09-21/SPY_exp2026-09-21_2026-09-21_14-30-00.csv")
+        expect(chains["series"][1]["sampled_at"]).to eq("2026-09-21T14:35:00Z")
+        expect(chains["series"][1]["uri"]).to eq("s3://test-bucket/intraday/schwab/options/2026-09-21/SPY_exp2026-09-21_2026-09-21_14-35-00.csv")
       end
+    end
+
+    it "skips uploading time series files that already exist in the store (incremental upload)" do
+      already_uploaded = "intraday/schwab/options/2026-09-21/SPY_exp2026-09-21_2026-09-21_14-30-00.csv"
+      allow(store).to receive(:list_keys)
+        .with(prefix: "intraday/schwab/options/2026-09-21/SPY_exp")
+        .and_return([already_uploaded])
+
+      job.run(now: Time.utc(2026, 9, 21, 14, 35, 0))
+
+      expect(store).not_to have_received(:upload_file).with(sample_file_1, key: already_uploaded)
+      expect(store).to have_received(:upload_file).with(sample_file_2, key: "intraday/schwab/options/2026-09-21/SPY_exp2026-09-21_2026-09-21_14-35-00.csv")
+    end
+
+    it "evicts stale keys only in latest/ and preserves active date series keys" do
+      allow(store).to receive(:list_keys)
+        .with(prefix: "intraday/schwab/options/latest/SPY_exp")
+        .and_return(["intraday/schwab/options/latest/SPY_exp2026-09-21.csv", "intraday/schwab/options/latest/SPY_exp2026-09-20.csv"])
+
+      job.run(now: Time.utc(2026, 9, 21, 14, 35, 0))
+
+      expect(store).to have_received(:delete_keys).with(["intraday/schwab/options/latest/SPY_exp2026-09-20.csv"])
     end
   end
 
-  describe "options-only publishing" do
-    it "uses option_chains key instead of intraday" do
-      allow(tracker).to receive(:intraday_active_roots).and_return([{ provider_name: "schwab", root: "AAPL" }])
-      allow(tracker).to receive(:intraday_index_rows)
-        .with(provider_name: "schwab", root: "AAPL")
-        .and_return([{
-          "expiration_date" => "2026-09-20",
-          "path" => "/tmp/aapl_exp.csv",
-          "row_count" => 25,
-          "sample_date" => "2026-09-19",
-          "sampled_at" => "2026-09-19T14:30:00Z"
-        }])
-      allow(store).to receive(:list_keys).with(prefix: "intraday/schwab/options/AAPL_exp").and_return([])
+  describe "daily clear_at store eviction" do
+    it "clears intraday store once daily at or after clear_at time" do
+      allow(store).to receive(:list_keys).with(prefix: "intraday/").and_return([
+        "intraday/schwab/options/2026-09-20/SPY_exp2026-09-20_14-30-00.csv",
+        "intraday/schwab/options/latest/SPY_exp2026-09-20.csv"
+      ])
 
-      job.run
+      # First run at 00:01 on 2026-09-21 triggers clearance
+      job.run(now: Time.utc(2026, 9, 21, 0, 1, 0))
 
-      expect(store).to have_received(:upload_content).with("intraday/schwab/AAPL.json", anything) do |_key, content|
-        index = JSON.parse(content)
-        expect(index).to have_key("option_chains")
-        expect(index).not_to have_key("intraday")
-        expect(index).not_to have_key("candles")
-      end
+      # Subsequent run on the same date does not clear again
+      job.run(now: Time.utc(2026, 9, 21, 10, 0, 0))
+
+      expect(store).to have_received(:delete_keys).once
     end
   end
 end

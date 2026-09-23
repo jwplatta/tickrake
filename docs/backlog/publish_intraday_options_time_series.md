@@ -5,7 +5,7 @@ title: Publish full time series of intraday option chain snapshots alongside lat
 description: Refactor intraday publishing to publish both latest (top of series) and full intraday history of option chain snapshots for options-monitor charts
 created: 2026-09-21
 updated: 2026-09-21
-status: not-started
+status: completed
 priority: high
 source: antigravity/tickrake
 ---
