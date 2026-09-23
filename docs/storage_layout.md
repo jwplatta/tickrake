@@ -3,7 +3,7 @@
 Tickrake partitions market data storage into three distinct tiers based on durability, query patterns, and lifecycle requirements:
 
 1. **Intraday Storage Plane (MinIO / S3-compatible)**: Ephemeral, low-latency live cache of current-session option snapshots, candle bars, and state manifests.
-2. **Long-Term Archive Plane (AWS S3)**: Durable, columnar historical datasets (Apache Parquet) with cryptographic manifests for backtesting, research, and quantitative analysis.
+2. **Long-Term Archive Plane (AWS S3)**: Durable, columnar historical datasets (Apache Parquet) and audit manifests for research, analytics, and backtesting.
 3. **Local Filesystem Plane (`~/.tickrake/`)**: Host- or container-local staging for uncompacted raw CSV scrapes, WAL-mode SQLite metadata cache, and process logs.
 
 ```mermaid
@@ -22,9 +22,9 @@ flowchart TD
     end
 
     subgraph ArchivePlane["Long-Term Storage (AWS S3)"]
-        CompactedParquet["Compacted Daily Options<br/>data/options/:provider/YYYY/MM/DD/:root_samples_:date.parquet"]
+        CompactedParquet["Compacted Daily Options<br/>options/:provider/YYYY/MM/DD/:root_samples_:date.parquet"]
         CandleParquet["Compacted Annual Candles<br/>candles/:provider/:freq/YYYY/:symbol.parquet"]
-        Manifests["Audit Manifests<br/>data/options/:provider/manifests/..."]
+        Manifests["Audit Manifests<br/>manifests/:dataset/:provider/..."]
         StreamingParquet["Level 1 / Order Book / Fundamentals<br/>level_one/, order_book/, fundamentals/"]
     end
 
@@ -162,21 +162,19 @@ The long-term archive plane holds permanent, compacted, columnar datasets stored
 
 Managed by `MaintenanceJob` during scheduled post-market batch runs.
 
+> [!NOTE]
+> **S3 Peer Folder Structure:**
+> While local disk storage lives under `~/.tickrake/data/<dataset>/`, during S3 archival the local `data_dir` path is stripped. In the S3 bucket, **`options/`, `candles/`, `level_one/`, `order_book/`, `fundamentals/`, `economic_events/`, and `manifests/` are all peer top-level folders** directly at the root of the bucket (or under any configured bucket prefix). There is no enclosing `data/` folder in S3.
+
 ### Directory & Key Structure
 
 ```text
 s3://<archive-bucket>/
-├── data/
-│   └── options/
-│       └── <provider>/
-│           ├── tickers.json                 # Discovery index of all roots available for provider
-│           ├── <ROOT>.json                  # Long-term archive index with historical partitions
-│           ├── manifests/
-│           │   └── <root>/
-│           │       └── <YYYY-MM-DD>.json    # Checksum, row count, and provenance manifest
-│           └── <YYYY>/<MM>/<DD>/
-│               ├── <root>_samples_<YYYY-MM-DD>.parquet # Columnar compacted daily options
-│               └── <root>_samples_<YYYY-MM-DD>.csv     # (Optional) Compacted CSV equivalent
+├── options/
+│   └── <provider>/
+│       └── <YYYY>/<MM>/<DD>/
+│           ├── <root>_samples_<YYYY-MM-DD>.parquet # Columnar compacted daily options
+│           └── <root>_samples_<YYYY-MM-DD>.csv     # (Optional) Compacted CSV equivalent
 │
 ├── candles/
 │   └── <provider>/
@@ -200,17 +198,25 @@ s3://<archive-bucket>/
 │       └── <YYYY>/<MM>/
 │           └── <DD>.parquet                 # Daily fundamental metrics snapshot
 │
-└── economic_events/
-    └── <source>/                            # e.g., fred, bls
-        └── <category>/
-            └── <YYYY>/<MM>/
-                └── <DD>.parquet             # Scheduled macroeconomic calendar release data
+├── economic_events/
+│   └── <source>/                            # e.g., fred, bls
+│       └── <category>/
+│           └── <YYYY>/<MM>/
+│               └── <DD>.parquet             # Scheduled macroeconomic calendar release data
+│
+└── manifests/
+    ├── options/
+    │   └── <provider>/
+    │       └── <root>_<YYYY-MM-DD>.json     # Options audit manifest (checksums, row counts)
+    └── candles/
+        └── <provider>/
+            └── <symbol>.json                # Candles audit manifest (available years & ranges)
 ```
 
 ### Key Artifact Descriptions
 
 #### 1. Compacted Options Parquet
-- **Key Pattern**: `data/options/<provider>/<YYYY>/<MM>/<DD>/<root>_samples_<YYYY-MM-DD>.parquet`
+- **Key Pattern**: `options/<provider>/<YYYY>/<MM>/<DD>/<root>_samples_<YYYY-MM-DD>.parquet`
 - **Contents**: All raw intraday CSV snapshots for that trading date compacted into a single, ZSTD-compressed Apache Parquet file.
 - **Sorting**: Sorted by `sampled_at, expiration_date, contract_type, strike, symbol` for optimal compression and predicate pushdown in analytical engines.
 - **Partitioning**: Natural date hierarchy (`YYYY/MM/DD`) enabling DuckDB and S3 filesystem partition pruning.
@@ -220,14 +226,16 @@ s3://<archive-bucket>/
 - **Contents**: Full calendar-year OHLCV bars partitioned annually per symbol.
 
 #### 3. Audit Manifests
-- **Key Pattern**: `data/options/<provider>/manifests/<root>/<sample_date>.json`
+- **Key Pattern**: `manifests/<dataset_type>/<provider>/...`
+- **Options Manifest**: `manifests/options/<provider>/<root>_<sample_date>.json`
+- **Candles Manifest**: `manifests/candles/<provider>/<symbol>.json`
 - **Purpose**: Verification and data-integrity record detailing artifact URIs, MD5 checksums, raw source file counts, and row counts.
 
 ---
 
 ## 3. Local Filesystem Plane (`~/.tickrake/`)
 
-The local filesystem serves as the scratchpad and staging area for active worker containers.
+The local filesystem serves as the scratchpad and staging area for active worker containers. Here, all data sets are stored under the common `data/` subfolder.
 
 ### Directory Structure
 
@@ -240,13 +248,20 @@ The local filesystem serves as the scratchpad and staging area for active worker
 │   ├── options_job.log
 │   ├── intraday_publisher.log
 │   └── maintenance.log
-└── data/
+└── data/                                    # All local datasets sit under data/
     ├── candles/
     │   └── <provider>/<frequency>/<symbol>.csv
-    └── options/
-        └── <provider>/<YYYY>/<MM>/<DD>/
-            └── <root>_exp<expiration>_<date>_<time>.csv
-                # Local staging for raw uncompacted scrapes before compaction & archival
+    ├── options/
+    │   └── <provider>/<YYYY>/<MM>/<DD>/
+    │       └── <root>_exp<expiration>_<date>_<time>.csv
+    ├── level_one/
+    │   └── <provider>/<YYYY>/<MM>/<DD>/<symbol>_<timestamp>Z.parquet
+    ├── order_book/
+    │   └── <provider>/<YYYY>/<MM>/<DD>/<symbol>_<timestamp>Z.parquet
+    ├── fundamentals/
+    │   └── <provider>/<YYYY>/<MM>/<DD>.parquet
+    └── economic_events/
+        └── <source>/<category>/<YYYY>/<MM>/<DD>.parquet
 ```
 
 ### Local Path Conventions & Retention
@@ -263,5 +278,5 @@ The local filesystem serves as the scratchpad and staging area for active worker
 | :--- | :--- | :--- | :--- |
 | **Options Monitor (Live State)** | Render current chain & Greeks | **MinIO** (Intraday) | 1. Fetch `intraday/<provider>/<root>.json`<br/>2. Read `option_chains.latest.files` |
 | **Options Monitor (Charts)** | Intraday Greeks & IV progression over day | **MinIO** (Intraday) | 1. Fetch `intraday/<provider>/<root>.json`<br/>2. Query `option_chains.series` files via DuckDB |
-| **QuantRB / Backtester** | Multi-day / multi-year option modeling | **AWS S3** (Archive) | DuckDB direct query on `s3://tickrake/data/options/.../*.parquet` |
-| **Research / Exploration** | Discover available dates & root coverage | **AWS S3** (Archive) | Fetch `data/options/<provider>/<root>.json` or `tickers.json` |
+| **Research / Backtesting** | Multi-day / multi-year option modeling | **AWS S3** (Archive) | DuckDB direct query on `s3://<bucket>/options/.../*.parquet` |
+| **Data Discovery** | Discover available dates & root coverage | **AWS S3** (Archive) | Query `manifests/options/<provider>/...` or S3 directory prefix listing |
