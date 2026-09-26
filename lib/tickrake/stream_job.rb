@@ -55,6 +55,7 @@ module Tickrake
 
         attempts += 1
         @stream = nil
+        @active_mu.synchronize { @active_subscriptions.clear }
 
         begin
           @stream = build_stream_client
@@ -77,6 +78,7 @@ module Tickrake
           })
         ensure
           @stream&.stop rescue nil
+          @active_mu.synchronize { @active_subscriptions.clear }
           close_writers_and_flush
         end
 
