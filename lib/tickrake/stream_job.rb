@@ -55,6 +55,7 @@ module Tickrake
 
         attempts += 1
         @stream = nil
+        @active_mu.synchronize { @active_subscriptions.clear }
 
         begin
           @stream = build_stream_client
@@ -77,6 +78,7 @@ module Tickrake
           })
         ensure
           @stream&.stop rescue nil
+          @active_mu.synchronize { @active_subscriptions.clear }
           close_writers_and_flush
         end
 
@@ -208,6 +210,14 @@ module Tickrake
       end
     end
 
+    # Each Level One event carries up to three distinct timestamps:
+    # - received_at: local collector receipt time (ms since epoch UTC). Safest cutoff for
+    #   "what data did I have by time T?".
+    # - quote_time_ms: timestamp attached to the quote information (bid/ask). Note: small
+    #   timing reversals relative to received_at can occur due to independent clocks/stages;
+    #   do not assume received_at - quote_time_ms is a precise network latency measurement.
+    # - trade_time_ms: timestamp attached to the last-trade info. Nil indicates absent trade info
+    #   in that message, not that the symbol never traded.
     def handle_level_one_event(event, service_str:, subscription:, received_at:)
       writer = get_or_create_writer(subscription)
       entries = Array(event["content"] || event[:content] || [event])

@@ -86,6 +86,10 @@ module Tickrake
       end
     end
 
+    # Order book events carry two timestamps:
+    # - received_at: local collector receipt time (ms since epoch UTC). Safest cutoff for
+    #   "what data did I have by time T?".
+    # - book_time_ms: market snapshot timestamp (ms since epoch UTC) from the broker/exchange feed.
     def handle_event(event, service:)
       received_at = (Time.now.to_f * 1000).to_i
       entries = Array(event["content"] || event[:content] || [event])

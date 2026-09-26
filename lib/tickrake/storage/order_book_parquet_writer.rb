@@ -5,11 +5,17 @@ require "parquet"
 module Tickrake
   module Storage
     class OrderBookParquetWriter
+      # Schema for Order Book (Level 2 depth) Parquet files.
+      #
+      # Timestamps:
+      # - received_at_ms: Local collector receipt time (ms since epoch UTC). Safest cutoff for
+      #   point-in-time analysis.
+      # - book_time_ms: Upstream market snapshot timestamp (ms since epoch UTC) from the broker/exchange.
       SCHEMA = [
-        { "received_at_ms" => "int64" },
+        { "received_at_ms" => "int64" }, # Collector receipt time (ms since epoch UTC)
         { "symbol"         => "string" },
         { "service"        => "string" },
-        { "book_time_ms"   => "int64" },
+        { "book_time_ms"   => "int64" },  # Market snapshot timestamp (ms since epoch UTC)
         { "bids_json"      => "string" },
         { "asks_json"      => "string" }
       ].freeze

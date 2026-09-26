@@ -188,4 +188,70 @@ RSpec.describe Tickrake::StreamJob do
       expect(parsed["bid"]).to eq(4500.0)
     end
   end
+
+  describe "#run_session reconnect subscription state" do
+    it "re-adds active in-window subscriptions to the replacement client after a disconnect" do
+      client1 = FakeClient.new
+      client2 = FakeClient.new
+      clients = [client1, client2]
+
+      allow(SchwabRb::Stream::Client).to receive(:new) { clients.shift || FakeClient.new }
+
+      # In-window time: Monday 10:00 (both futures and equities active)
+      monday_morning = Time.new(2026, 9, 21, 10, 0, 0, "-05:00")
+      allow(Time).to receive(:now).and_return(monday_morning)
+
+      # Make first watchdog loop trigger a disconnect by raising an error or breaking
+      call_count = 0
+      allow(job).to receive(:watchdog) do |stream|
+        call_count += 1
+        if call_count == 1
+          # First session simulates a disconnect/error
+          raise "simulated disconnect"
+        else
+          # Second session stops the job
+          job.stop
+        end
+      end
+      allow(job).to receive(:sleep) # Don't sleep during backoff in test
+
+      job.run_session(window_start: monday_morning)
+
+      # Verify client 1 got subscriptions
+      expect(client1.added_subscriptions.map { |s| s[:service] }).to contain_exactly(:level_one_futures, :level_one_equities)
+
+      # Verify replacement client 2 also received subscriptions
+      expect(client2.added_subscriptions.map { |s| s[:service] }).to contain_exactly(:level_one_futures, :level_one_equities)
+      expect(client2.callbacks.keys).to contain_exactly(:level_one_futures, :level_one_equities)
+    end
+
+    it "does not send out-of-window subscriptions during reconnect" do
+      client1 = FakeClient.new
+      client2 = FakeClient.new
+      clients = [client1, client2]
+
+      allow(SchwabRb::Stream::Client).to receive(:new) { clients.shift || FakeClient.new }
+
+      # Sunday evening -> only futures active
+      sunday_evening = Time.new(2026, 9, 20, 18, 0, 0, "-05:00")
+      allow(Time).to receive(:now).and_return(sunday_evening)
+
+      call_count = 0
+      allow(job).to receive(:watchdog) do |stream|
+        call_count += 1
+        if call_count == 1
+          raise "simulated disconnect"
+        else
+          job.stop
+        end
+      end
+      allow(job).to receive(:sleep)
+
+      job.run_session(window_start: sunday_evening)
+
+      expect(client1.added_subscriptions.map { |s| s[:service] }).to eq([:level_one_futures])
+      expect(client2.added_subscriptions.map { |s| s[:service] }).to eq([:level_one_futures])
+      expect(client2.added_subscriptions.map { |s| s[:service] }).not_to include(:level_one_equities)
+    end
+  end
 end

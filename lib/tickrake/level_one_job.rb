@@ -144,6 +144,13 @@ module Tickrake
       end
     end
 
+    # Each Level One event carries up to three distinct timestamps:
+    # - received_at: local collector receipt time (ms since epoch UTC). Safest cutoff for
+    #   "what data did I have by time T?".
+    # - quote_time_ms: timestamp attached to the quote information (bid/ask). Note: small
+    #   timing reversals relative to received_at can occur due to independent clocks/stages.
+    # - trade_time_ms: timestamp attached to the last-trade info. Nil indicates absent trade info
+    #   in that message, not that the symbol never traded.
     def handle_event(event, service:)
       received_at = (Time.now.to_f * 1000).to_i
       @last_event_mu.synchronize { @last_event_at = Time.now }
