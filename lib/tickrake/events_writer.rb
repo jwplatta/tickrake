@@ -67,8 +67,12 @@ module Tickrake
 
     def open_new_file
       FileUtils.mkdir_p(@pending_events_dir)
-      timestamp = Time.now.utc.strftime("%Y%m%dT%H%M%SZ")
-      filename = "#{@job_name}_#{timestamp}.ndjson.tmp"
+      now = Time.now.utc
+      base_filename = "#{@job_name}_#{now.strftime('%Y%m%dT%H%M%SZ')}"
+      filename = "#{base_filename}.ndjson.tmp"
+      if File.exist?(File.join(@pending_events_dir, filename)) || File.exist?(File.join(@pending_events_dir, "#{base_filename}.ndjson"))
+        filename = "#{@job_name}_#{now.strftime('%Y%m%dT%H%M%S')}_#{now.nsec}.ndjson.tmp"
+      end
       @current_path = File.join(@pending_events_dir, filename)
       @current_file = File.open(@current_path, "a")
       @current_opened_at = Time.now

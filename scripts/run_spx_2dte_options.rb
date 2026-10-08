@@ -13,7 +13,7 @@ Tickrake.job "spx_2dte_options" do
 
   schedule do
     every 10.seconds
-    every_day from: "08:30", to: "16:00"
+    every_day from: "00:01", to: "23:59"
   end
 
   options do

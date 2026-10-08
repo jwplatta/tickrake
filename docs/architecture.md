@@ -199,6 +199,45 @@ Compacted artifacts land at:
 
 `ConfigLoader` parses `tickrake.yml` and constructs a `Config` object. `Runtime` is a per-invocation context object holding config, tracker, client factory, provider factory, and logger. All job classes receive a `runtime` argument rather than accessing globals.
 
+## Conceptual Layers
+
+Tickrake is organized into five layers, each independently useful:
+
+| Layer | Components | Can be used standalone? |
+|---|---|---|
+| **Collection** | `OptionsJob`, `CandlesJob`, `LevelOneJob`, `OrderBookJob` | Yes — write CSVs/Parquet locally with no other infrastructure |
+| **Scheduling** | `SchedulerSupervisor`, runner classes, `ScheduledRunnerSupport` | Wraps any collection job with interval + window logic |
+| **Indexing** | `Tracker` / `file_metadata_cache`, `metadata_sync`, sidecar pipeline | Builds a queryable catalogue of collected data without filesystem scans |
+| **Storage** | `S3Archive`, `DuckdbOptionCompactedWriter`, `MaintenanceJob` | Local by default; S3/Minio for archiving and intraday publishing |
+| **Presentation** | `IntradayPublisherJob`, `Publisher`, `RootIndexBuilder` | Surfaces latest samples to external consumers as JSON indexes + CSVs on Minio |
+
+A **validation layer** is currently absent. It would sit between collection and indexing and cover two concerns:
+
+- **Operational validation** — did the scrape return a complete chain? Are there gaps in candle history? Did a streaming file contain events?
+- **Data quality validation** — are bid/ask spreads plausible? Are strike coverage and open interest within expected ranges? Are underlying prices consistent across expiration rows?
+
+### Metadata Sidecar Pipeline
+
+The indexing layer uses an append-only sidecar pattern to avoid contention between collection workers and the SQLite writer:
+
+```
+options_job  →  writes .meta.json sidecar  →  pending_metadata_dir/
+metadata_sync  →  reads sidecars  →  upserts file_metadata_cache  →  deletes sidecar
+intraday_publisher  →  queries file_metadata_cache  →  uploads CSVs + JSON indexes to Minio
+```
+
+This keeps collection workers free of SQLite writes during hot loops.
+
+### Streaming Event Pipeline
+
+Streaming jobs (`LevelOneJob`, `OrderBookJob`) use an append-only NDJSON staging pattern for the same reason:
+
+```
+level_one_job / order_book_job  →  appends events to .ndjson.tmp  →  pending_events_dir/
+                                   rotates to .ndjson every rotation_interval
+events_ingestor  →  reads .ndjson files  →  writes Parquet  →  uploads to S3  →  deletes file
+```
+
 ## Key Design Decisions
 
 **SQLite is internal-only.** Downstream consumers read published JSON index files, not the SQLite database. This keeps the storage format evolvable without breaking consumers.
