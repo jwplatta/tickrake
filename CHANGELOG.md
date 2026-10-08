@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Added `start_date` and `end_date` support to maintenance DSL jobs for explicit date-range-scoped maintenance runs.
 - Added one-shot job execution: omitting the `schedule` block from a DSL job runs it once and exits. Batch jobs like `metadata_sync` loop until drained. Streaming jobs (`level_one`, `order_book`) require a schedule.
 - Added `tickrake prune-orphaned` command to remove `file_metadata_cache` rows whose files no longer exist on disk. Supports `--dry-run` to preview removals without deleting.
+- Added size-based staging file rotation (`rotation_size`, `rotation_size_mb`) to `EventsWriter` and DSL streaming jobs (`level_one`, `order_book`, `stream`), enabling files to rotate when either file size exceeds a threshold or the rotation interval elapses.
 
 ### Changed
 - Changed option sample maintenance archival to archive only compacted Parquet files (`artifacts: [parquet]`) to remote S3 storage by default, omitting compacted CSV uploads.

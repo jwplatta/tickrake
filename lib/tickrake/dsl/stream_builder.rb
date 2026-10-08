@@ -27,6 +27,14 @@ module Tickrake
         @rotation_interval_seconds = Integer(seconds)
       end
 
+      def rotation_size(bytes)
+        @rotation_size_bytes = Integer(bytes)
+      end
+
+      def rotation_size_mb(megabytes)
+        @rotation_size_bytes = (Float(megabytes) * 1024 * 1024).round
+      end
+
       def flush_interval(seconds)
         @flush_interval_seconds = Integer(seconds)
       end
@@ -51,7 +59,8 @@ module Tickrake
 
                      Tickrake::LevelOneConfig.new(
                        services: symbols_sym,
-                       rotation_interval_seconds: @rotation_interval_seconds || 300
+                       rotation_interval_seconds: @rotation_interval_seconds || 300,
+                       rotation_size_bytes: @rotation_size_bytes
                      )
                    when :order_book
                      normalized = @services.map { |s| s.to_s.upcase }
@@ -62,6 +71,7 @@ module Tickrake
                      Tickrake::OrderBookConfig.new(
                        services: normalized,
                        rotation_interval_seconds: @rotation_interval_seconds || 300,
+                       rotation_size_bytes: @rotation_size_bytes,
                        contracts: nil
                      )
                    when :chart_stream

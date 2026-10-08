@@ -171,6 +171,7 @@ Tickrake.job "market_streams" do
     symbols "SPY", "QQQ", "IWM"
     services [:nyse_book, :nasdaq_book]
     rotation_interval 300
+    rotation_size_mb 50
     schedule do
       weekdays from: "08:30", to: "15:00"
     end

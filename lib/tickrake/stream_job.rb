@@ -378,6 +378,7 @@ module Tickrake
           pending_events_dir: @runtime.config.pending_events_dir,
           job_name: subscription.name,
           rotation_interval_seconds: subscription.settings.rotation_interval_seconds,
+          rotation_size_bytes: subscription.settings.respond_to?(:rotation_size_bytes) ? subscription.settings.rotation_size_bytes : nil,
           logger: @runtime.logger
         )
       end

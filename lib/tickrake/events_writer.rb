@@ -4,15 +4,17 @@ require "monitor"
 
 module Tickrake
   class EventsWriter
-    def initialize(pending_events_dir:, job_name:, rotation_interval_seconds:, logger:)
+    def initialize(pending_events_dir:, job_name:, rotation_interval_seconds:, logger:, rotation_size_bytes: nil)
       @pending_events_dir = pending_events_dir
       @job_name = job_name
       @rotation_interval_seconds = rotation_interval_seconds
+      @rotation_size_bytes = rotation_size_bytes
       @logger = logger
       @lock = Monitor.new
       @current_file = nil
       @current_path = nil
       @current_opened_at = nil
+      @current_event_count = 0
     end
 
     def write(event_hash)
@@ -47,9 +49,19 @@ module Tickrake
     def maybe_rotate
       if @current_file.nil?
         open_new_file
-      elsif (Time.now - @current_opened_at) >= @rotation_interval_seconds
+      elsif should_rotate?
         finalize_current_file
         open_new_file
+      end
+    end
+
+    def should_rotate?
+      if @rotation_size_bytes && @current_file.pos >= @rotation_size_bytes
+        true
+      elsif (Time.now - @current_opened_at) >= @rotation_interval_seconds
+        true
+      else
+        false
       end
     end
 

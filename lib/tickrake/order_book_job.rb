@@ -17,6 +17,7 @@ module Tickrake
         pending_events_dir: runtime.config.pending_events_dir,
         job_name: @job_name,
         rotation_interval_seconds: @order_book_config.rotation_interval_seconds,
+        rotation_size_bytes: @order_book_config.respond_to?(:rotation_size_bytes) ? @order_book_config.rotation_size_bytes : nil,
         logger: runtime.logger
       )
     end

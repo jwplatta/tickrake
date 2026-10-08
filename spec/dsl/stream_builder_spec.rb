@@ -28,6 +28,7 @@ RSpec.describe Tickrake::DSL::StreamBuilder do
         symbols "SPY"
         services [:nyse_book]
         rotation_interval 300
+        rotation_size_mb 25
       end
 
       builder.chart_stream "futures_candles" do
@@ -55,6 +56,7 @@ RSpec.describe Tickrake::DSL::StreamBuilder do
       expect(sub2.kind).to eq(:order_book)
       expect(sub2.symbols).to eq(["SPY"])
       expect(sub2.settings.services).to eq(["NYSE_BOOK"])
+      expect(sub2.settings.rotation_size_bytes).to eq(25 * 1024 * 1024)
       expect(sub2.windows).to be_empty
 
       sub3 = config.subscriptions[2]

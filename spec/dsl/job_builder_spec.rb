@@ -265,6 +265,20 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       expect(job.settings).to be_a(Tickrake::OrderBookConfig)
       expect(job.settings.services).to eq(%w[NYSE_BOOK NASDAQ_BOOK])
       expect(job.settings.rotation_interval_seconds).to eq(600)
+      expect(job.settings.rotation_size_bytes).to be_nil
+    end
+
+    it "supports rotation_size and rotation_size_mb in order_book DSL" do
+      job_with_size = build("test_order_book_size") do
+        provider :schwab
+        symbols "SPY"
+        schedule { weekdays from: "08:30", to: "15:00" }
+        order_book do
+          services [:nyse_book]
+          rotation_size_mb 50
+        end
+      end
+      expect(job_with_size.settings.rotation_size_bytes).to eq(50 * 1024 * 1024)
     end
 
     it "sets universe from inline symbols" do
@@ -314,6 +328,20 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       expect(job.settings).to be_a(Tickrake::LevelOneConfig)
       expect(job.settings.services).to eq(%i[level_one_futures])
       expect(job.settings.rotation_interval_seconds).to eq(300)
+      expect(job.settings.rotation_size_bytes).to be_nil
+    end
+
+    it "supports rotation_size and rotation_size_mb in level_one DSL" do
+      job_with_size = build("test_level_one_size") do
+        provider :schwab
+        symbols "/ES"
+        schedule { every_day from: "17:00", to: "16:00" }
+        level_one do
+          services [:level_one_futures]
+          rotation_size 10_000_000
+        end
+      end
+      expect(job_with_size.settings.rotation_size_bytes).to eq(10_000_000)
     end
 
     it "sets universe from inline symbols" do
