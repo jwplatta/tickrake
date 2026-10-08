@@ -68,7 +68,7 @@ module Tickrake
         private
 
         def with_artifacts(destination_name:, artifacts:)
-          selected_artifacts = artifacts.empty? ? %w[csv parquet] : artifacts
+          selected_artifacts = artifacts.empty? ? %w[parquet] : artifacts
           results = []
           errors = []
 

@@ -276,7 +276,7 @@ Tickrake.job "postclose_archival" do
     compact :option_samples, universe: "index_option_roots", delete_sources: true
     archive :option_samples, universe: "index_option_roots",
             to: :s3_archive,
-            artifacts: [:csv, :parquet],
+            artifacts: [:parquet],
             retain: { csv: false, parquet: true }
   end
 end

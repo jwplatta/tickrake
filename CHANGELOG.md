@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
 - Added one-shot job execution: omitting the `schedule` block from a DSL job runs it once and exits. Batch jobs like `metadata_sync` loop until drained. Streaming jobs (`level_one`, `order_book`) require a schedule.
 - Added `tickrake prune-orphaned` command to remove `file_metadata_cache` rows whose files no longer exist on disk. Supports `--dry-run` to preview removals without deleting.
 
+### Changed
+- Changed option sample maintenance archival to archive only compacted Parquet files (`artifacts: [parquet]`) to remote S3 storage by default, omitting compacted CSV uploads.
+
 ### Fixed
 - Fixed `StreamJob` reconnect subscription state: cleared `@active_subscriptions` on session reconnect and teardown so all in-window subscriptions are re-subscribed on the replacement client.
 - Fixed `LevelOneJob` stream stall: added a liveness watchdog that tracks `last_event_at` by local receipt time, logs a `stream_stale` event when no data arrives within a configurable timeout (default 60s), stops the dead stream, and reconnects with exponential backoff (up to 10 attempts, capped at 120s delay).

@@ -145,7 +145,7 @@ schedule:
           subject: option_samples
           universe: index_option_roots
           destination: s3_archive
-          artifacts: [csv, parquet]
+          artifacts: [parquet]
           retain_local:
             csv: false
             parquet: true
