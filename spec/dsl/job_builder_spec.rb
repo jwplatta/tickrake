@@ -22,7 +22,7 @@ RSpec.describe Tickrake::DSL::JobBuilder do
     )
   end
 
-  let(:stock_universe)  { instance_double(Tickrake::UniverseConfig, entries: [aapl_entry, spy_entry]) }
+  let(:stock_universe)  { instance_double(Tickrake::UniverseConfig, entries: [aapl_entry, spy_entry], symbols: %w[AAPL SPY]) }
   let(:spx_universe)    { instance_double(Tickrake::UniverseConfig, entries: [spxw_entry]) }
 
   let(:configured_datastores) { { "s3_archive" => double("s3_archive"), "minio_intraday" => double("minio_intraday") } }
@@ -652,6 +652,32 @@ RSpec.describe Tickrake::DSL::JobBuilder do
           intraday_publish { datastore :unknown_store }
         end
       end.to raise_error(Tickrake::Error, /datastore `unknown_store` is not configured/)
+    end
+  end
+
+  describe "stream job" do
+    def build_stream(name = "stream_job", &block)
+      builder = described_class.new(name)
+      builder.instance_eval(&block)
+      builder.build!(config)
+    end
+
+    it "infers type as stream and resolves subscription universes" do
+      job = build_stream("market_stream") do
+        provider :schwab
+        stream do
+          level_one "equities" do
+            universe "stock_universe"
+            services [:level_one_equities]
+          end
+        end
+      end
+
+      expect(job.type).to eq("stream")
+      expect(job.provider).to eq("schwab")
+      expect(job.universe).to eq(%w[AAPL SPY])
+      expect(job.settings).to be_a(Tickrake::StreamConfig)
+      expect(job.settings.subscriptions.first.symbols).to eq(%w[AAPL SPY])
     end
   end
 end

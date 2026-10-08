@@ -141,7 +141,7 @@ module Tickrake
         when "fundamentals"     then build_fundamentals_job!(schedule)
         when "chart_stream"      then build_chart_stream_job!(schedule)
         when "economic_events"   then build_economic_events_job!(schedule)
-        when "stream"            then build_stream_job!(schedule)
+        when "stream"            then build_stream_job!(config, schedule)
         else raise Tickrake::Error, "job `#{@name}` has unknown type: #{inferred_type.inspect}"
         end
       end
@@ -483,10 +483,10 @@ module Tickrake
         )
       end
 
-      def build_stream_job!(schedule)
+      def build_stream_job!(config, schedule)
         raise Tickrake::Error, "stream job `#{@name}` requires a stream block" if @stream_builder.nil?
 
-        stream_config = @stream_builder.build!(job_name: @name)
+        stream_config = @stream_builder.build!(job_name: @name, config: config)
         all_symbols = stream_config.subscriptions.flat_map(&:symbols).uniq
 
         Tickrake::ScheduledJobConfig.new(

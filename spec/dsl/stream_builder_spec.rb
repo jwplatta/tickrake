@@ -67,14 +67,41 @@ RSpec.describe Tickrake::DSL::StreamBuilder do
       expect(sub3.windows.size).to eq(1)
     end
 
-    it "raises when a subscription is missing symbols" do
+    it "resolves symbols from a configured universe" do
+      entry1 = Tickrake::UniverseEntry.new(symbol: "AAPL")
+      entry2 = Tickrake::UniverseEntry.new(symbol: "MSFT")
+      universe_config = Tickrake::UniverseConfig.new(name: "tech_stocks", entries: [entry1, entry2])
+      config = instance_double(Tickrake::Config)
+      allow(config).to receive(:universe).with("tech_stocks").and_return(universe_config)
+
+      builder.level_one "equities" do
+        universe "tech_stocks"
+        services [:level_one_equities]
+      end
+
+      built = builder.build!(job_name: "universe_stream", config: config)
+      expect(built.subscriptions.first.symbols).to eq(%w[AAPL MSFT])
+    end
+
+    it "raises when resolving universe without config" do
+      builder.level_one "equities" do
+        universe "tech_stocks"
+        services [:level_one_equities]
+      end
+
+      expect {
+        builder.build!(job_name: "universe_stream")
+      }.to raise_error(Tickrake::Error, /requires config to resolve universe/)
+    end
+
+    it "raises when a subscription is missing symbols or universe" do
       builder.level_one "no_symbols" do
         services [:level_one_equities]
       end
 
       expect {
         builder.build!(job_name: "bad_stream")
-      }.to raise_error(Tickrake::Error, /requires symbols/)
+      }.to raise_error(Tickrake::Error, /requires symbols or universe/)
     end
 
     it "raises when a subscription has unknown services" do
