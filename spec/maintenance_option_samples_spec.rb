@@ -81,9 +81,11 @@ RSpec.describe "option sample maintenance" do
       archive = Tickrake::Maintenance::OptionSamples::ArtifactArchiver.new(
         context: context,
         archive_services: { "s3_archive" => archive_service }
-      ).upload(destination_name: "s3_archive", artifacts: %w[csv parquet])
+      ).upload(destination_name: "s3_archive", artifacts: %w[parquet])
       expect(archive).to be_successful
+      expect(archive.artifact_results.map { |r| r[:artifact] }).to eq(%w[parquet])
       expect(archive.remote_uris.values).to all(include("s3://tickrake/"))
+      expect(archive.remote_uris.size).to eq(1)
 
       source_cleanup = Tickrake::Maintenance::OptionSamples::SourceSampleCleaner.new(context: context).run(
         source_paths: validation.source_paths
@@ -94,10 +96,10 @@ RSpec.describe "option sample maintenance" do
       retention = Tickrake::Maintenance::OptionSamples::LocalArtifactManager.new(context: context).apply(
         remote_uris: archive.remote_uris,
         retain_local: { "csv" => false, "parquet" => true },
-        artifacts: %w[csv parquet]
+        artifacts: %w[parquet]
       )
       expect(retention).to be_successful
-      expect(retention.retained_local).to eq("csv" => false, "parquet" => true)
+      expect(retention.retained_local).to eq("parquet" => true)
     end
   end
 
@@ -155,8 +157,8 @@ RSpec.describe "option sample maintenance" do
       option_root: "SPXW",
       delete_sources: false,
       destination: "s3_archive",
-      artifacts: %w[csv parquet],
-      retain_local: { "csv" => false, "parquet" => true }
+      artifacts: %w[parquet],
+      retain_local: { "parquet" => true }
     )
   end
 
@@ -259,6 +261,36 @@ RSpec.describe "option sample maintenance" do
         expect(result.success).to eq(false)
         expect(result.deleted_source_paths).to be_empty
         expect(File.exist?(source_file)).to eq(true)
+      end
+    end
+
+    it "deletes source files when manifest exists with only parquet and artifact is accessible with valid row_count" do
+      Dir.mktmpdir do |dir|
+        config = build_config(dir)
+        context = build_context(config)
+
+        source_file = File.join(dir, "snapshot.csv")
+        File.write(source_file, "data")
+
+        manifest_data = {
+          "artifacts" => {
+            "parquet" => { "uri" => "s3://tickrake/options/schwab/SPXW_samples_2026-09-13.parquet", "row_count" => 10 }
+          }
+        }
+
+        manifest_writer = instance_double(Tickrake::Maintenance::OptionSamples::ManifestWriter)
+        allow(manifest_writer).to receive(:manifest_exists?).with(**manifest_args).and_return(true)
+        allow(manifest_writer).to receive(:read).with(**manifest_args).and_return(manifest_data)
+
+        s3_archive = instance_double(Tickrake::Storage::S3Archive)
+        allow(s3_archive).to receive(:object_exists?).and_return(true)
+
+        cleaner = described_class.new(context: context, manifest_writer: manifest_writer, s3_archive: s3_archive)
+        result = cleaner.run(source_paths: [source_file])
+
+        expect(result.success).to eq(true)
+        expect(result.deleted_source_paths).to eq([source_file])
+        expect(File.exist?(source_file)).to eq(false)
       end
     end
 

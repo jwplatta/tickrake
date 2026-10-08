@@ -485,7 +485,7 @@ module Tickrake
           end
           raise ConfigError, "maintenance job `#{job.name}` archive task destination `#{step.destination}` is not configured." if config.archives[step.destination].nil?
 
-          artifacts = step.artifacts.empty? ? VALID_ARCHIVE_ARTIFACTS : step.artifacts
+          artifacts = step.artifacts.empty? ? %w[parquet] : step.artifacts
           unless artifacts.all? { |artifact| VALID_ARCHIVE_ARTIFACTS.include?(artifact) }
             raise ConfigError, "maintenance job `#{job.name}` archive task artifacts must be csv and/or parquet."
           end
