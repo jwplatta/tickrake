@@ -54,6 +54,60 @@ RSpec.describe Tickrake::EventsWriter do
       expect(ndjson_files.length).to eq(1)
       expect(tmp_files.length).to eq(1)
     end
+
+    it "rotates to .ndjson when file size exceeds rotation_size_bytes" do
+      size_writer = described_class.new(
+        pending_events_dir: tmpdir,
+        job_name: job_name,
+        rotation_interval_seconds: 3600,
+        rotation_size_bytes: 50,
+        logger: logger
+      )
+
+      # Write small events
+      size_writer.write("a" => "short")
+      expect(Dir.glob(File.join(tmpdir, "*.ndjson"))).to be_empty
+
+      # Write event that pushes file size past 50 bytes
+      size_writer.write("payload" => "x" * 60)
+
+      # Next write should trigger rotation before writing
+      size_writer.write("seq" => 3)
+
+      ndjson_files = Dir.glob(File.join(tmpdir, "*.ndjson"))
+      tmp_files    = Dir.glob(File.join(tmpdir, "*.ndjson.tmp"))
+      expect(ndjson_files.length).to eq(1)
+      expect(tmp_files.length).to eq(1)
+
+      rotated_content = File.readlines(ndjson_files.first)
+      expect(rotated_content.length).to eq(2)
+      active_content = File.readlines(tmp_files.first)
+      expect(active_content.length).to eq(1)
+    end
+
+    it "rotates on whichever condition (size or time interval) occurs first" do
+      hybrid_writer = described_class.new(
+        pending_events_dir: tmpdir,
+        job_name: job_name,
+        rotation_interval_seconds: 60,
+        rotation_size_bytes: 50,
+        logger: logger
+      )
+
+      # Case 1: size threshold hit first before time expires
+      hybrid_writer.write("payload" => "x" * 60)
+      hybrid_writer.write("trigger" => "size")
+
+      expect(Dir.glob(File.join(tmpdir, "*.ndjson")).length).to eq(1)
+      expect(Dir.glob(File.join(tmpdir, "*.ndjson.tmp")).length).to eq(1)
+
+      # Case 2: in the new file, time expires before size threshold is hit
+      hybrid_writer.instance_variable_set(:@current_opened_at, Time.now - 61)
+      hybrid_writer.write("trigger" => "time")
+
+      expect(Dir.glob(File.join(tmpdir, "*.ndjson")).length).to eq(2)
+      expect(Dir.glob(File.join(tmpdir, "*.ndjson.tmp")).length).to eq(1)
+    end
   end
 
   describe "#close" do

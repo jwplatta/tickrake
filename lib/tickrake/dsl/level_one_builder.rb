@@ -23,6 +23,14 @@ module Tickrake
         @rotation_interval_seconds = Integer(seconds)
       end
 
+      def rotation_size(bytes)
+        @rotation_size_bytes = Integer(bytes)
+      end
+
+      def rotation_size_mb(megabytes)
+        @rotation_size_bytes = (Float(megabytes) * 1024 * 1024).round
+      end
+
       def build!(job_name:, inline_symbols:)
         services = @services || []
         raise Tickrake::Error, "level_one job `#{job_name}` requires at least one service" if services.empty?
@@ -30,7 +38,8 @@ module Tickrake
 
         Tickrake::LevelOneConfig.new(
           services: services,
-          rotation_interval_seconds: @rotation_interval_seconds || 900
+          rotation_interval_seconds: @rotation_interval_seconds || 900,
+          rotation_size_bytes: @rotation_size_bytes
         )
       end
     end

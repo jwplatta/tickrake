@@ -4,15 +4,17 @@ require "monitor"
 
 module Tickrake
   class EventsWriter
-    def initialize(pending_events_dir:, job_name:, rotation_interval_seconds:, logger:)
+    def initialize(pending_events_dir:, job_name:, rotation_interval_seconds:, logger:, rotation_size_bytes: nil)
       @pending_events_dir = pending_events_dir
       @job_name = job_name
       @rotation_interval_seconds = rotation_interval_seconds
+      @rotation_size_bytes = rotation_size_bytes
       @logger = logger
       @lock = Monitor.new
       @current_file = nil
       @current_path = nil
       @current_opened_at = nil
+      @current_event_count = 0
     end
 
     def write(event_hash)
@@ -47,16 +49,30 @@ module Tickrake
     def maybe_rotate
       if @current_file.nil?
         open_new_file
-      elsif (Time.now - @current_opened_at) >= @rotation_interval_seconds
+      elsif should_rotate?
         finalize_current_file
         open_new_file
       end
     end
 
+    def should_rotate?
+      if @rotation_size_bytes && @current_file.pos >= @rotation_size_bytes
+        true
+      elsif (Time.now - @current_opened_at) >= @rotation_interval_seconds
+        true
+      else
+        false
+      end
+    end
+
     def open_new_file
       FileUtils.mkdir_p(@pending_events_dir)
-      timestamp = Time.now.utc.strftime("%Y%m%dT%H%M%SZ")
-      filename = "#{@job_name}_#{timestamp}.ndjson.tmp"
+      now = Time.now.utc
+      base_filename = "#{@job_name}_#{now.strftime('%Y%m%dT%H%M%SZ')}"
+      filename = "#{base_filename}.ndjson.tmp"
+      if File.exist?(File.join(@pending_events_dir, filename)) || File.exist?(File.join(@pending_events_dir, "#{base_filename}.ndjson"))
+        filename = "#{@job_name}_#{now.strftime('%Y%m%dT%H%M%S')}_#{now.nsec}.ndjson.tmp"
+      end
       @current_path = File.join(@pending_events_dir, filename)
       @current_file = File.open(@current_path, "a")
       @current_opened_at = Time.now

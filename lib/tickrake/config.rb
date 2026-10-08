@@ -73,6 +73,7 @@ module Tickrake
   OrderBookConfig = Struct.new(
     :services,
     :rotation_interval_seconds,
+    :rotation_size_bytes,
     :contracts,
     keyword_init: true
   ) do
@@ -88,6 +89,7 @@ module Tickrake
   LevelOneConfig = Struct.new(
     :services,
     :rotation_interval_seconds,
+    :rotation_size_bytes,
     keyword_init: true
   )
 
