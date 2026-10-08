@@ -9,6 +9,7 @@ module Tickrake
         @name = name.to_s
         @kind = kind
         @symbols = []
+        @universe_name = nil
         @services = []
         @rotation_interval_seconds = nil
         @flush_interval_seconds = nil
@@ -17,6 +18,10 @@ module Tickrake
 
       def symbols(*args)
         @symbols = args.flatten.map(&:to_s)
+      end
+
+      def universe(name)
+        @universe_name = name.to_s
       end
 
       def services(list)
@@ -44,8 +49,18 @@ module Tickrake
         @schedule_builder.instance_eval(&block)
       end
 
-      def build!(parent_job_name)
-        raise Tickrake::Error, "stream subscription `#{@name}` requires symbols" if @symbols.empty?
+      def build!(parent_job_name, config: nil)
+        resolved_symbols = if @symbols.any?
+                             @symbols
+                           elsif @universe_name
+                             raise Tickrake::Error, "stream subscription `#{@name}` requires config to resolve universe `#{@universe_name}`" unless config
+
+                             config.universe(@universe_name).symbols
+                           else
+                             []
+                           end
+
+        raise Tickrake::Error, "stream subscription `#{@name}` requires symbols or universe" if resolved_symbols.empty?
         raise Tickrake::Error, "stream subscription `#{@name}` requires services" if @services.empty?
 
         schedule = @schedule_builder&.build! || {}
@@ -90,7 +105,7 @@ module Tickrake
         Tickrake::StreamSubscription.new(
           name: @name,
           kind: @kind,
-          symbols: @symbols,
+          symbols: resolved_symbols,
           settings: settings,
           windows: windows
         )
@@ -127,10 +142,10 @@ module Tickrake
         @subscription_builders << builder
       end
 
-      def build!(job_name:)
+      def build!(job_name:, config: nil)
         raise Tickrake::Error, "stream job `#{job_name}` requires at least one subscription block (e.g. level_one, order_book, chart_stream)" if @subscription_builders.empty?
 
-        subscriptions = @subscription_builders.map { |sb| sb.build!(job_name) }
+        subscriptions = @subscription_builders.map { |sb| sb.build!(job_name, config: config) }
 
         Tickrake::StreamConfig.new(
           subscriptions: subscriptions,

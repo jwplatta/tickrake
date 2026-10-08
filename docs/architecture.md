@@ -51,22 +51,21 @@ graph TB
         compactor[Compactor]
         validator[Validator]
         cleaner[SourceSampleCleaner]
-        archiver[ArtifactArchiver]
-        lam[LocalArtifactManager]
+        archiver[ArtifactArchiver / Archiver]
+        manifest_writer[ManifestWriter]
     end
 
-    subgraph Index ["Index Publishing"]
-        pub[Publisher]
-        ipub[IntradayPublisher]
-        rib[RootIndexBuilder]
-        tib[TickersIndexBuilder]
-        ajw[AtomicJsonWriter]
-        wl[WriteLock]
-        ub[UriBuilder]
+    subgraph Reconciler ["Index Reconciliation"]
+        rec[ReconcilerJob]
+        rec_runner[ReconcilerRunner]
     end
 
-    %% ── Data / Storage Layer ─────────────────────────────────────
-    subgraph Storage ["Storage"]
+    subgraph IntradayIndex ["Intraday Publishing"]
+        ipub[IntradayPublisherJob]
+        ipub_runner[IntradayPublisherSchedulerRunner]
+    end
+
+    subgraph Storage ["Storage & S3 Plane"]
         paths[Storage::Paths]
         osw[OptionSampleWriter]
         duck[DuckdbOptionCompactedWriter]
@@ -95,26 +94,22 @@ graph TB
     oj --> paths
     oj --> osw
     oj --> tracker
-    oj --> ipub
 
     mj --> compactor
     mj --> archiver
-    mj --> pub
+    mj --> cleaner
     compactor --> duck
-    compactor --> tracker
     archiver --> s3
-    archiver --> tracker
-    cleaner --> tracker
+    archiver --> manifest_writer
+    manifest_writer --> s3
+    cleaner --> manifest_writer
+    cleaner --> s3
 
-    pub --> rib
-    pub --> tib
-    pub --> ajw
-    pub --> wl
-    pub --> s3
-    ipub --> pub
-    rib --> ub
-    tib --> tracker
-    rib --> tracker
+    rec --> s3
+    rec --> paths
+
+    ipub --> tracker
+    ipub --> s3
 
     cj --> pf
     pf --> schwab
@@ -147,9 +142,11 @@ Each job type has a corresponding runner class:
 |---|---|---|
 | `OptionsMonitorRunner` | options | window + interval |
 | `MaintenanceSchedulerRunner` | maintenance | daily run\_at or interval |
-| `CandlesSchedulerRunner` | candles | daily run\_at |
+| `CandlesSchedulerRunner` | candles | daily run\_at or interval |
+| `ReconcilerRunner` | reconcile | daily run\_at or interval |
+| `IntradayPublisherSchedulerRunner` | intraday_publish | recurring interval (e.g. 15s) |
 
-All three include `ScheduledRunnerSupport`, which provides iteration resilience: consecutive failure counting, provider-level serialization locks (`Lockfile`), and `SchedulerRestartRequired` signals that propagate up to `SchedulerSupervisor`.
+Scheduled runners include `ScheduledRunnerSupport`, which provides iteration resilience: consecutive failure counting, provider-level serialization locks (`Lockfile`), and `SchedulerRestartRequired` signals that propagate up to `SchedulerSupervisor`.
 
 `SchedulerSupervisor` wraps a child scheduler process and restarts it if it exits unexpectedly or exits with the restart-required exit code (75). The restart delay is taken from the provider's `restart_cooldown_seconds` setting.
 
@@ -159,12 +156,15 @@ All three include `ScheduledRunnerSupport`, which provides iteration resilience:
 1. Resolves a queue of `{symbol, option_root, expiration_date}` tuples from the job universe and DTE buckets.
 2. Assigns a `collection_id` (e.g. `options-20260823T154210Z`) for the entire run.
 3. Processes the queue with a thread pool (`max_workers`).
-4. Writes each chain snapshot as a CSV via `OptionSampleWriter` and upserts metadata into SQLite.
-5. After the queue completes, calls `IntradayPublisher` to update `ROOT.json` for each root.
+4. Writes each chain snapshot as a CSV via `OptionSampleWriter` and writes `.meta.json` sidecars (ingested into SQLite by `MetadataSyncJob`).
 
 **`CandlesJob`** fetches OHLCV bars from IBKR or Schwab. It supports incremental updates (looks up the last stored date and fetches only the delta), chunked date ranges for IBKR, and multiple frequencies per symbol.
 
-**`MaintenanceJob`** runs an ordered pipeline of `compact` and `archive` steps against a set of option roots and a sample date (defaults to today). Steps are defined in the job's `tasks:` config list. See `docs/jobs.md` for the full pipeline.
+**`MaintenanceJob`** runs an ordered pipeline of `compact`, `archive`, and `clean_sources` steps for options and candles. Steps are defined in the job's `tasks:` config list. See `docs/jobs.md` for the full pipeline.
+
+**`IntradayPublisherJob`** periodically scans current-day SQLite metadata and local candle directories, syncs top-of-series (`latest/`), full intraday chronological series (`<YYYY-MM-DD>/`), and candles into the intraday storage plane (MinIO / S3), and publishes the live per-root `<ROOT>.json` index.
+
+**`ReconcilerJob`** scans immutable audit manifests in S3 (`manifests/options/<provider>/` and `manifests/candles/<provider>/`), groups entries, and builds durable discovery indexes (`ROOT.json`, `tickers.json`, `<symbol>.json`, and `candles.json`) stored locally and in S3.
 
 ### Providers
 
@@ -172,28 +172,53 @@ All three include `ScheduledRunnerSupport`, which provides iteration resilience:
 
 ### Storage Layer
 
-`Storage::Paths` derives all file paths from config (data\_dir, history\_dir, options\_dir). Raw option snapshots land at:
+`Storage::Paths` derives all file paths from config (`data_dir`, `candles_dir`, `options_dir`). Raw option snapshots land at:
 
 ```
 <options_dir>/<provider>/<YYYY>/<MM>/<DD>/<ROOT>_exp<EXPIRATION>_<YYYY-MM-DD>_<HH-MM-SS>.csv
 ```
 
-Compacted artifacts land at:
+Compacted option artifacts land at:
 
 ```
 <options_dir>/<provider>/<YYYY>/<MM>/<DD>/<ROOT>_samples_<YYYY-MM-DD>.csv
 <options_dir>/<provider>/<YYYY>/<MM>/<DD>/<ROOT>_samples_<YYYY-MM-DD>.parquet
 ```
 
-`DuckdbOptionCompactedWriter` reads raw CSVs via DuckDB, merges them into a typed schema, and exports both CSV and Parquet in a single in-memory pass.
+Compacted candle artifacts land at:
 
-`S3Archive` maps local paths to S3 keys by computing the `data_dir`-relative path and prepending the configured prefix.
+```
+<candles_dir>/<provider>/<frequency>/<YYYY>/<symbol>.parquet
+```
 
-`Tracker` wraps SQLite with a thread-safe `Monitor` lock and WAL mode. It owns all schema migrations and is the single source of truth for file metadata. See `docs/data_model.md` for the full schema.
+`DuckdbOptionCompactedWriter` reads raw CSVs via DuckDB, merges them into a typed schema, and exports Parquet (and optional CSV) in a single in-memory pass.
 
-### Index Publishing
+`S3Archive` maps local paths to S3 keys by computing the `data_dir`-relative path and prepending the configured prefix. It also provides low-level S3 upload, download, key listing, and HEAD verification helpers.
 
-`Publisher` and `IntradayPublisher` write `ROOT.json` and `tickers.json` after job completions. `RootIndexBuilder` and `TickersIndexBuilder` query `Tracker` and build the JSON payload in memory. `AtomicJsonWriter` writes a `.tmp.PID` file, fsyncs it, and renames it atomically. `WriteLock` serializes concurrent writers for the same root using a filesystem lock file. See `docs/index_publishing.md` for the full detail.
+`Tracker` wraps SQLite with a thread-safe `Monitor` lock and WAL mode. In the modern architecture, `Tracker` (`file_metadata_cache`) serves solely as a short-lived **intraday processing buffer** (rows older than 10 days are pruned by `MetadataSyncJob`). It does not track long-term historical archives.
+
+### Manifest and Index Architecture
+
+Tickrake separates intraday live state from durable historical archives through two distinct indexing mechanisms:
+
+#### 1. Audit Manifests (Source of Truth)
+During maintenance archival, `ManifestWriter` writes an immutable JSON manifest directly to S3 under `manifests/`:
+- **Options**: `manifests/options/<provider>/<root>_<sample_date>.json` recording artifact URIs (`.parquet`), row count, and `archived_at`.
+- **Candles**: `manifests/candles/<provider>/<symbol>.json` recording frequencies, partitioned years, datetime coverage ranges, row counts, and URIs.
+
+Before `SourceSampleCleaner` deletes local raw snapshot CSVs, it validates:
+1. The manifest exists in S3.
+2. Every artifact URI listed in the manifest exists in S3 (HEAD request check).
+3. Artifact row counts are greater than zero.
+
+#### 2. Reconciled Historical Indexes (`ReconcilerJob`)
+`ReconcilerJob` is an idempotent, standalone process that builds canonical historical indexes by inspecting S3 manifests:
+- **Options**: Aggregates all manifests for `<provider>` by root, producing `<options_dir>/<provider>/<ROOT>.json` (with the `historical` array) and `<options_dir>/<provider>/tickers.json`.
+- **Candles**: Reads candle manifests, producing `<candles_dir>/<provider>/<symbol>.json` and `<candles_dir>/<provider>/candles.json`.
+- Uses `AtomicJsonWriter` (writes to `.tmp.PID`, fsyncs, and renames atomically) for crash-safe local writes, then uploads the index files to S3. Also writes local discovery caches under `<data_dir>/index_cache/<provider>/`.
+
+#### 3. Live Intraday Indexing (`IntradayPublisherJob`)
+`IntradayPublisherJob` runs at short intervals during trading hours. It inspects today's active rows in `Tracker` and local candles, syncs snapshot files to the intraday datastore (MinIO/S3), and writes live per-root `<ROOT>.json` indexes containing `option_chains.latest` and `option_chains.series`. It also performs daily eviction under `intraday/` when reaching `clear_at`.
 
 ### Configuration
 
@@ -207,14 +232,13 @@ Tickrake is organized into five layers, each independently useful:
 |---|---|---|
 | **Collection** | `OptionsJob`, `CandlesJob`, `LevelOneJob`, `OrderBookJob` | Yes — write CSVs/Parquet locally with no other infrastructure |
 | **Scheduling** | `SchedulerSupervisor`, runner classes, `ScheduledRunnerSupport` | Wraps any collection job with interval + window logic |
-| **Indexing** | `Tracker` / `file_metadata_cache`, `metadata_sync`, sidecar pipeline | Builds a queryable catalogue of collected data without filesystem scans |
-| **Storage** | `S3Archive`, `DuckdbOptionCompactedWriter`, `MaintenanceJob` | Local by default; S3/Minio for archiving and intraday publishing |
-| **Presentation** | `IntradayPublisherJob`, `Publisher`, `RootIndexBuilder` | Surfaces latest samples to external consumers as JSON indexes + CSVs on Minio |
+| **Indexing** | `Tracker` / `file_metadata_cache`, `MetadataSyncJob`, `ManifestWriter`, `ReconcilerJob` | Builds short-lived intraday queues in SQLite and durable audit manifests in S3 |
+| **Storage** | `S3Archive`, `DuckdbOptionCompactedWriter`, `MaintenanceJob` | Local by default; S3/MinIO for archiving, manifests, and intraday publishing |
+| **Presentation** | `IntradayPublisherJob`, `ReconcilerJob` | Surfaces live data to MinIO and durable catalog indexes to S3 / local disk |
 
-A **validation layer** is currently absent. It would sit between collection and indexing and cover two concerns:
-
-- **Operational validation** — did the scrape return a complete chain? Are there gaps in candle history? Did a streaming file contain events?
-- **Data quality validation** — are bid/ask spreads plausible? Are strike coverage and open interest within expected ranges? Are underlying prices consistent across expiration rows?
+A **validation layer** covers two concerns:
+- **Operational validation** — did compaction output non-empty Parquet files matching expected source counts? Did S3 upload succeed with matching byte size? Does the S3 manifest verify before source deletion?
+- **Data quality validation** — handled during DuckDB compaction typing and sorting.
 
 ### Metadata Sidecar Pipeline
 
@@ -234,18 +258,18 @@ Streaming jobs (`LevelOneJob`, `OrderBookJob`) use an append-only NDJSON staging
 
 ```
 level_one_job / order_book_job  →  appends events to .ndjson.tmp  →  pending_events_dir/
-                                   rotates to .ndjson every rotation_interval
+                                   rotates to .ndjson on rotation interval or size threshold
 events_ingestor  →  reads .ndjson files  →  writes Parquet  →  uploads to S3  →  deletes file
 ```
 
 ## Key Design Decisions
 
-**SQLite is internal-only.** Downstream consumers read published JSON index files, not the SQLite database. This keeps the storage format evolvable without breaking consumers.
+**S3 Manifests are the source of truth for historical archives.** SQLite does not maintain long-term archive records. Manifests written to S3 are immutable and bitemporal. If local metadata or index files are destroyed, `ReconcilerJob` reconstructs the entire index hierarchy from S3 manifests.
+
+**SQLite is internal and intraday-only.** Downstream consumers read published JSON index files (`intraday/<provider>/<root>.json` or reconciled archive indexes), never SQLite. The table is automatically pruned of rows older than 10 days.
 
 **Explicit migrations.** Tickrake does not auto-migrate on startup. Users run `tickrake migrate` explicitly. This prevents silent schema changes in long-running production setups.
 
-**Atomic file writes.** All index JSON files are written via temp-file-plus-rename so consumers never see a partial file.
+**Atomic file writes.** All index and cache JSON files are written via `AtomicJsonWriter` (temp file + fsync + atomic rename) so consumers never see a partial write.
 
-**Provider serialization.** Schwab's API has per-client rate limits. Multiple jobs that share a Schwab provider acquire a cross-process lockfile before each iteration so concurrent schedulers do not issue simultaneous API requests.
-
-**Compaction safety.** Raw snapshots are deleted only after compaction validation succeeds. Compacted artifacts are deleted locally only after S3 upload and size verification succeed.
+**Compaction and deletion safety.** Raw snapshots are deleted only after compaction succeeds, the S3 manifest is written, and every artifact in the manifest is confirmed accessible on S3 with valid row counts. Compacted artifacts are deleted locally only after S3 upload and size verification succeed.
