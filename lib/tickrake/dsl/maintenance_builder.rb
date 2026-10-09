@@ -17,7 +17,7 @@ module Tickrake
         @end_date = date.is_a?(Date) ? date : Date.iso8601(date.to_s)
       end
 
-      def compact(subject, universe: nil, universes: [], delete_sources: false)
+      def compact(subject, universe: nil, universes: [], delete_sources: false, artifacts: %w[parquet])
         @tasks << Tickrake::MaintenanceStepConfig.new(
           action: "compact",
           subject: subject.to_s,
@@ -28,7 +28,7 @@ module Tickrake
           option_root: nil,
           delete_sources: delete_sources,
           destination: nil,
-          artifacts: [],
+          artifacts: Array(artifacts).map(&:to_s),
           retain_local: {}
         )
       end

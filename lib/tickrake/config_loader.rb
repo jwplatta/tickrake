@@ -478,6 +478,10 @@ module Tickrake
         case step.action
         when "compact"
           raise ConfigError, "maintenance job `#{job.name}` compact task delete_sources must be boolean." unless boolean?(step.delete_sources)
+          artifacts = step.artifacts.empty? ? %w[parquet] : step.artifacts
+          unless artifacts.all? { |artifact| VALID_ARCHIVE_ARTIFACTS.include?(artifact) }
+            raise ConfigError, "maintenance job `#{job.name}` compact task artifacts must be csv and/or parquet."
+          end
         when "archive"
           raise ConfigError, "maintenance job `#{job.name}` archive task destination is required." if step.destination.to_s.empty?
           unless VALID_ARCHIVE_DESTINATIONS.include?(step.destination)

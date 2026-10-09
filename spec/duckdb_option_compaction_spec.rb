@@ -101,4 +101,47 @@ RSpec.describe "duckdb option compaction parity" do
       end
     end
   end
+
+  it "supports writing only parquet without creating csv" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      raw_files = write_raw_fixture(config)
+      context = Tickrake::Maintenance::OptionSamples::Context.new(
+        config: config,
+        tracker: tracker,
+        provider_name: "schwab",
+        option_root: "SPXW",
+        sample_date: Date.new(2027, 7, 1),
+        logger: Logger.new(nil)
+      )
+
+      Dir.mktmpdir do |tmp_dir|
+        parquet_path = File.join(tmp_dir, "duckdb.parquet")
+        result = Tickrake::Storage::DuckdbOptionCompactedWriter.new.write(
+          raw_files: raw_files,
+          parquet_path: parquet_path,
+          sampled_at_resolver: context.dataset.method(:sampled_at_for_path)
+        )
+
+        expect(result.csv_path).to be_nil
+        expect(result.parquet_path).to eq(parquet_path)
+        expect(File.exist?(parquet_path)).to eq(true)
+        expect(result.row_count).to eq(2)
+      end
+    end
+  end
+
+  it "raises an error if neither csv_path nor parquet_path is provided" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir)
+      raw_files = write_raw_fixture(config)
+      expect do
+        Tickrake::Storage::DuckdbOptionCompactedWriter.new.write(
+          raw_files: raw_files,
+          sampled_at_resolver: ->(_) { Time.now }
+        )
+      end.to raise_error(Tickrake::Error, /requires at least one output path/)
+    end
+  end
 end
