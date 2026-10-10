@@ -69,11 +69,7 @@ RSpec.describe "option sample maintenance" do
 
       compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run(progress_reporter: progress_reporter)
       expect(compact).to be_successful
-      expect(compact.artifacts_written.map { |path| File.basename(path) }).to eq(%w[SPXW_samples_2026-06-26.csv SPXW_samples_2026-06-26.parquet])
-      compacted_csv_path = compact.artifacts_written.find { |path| path.end_with?(".csv") }
-      compacted_csv = CSV.read(compacted_csv_path, headers: true)
-      expect(compacted_csv.headers.last).to eq("sampled_at")
-      expect(compacted_csv.map { |row| row["sampled_at"] }).to eq(["2026-06-26T14:30:00Z", "2026-06-26T14:35:00Z"])
+      expect(compact.artifacts_written.map { |path| File.basename(path) }).to eq(%w[SPXW_samples_2026-06-26.parquet])
 
       validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
       expect(validation.safe_to_delete).to eq(true)
@@ -100,6 +96,31 @@ RSpec.describe "option sample maintenance" do
       )
       expect(retention).to be_successful
       expect(retention.retained_local).to eq("parquet" => true)
+    end
+  end
+
+  it "compacts to both csv and parquet when artifacts explicitly include csv" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir)
+      Tickrake::Tracker.migrate!(config.sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      fixture = write_raw_fixture(config)
+
+      context = Tickrake::Maintenance::OptionSamples::Context.new(
+        config: config,
+        tracker: tracker,
+        provider_name: "schwab",
+        option_root: "SPXW",
+        sample_date: Date.new(2026, 6, 26),
+        logger: logger
+      )
+
+      compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run(artifacts: %w[csv parquet])
+      expect(compact).to be_successful
+      expect(compact.artifacts_written.map { |path| File.basename(path) }).to eq(%w[SPXW_samples_2026-06-26.csv SPXW_samples_2026-06-26.parquet])
+
+      validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
+      expect(validation.safe_to_delete).to eq(true)
     end
   end
 

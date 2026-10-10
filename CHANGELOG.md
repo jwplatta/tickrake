@@ -16,6 +16,8 @@ All notable changes to this project will be documented in this file.
 - Added `universe` support to `stream` job subscriptions (`StreamSubscriptionBuilder`), allowing subscriptions like `level_one`, `order_book`, and `chart_stream` to resolve symbols directly from configured universe files instead of requiring inline symbol lists.
 
 ### Changed
+- Defaulted option sample compaction to Parquet only (`artifacts: %w[parquet]`). Compacting to CSV is now optional and can be explicitly requested via `artifacts: [:csv, :parquet]` or `artifacts: [:csv]` in the maintenance DSL or configuration.
+- Updated `DuckdbOptionCompactedWriter` to accept optional `csv_path` and `parquet_path`, and updated `Validator` to validate against compacted Parquet files directly using DuckDB when CSV is not present.
 - Changed option sample maintenance archival to archive only compacted Parquet files (`artifacts: [parquet]`) to remote S3 storage by default, omitting compacted CSV uploads.
 
 ### Fixed

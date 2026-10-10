@@ -165,7 +165,7 @@ module Tickrake
     def run_step(context:, step:, last_compact_result: nil)
       case step.action
       when "compact"
-        run_compact_step(context: context, delete_sources: step.delete_sources)
+        run_compact_step(context: context, delete_sources: step.delete_sources, artifacts: step.artifacts)
       when "archive"
         run_archive_step(
           context: context,
@@ -179,8 +179,12 @@ module Tickrake
       end
     end
 
-    def run_compact_step(context:, delete_sources:)
-      compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run(progress_reporter: @progress_reporter)
+    def run_compact_step(context:, delete_sources:, artifacts: [])
+      compactor_artifacts = Array(artifacts).empty? ? %w[parquet] : artifacts
+      compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run(
+        artifacts: compactor_artifacts,
+        progress_reporter: @progress_reporter
+      )
       return compact unless compact.successful?
       return compact if compact.artifacts_written.empty?
 

@@ -14,11 +14,12 @@ module Tickrake
         keyword_init: true
       )
 
-      def write(raw_files:, csv_path:, parquet_path:, sampled_at_resolver:)
+      def write(raw_files:, csv_path: nil, parquet_path: nil, sampled_at_resolver:)
         raise Tickrake::Error, "DuckDB compaction requires at least one raw file." if raw_files.empty?
+        raise Tickrake::Error, "DuckDB compaction requires at least one output path (csv_path or parquet_path)." if csv_path.nil? && parquet_path.nil?
 
-        FileUtils.mkdir_p(File.dirname(csv_path))
-        FileUtils.mkdir_p(File.dirname(parquet_path))
+        FileUtils.mkdir_p(File.dirname(csv_path)) if csv_path
+        FileUtils.mkdir_p(File.dirname(parquet_path)) if parquet_path
 
         DuckDB::Database.open do |db|
           db.connect do |con|
@@ -27,8 +28,8 @@ module Tickrake
               insert_raw_file(con, raw_file, sampled_at_resolver.call(raw_file))
             end
 
-            export(con, csv_path, "csv")
-            export(con, parquet_path, "parquet")
+            export(con, csv_path, "csv") if csv_path
+            export(con, parquet_path, "parquet") if parquet_path
 
             aggregate = con.query(<<~SQL).first
               SELECT COUNT(*) AS row_count, MIN(sampled_at) AS first_sampled_at, MAX(sampled_at) AS last_sampled_at
