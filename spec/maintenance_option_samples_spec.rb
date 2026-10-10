@@ -124,7 +124,7 @@ RSpec.describe "option sample maintenance" do
     end
   end
 
-  it "emits structured parquet_written log event with byte_count for option sample compaction" do
+  it "emits structured parquet_written log event with byte_count and storage_byte_delta for option sample compaction" do
     Dir.mktmpdir do |dir|
       config = build_config(dir)
       Tickrake::Tracker.migrate!(config.sqlite_path)
@@ -158,6 +158,44 @@ RSpec.describe "option sample maintenance" do
       expect(event[:path]).to be_a(String)
       expect(event[:byte_count]).to eq(File.size(event[:path]))
       expect(event[:byte_count]).to be > 0
+      expect(event[:storage_byte_delta]).to eq(event[:byte_count])
+
+      # Second compaction replacing the existing file
+      logged.clear
+      compact_again = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run(artifacts: %w[parquet])
+      expect(compact_again).to be_successful
+      second_event = logged.find { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+      expect(second_event).not_to be_nil
+      expect(second_event[:storage_byte_delta]).to eq(0)
+    end
+  end
+
+  it "does not emit parquet_written log event when option sample compaction fails" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir)
+      Tickrake::Tracker.migrate!(config.sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      write_raw_fixture(config)
+
+      logged = []
+      test_logger = Logger.new(nil)
+      allow(test_logger).to receive(:info) { |payload| logged << payload }
+
+      context = Tickrake::Maintenance::OptionSamples::Context.new(
+        config: config,
+        tracker: tracker,
+        provider_name: "schwab",
+        option_root: "SPXW",
+        sample_date: Date.new(2026, 6, 26),
+        logger: test_logger
+      )
+
+      failing_writer = instance_double(Tickrake::Storage::DuckdbOptionCompactedWriter)
+      allow(failing_writer).to receive(:write).and_raise(RuntimeError, "compaction error")
+
+      compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context, writer: failing_writer).run(artifacts: %w[parquet])
+      expect(compact).not_to be_successful
+      expect(logged.select { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }).to be_empty
     end
   end
 

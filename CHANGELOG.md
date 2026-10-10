@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added `storage_byte_delta` signed integer field to successful finalized Parquet write events (`parquet_written`) across candle compaction, option sample compaction, event stream ingestion (`level_one` and `order_book`), economic events, and fundamentals to accurately measure net durable storage added.
 - Added intraday options time series and top-of-series publishing to `IntradayPublisherJob`, with incremental uploads, structured `latest` and `series` sections in per-root index JSON, and a daily `clear_at` eviction parameter in the DSL.
 - Added consolidated `stream` job type (`StreamJob`, `StreamRunner`, `DSL::StreamBuilder`, `StreamConfig`): allows combining multiple streaming services (Level 1 equities/futures/options, Level 2 order books, and candle chart streams) over a single Schwab WebSocket connection. Dynamically adds (`ADD`) and removes (`UNSUBS`) subscriptions as their individual schedule windows open and close.
 - Upgraded `schwab_rb` dependency to `>= 1.0.4`.
@@ -22,6 +23,7 @@ All notable changes to this project will be documented in this file.
 - Changed option sample maintenance archival to archive only compacted Parquet files (`artifacts: [parquet]`) to remote S3 storage by default, omitting compacted CSV uploads.
 
 ### Fixed
+- Fixed `OptionsJob#fetch_success` events to assign `market_date` from the collection/sample date in Tickrake's configured market timezone rather than the option expiration date, while retaining `expiration_date` as its own field.
 - Fixed `StreamJob` reconnect subscription state: cleared `@active_subscriptions` on session reconnect and teardown so all in-window subscriptions are re-subscribed on the replacement client.
 - Fixed `LevelOneJob` stream stall: added a liveness watchdog that tracks `last_event_at` by local receipt time, logs a `stream_stale` event when no data arrives within a configurable timeout (default 60s), stops the dead stream, and reconnects with exponential backoff (up to 10 attempts, capped at 120s delay).
 - Fixed `JobRunner` routing so daily-scheduled jobs (`at` + `weekdays`) are dispatched to scheduler runners instead of running once and exiting. Previously only interval-windowed jobs were treated as scheduled.

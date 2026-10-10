@@ -171,8 +171,10 @@ module Tickrake
     def write_parquet(rows, sample_date)
       provider_name = @scheduled_job&.provider || "schwab"
       path = storage_paths.fundamentals_path(provider: provider_name, sample_date: sample_date)
+      prior_byte_count = File.exist?(path) ? File.size(path) : 0
       parquet_writer.write(path, rows: rows)
       byte_count = File.size(path)
+      storage_byte_delta = byte_count - prior_byte_count
       @runtime.logger.info({
         msg: "parquet_written",
         event: "parquet_written",
@@ -181,6 +183,7 @@ module Tickrake
         market_date: sample_date.iso8601,
         row_count: rows.length,
         byte_count: byte_count,
+        storage_byte_delta: storage_byte_delta,
         path: path
       })
       path

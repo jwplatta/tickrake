@@ -73,7 +73,7 @@ RSpec.describe Tickrake::EventsIngestorJob do
         job.run
       end
 
-      it "logs parquet_written with byte_count, market_date, and data_type" do
+      it "logs parquet_written with byte_count, storage_byte_delta, market_date, and data_type" do
         logged = []
         allow(logger).to receive(:info) { |payload| logged << payload }
 
@@ -89,6 +89,17 @@ RSpec.describe Tickrake::EventsIngestorJob do
         expect(event[:path]).to be_a(String)
         expect(event[:byte_count]).to eq(File.size(event[:path]))
         expect(event[:byte_count]).to be > 0
+        expect(event[:storage_byte_delta]).to eq(event[:byte_count])
+      end
+
+      it "does not log parquet_written when level_one write fails" do
+        logged = []
+        allow(logger).to receive(:info) { |payload| logged << payload }
+        allow_any_instance_of(Tickrake::Storage::LevelOneParquetWriter).to receive(:write).and_raise(IOError, "write failure")
+
+        job.run
+
+        expect(logged.select { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }).to be_empty
       end
     end
 
@@ -106,9 +117,17 @@ RSpec.describe Tickrake::EventsIngestorJob do
         File.write(path, events.map { |e| JSON.generate(e) }.join("\n") + "\n")
       end
 
-      it "calls OrderBookParquetWriter#write" do
-        expect_any_instance_of(Tickrake::Storage::OrderBookParquetWriter).to receive(:write)
+      it "calls OrderBookParquetWriter#write and logs parquet_written with storage_byte_delta" do
+        logged = []
+        allow(logger).to receive(:info) { |payload| logged << payload }
+
+        expect_any_instance_of(Tickrake::Storage::OrderBookParquetWriter).to receive(:write).and_call_original
         job.run
+
+        event = logged.find { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+        expect(event).not_to be_nil
+        expect(event[:data_type]).to eq("order_book")
+        expect(event[:storage_byte_delta]).to eq(event[:byte_count])
       end
     end
   end

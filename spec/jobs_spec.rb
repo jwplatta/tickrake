@@ -105,7 +105,7 @@ RSpec.describe "job execution" do
         options_dir: dir,
         pending_metadata_dir: File.join(dir, "pending_metadata"),
         options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")],
-        dte_buckets: [0]
+        dte_buckets: [4]
       )
       client = instance_double("client")
       expiration_entry = Struct.new(:expiration_date, :days_to_expiration, :option_roots) do
@@ -119,7 +119,7 @@ RSpec.describe "job execution" do
       )
       expiration_chain = instance_double(
         "SchwabRb::DataObjects::OptionExpirationChain",
-        expiration_list: [expiration_entry.new("2026-04-06", 0, "SPXW")]
+        expiration_list: [expiration_entry.new("2026-04-10", 4, "SPXW")]
       )
       allow(client).to receive(:get_option_expiration_chain).and_return(expiration_chain)
       allow(client).to receive(:get_option_chain).and_return(
@@ -128,8 +128,8 @@ RSpec.describe "job execution" do
           underlying_price: 5100.5,
           call_opts: [
             option.new(
-              put_call: "CALL", symbol: "SPXW  260406C05100000", description: "SPXW call",
-              strike: 5100.0, expiration_date: Date.new(2026, 4, 6), mark: 12.5,
+              put_call: "CALL", symbol: "SPXW  260410C05100000", description: "SPXW call",
+              strike: 5100.0, expiration_date: Date.new(2026, 4, 10), mark: 12.5,
               bid: 12.0, bid_size: 10, ask: 13.0, ask_size: 12, last: 12.4, last_size: 3,
               open_interest: 100, total_volume: 50, delta: 0.5, gamma: 0.1, theta: -0.2,
               vega: 0.3, rho: 0.05, volatility: 0.22, theoretical_volatility: 0.21,
@@ -154,7 +154,7 @@ RSpec.describe "job execution" do
       expect(sidecar["file_metadata"]["dataset_type"]).to eq("options")
       expect(sidecar["file_metadata"]["ticker"]).to eq("SPXW")
       expect(sidecar["file_metadata"]["provider_name"]).to eq("schwab")
-      expect(sidecar["file_metadata"]["expiration_date"]).to eq("2026-04-06")
+      expect(sidecar["file_metadata"]["expiration_date"]).to eq("2026-04-10")
       expect(sidecar["file_metadata"]["row_count"]).to eq(1)
 
       expect(sidecar["fetch_run"]["status"]).to eq("success")
@@ -171,6 +171,7 @@ RSpec.describe "job execution" do
       expect(fetch_success_event).not_to be_nil
       expect(fetch_success_event[:data_type]).to eq("options")
       expect(fetch_success_event[:market_date]).to eq("2026-04-06")
+      expect(fetch_success_event[:expiration_date]).to eq("2026-04-10")
       expect(fetch_success_event[:provider]).to eq("schwab")
       expect(fetch_success_event[:byte_count]).to be > 0
       expect(fetch_success_event[:byte_count]).to eq(File.size(fetch_success_event[:path]))

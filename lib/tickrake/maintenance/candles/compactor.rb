@@ -37,8 +37,10 @@ module Tickrake
             parquet_path = @context.compacted_path(year)
             existing_rows = @writer.read(parquet_path)
             merged = merge_rows(existing_rows, new_rows)
+            prior_byte_count = File.exist?(parquet_path) ? File.size(parquet_path) : 0
             @writer.write(parquet_path, rows: merged)
             byte_count = File.size(parquet_path)
+            storage_byte_delta = byte_count - prior_byte_count
             @context.logger.info({
               msg: "parquet_written",
               event: "parquet_written",
@@ -50,6 +52,7 @@ module Tickrake
               year: year,
               row_count: merged.size,
               byte_count: byte_count,
+              storage_byte_delta: storage_byte_delta,
               path: parquet_path
             })
             years_written << year

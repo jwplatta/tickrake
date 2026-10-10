@@ -193,7 +193,7 @@ module Tickrake
           symbol: symbol,
           option_root: option_root,
           expiration_date: expiration_date.to_s,
-          market_date: expiration_date.to_s,
+          market_date: market_date_for(run_time),
           row_count: result.fetch(:row_count),
           byte_count: result.fetch(:byte_count),
           duration_ms: elapsed_ms,
@@ -222,6 +222,13 @@ module Tickrake
 
     def option_progress_title(job)
       [job.fetch(:symbol), job[:option_root], job.fetch(:expiration_date).iso8601].compact.reject(&:empty?).join(" ")
+    end
+
+    def market_date_for(timestamp)
+      tz_name = @runtime.config.timezone.to_s
+      return timestamp.utc.to_date.iso8601 if tz_name.empty? || tz_name.casecmp("utc").zero?
+
+      TZInfo::Timezone.get(tz_name).utc_to_local(timestamp.utc).to_date.iso8601
     end
 
     def write_option_chain(client:, provider_name:, symbol:, expiration_date:, timestamp:, root:)
