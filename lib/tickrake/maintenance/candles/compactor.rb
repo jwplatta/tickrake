@@ -38,6 +38,20 @@ module Tickrake
             existing_rows = @writer.read(parquet_path)
             merged = merge_rows(existing_rows, new_rows)
             @writer.write(parquet_path, rows: merged)
+            byte_count = File.size(parquet_path)
+            @context.logger.info({
+              msg: "parquet_written",
+              event: "parquet_written",
+              data_type: "candles",
+              compaction_output: true,
+              provider: @context.provider_name,
+              symbol: @context.symbol,
+              frequency: @context.frequency,
+              year: year,
+              row_count: merged.size,
+              byte_count: byte_count,
+              path: parquet_path
+            })
             years_written << year
             total_rows += merged.size
           end

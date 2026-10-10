@@ -80,14 +80,36 @@ module Tickrake
             flush_start: flush_start, provider_definition: provider_definition
           )
           @level_one_writer.write(path, rows: group)
-          @runtime.logger.info({ msg: "parquet_written", event: "parquet_written", data_type: "level_one", symbol: symbol, provider: provider, event_count: group.size, path: path })
+          byte_count = File.size(path)
+          @runtime.logger.info({
+            msg: "parquet_written",
+            event: "parquet_written",
+            data_type: "level_one",
+            symbol: symbol,
+            provider: provider,
+            market_date: flush_start.strftime("%Y-%m-%d"),
+            event_count: group.size,
+            byte_count: byte_count,
+            path: path
+          })
         when "order_book"
           path = @storage_paths.order_book_path(
             provider: provider, symbol: symbol,
             flush_start: flush_start, provider_definition: provider_definition
           )
           @order_book_writer.write(path, rows: group)
-          @runtime.logger.info({ msg: "parquet_written", event: "parquet_written", data_type: "order_book", symbol: symbol, provider: provider, event_count: group.size, path: path })
+          byte_count = File.size(path)
+          @runtime.logger.info({
+            msg: "parquet_written",
+            event: "parquet_written",
+            data_type: "order_book",
+            symbol: symbol,
+            provider: provider,
+            market_date: flush_start.strftime("%Y-%m-%d"),
+            event_count: group.size,
+            byte_count: byte_count,
+            path: path
+          })
         else
           @runtime.logger.warn("events_ingestor: unknown job_type `#{job_type}` — skipping group")
           next

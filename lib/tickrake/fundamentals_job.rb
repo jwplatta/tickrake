@@ -172,6 +172,17 @@ module Tickrake
       provider_name = @scheduled_job&.provider || "schwab"
       path = storage_paths.fundamentals_path(provider: provider_name, sample_date: sample_date)
       parquet_writer.write(path, rows: rows)
+      byte_count = File.size(path)
+      @runtime.logger.info({
+        msg: "parquet_written",
+        event: "parquet_written",
+        data_type: "fundamentals",
+        provider: provider_name,
+        market_date: sample_date.iso8601,
+        row_count: rows.length,
+        byte_count: byte_count,
+        path: path
+      })
       path
     end
 

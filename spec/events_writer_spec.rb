@@ -121,6 +121,26 @@ RSpec.describe Tickrake::EventsWriter do
       expect(Dir.glob(File.join(tmpdir, "*.ndjson")).length).to eq(1)
     end
 
+    it "emits a structured file_rotated log with byte_count matching the finalized file size" do
+      logged = []
+      allow(logger).to receive(:info) { |payload| logged << payload }
+
+      writer.write("symbol" => "SPY", "provider" => "schwab", "job_type" => "level_one", "bid" => 1.23)
+      writer.close
+
+      event = logged.find { |l| l.is_a?(Hash) && l[:event] == "file_rotated" }
+      expect(event).not_to be_nil
+      expect(event[:data_type]).to eq("level_one")
+      expect(event[:provider]).to eq("schwab")
+      expect(event[:symbols]).to eq(["SPY"])
+      expect(event[:event_count]).to eq(1)
+      expect(event[:path]).to be_a(String)
+      expect(File.exist?(event[:path])).to be(true)
+      expect(event[:byte_count]).to eq(File.size(event[:path]))
+      expect(event[:byte_count]).to be > 0
+      expect(event[:rotated_at]).to be_a(String)
+    end
+
     it "is a no-op when no file is open" do
       expect { writer.close }.not_to raise_error
     end

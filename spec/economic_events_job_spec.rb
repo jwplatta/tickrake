@@ -40,11 +40,23 @@ RSpec.describe Tickrake::EconomicEventsJob do
 
   describe "#run" do
     it "writes parquet files for each source/category/date" do
+      logged = []
+      allow(logger).to receive(:info) { |payload| logged << payload }
+
       job.run(now: Time.utc(2026, 9, 20))
       expect(File).to exist(File.join(tmpdir, "economic_events/bls/economic/2026/10/14.parquet"))
       expect(File).to exist(File.join(tmpdir, "economic_events/fred/economic/2026/09/25.parquet"))
       expect(File).to exist(File.join(tmpdir, "economic_events/fred/fomc/2026/09/17.parquet"))
       expect(File).to exist(File.join(tmpdir, "economic_events/alpha_vantage/earnings/2026/10/15.parquet"))
+
+      written_events = logged.select { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+      expect(written_events.size).to eq(4)
+      written_events.each do |evt|
+        expect(evt[:data_type]).to eq("economic_events")
+        expect(evt[:byte_count]).to eq(File.size(evt[:path]))
+        expect(evt[:byte_count]).to be > 0
+        expect(evt[:market_date]).not_to be_nil
+      end
     end
 
     it "returns a successful result" do

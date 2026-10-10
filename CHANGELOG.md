@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - Added one-shot job execution: omitting the `schedule` block from a DSL job runs it once and exits. Batch jobs like `metadata_sync` loop until drained. Streaming jobs (`level_one`, `order_book`) require a schedule.
 - Added `tickrake prune-orphaned` command to remove `file_metadata_cache` rows whose files no longer exist on disk. Supports `--dry-run` to preview removals without deleting.
 - Added size-based staging file rotation (`rotation_size`, `rotation_size_mb`) to `EventsWriter` and DSL streaming jobs (`level_one`, `order_book`, `stream`), enabling files to rotate when either file size exceeds a threshold or the rotation interval elapses.
+- Added structured `byte_count` emission for market-data write boundaries across option snapshot CSV finalization, stream NDJSON staging rotation, stream ingestion Parquet writes, and compacted/direct Parquet files (option samples, candles, economic events, and fundamentals).
 - Added `universe` support to `stream` job subscriptions (`StreamSubscriptionBuilder`), allowing subscriptions like `level_one`, `order_book`, and `chart_stream` to resolve symbols directly from configured universe files instead of requiring inline symbol lists.
 
 ### Changed

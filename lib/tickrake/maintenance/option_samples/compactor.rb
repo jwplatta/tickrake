@@ -44,6 +44,22 @@ module Tickrake
 
           artifacts_written = [result.csv_path, result.parquet_path].compact
 
+          if result.parquet_path && File.exist?(result.parquet_path)
+            byte_count = File.size(result.parquet_path)
+            @context.logger&.info({
+              msg: "parquet_written",
+              event: "parquet_written",
+              data_type: "options",
+              compaction_output: true,
+              provider: @context.provider_name,
+              symbol: @context.option_root,
+              market_date: @context.sample_date.iso8601,
+              row_count: result.row_count,
+              byte_count: byte_count,
+              path: result.parquet_path
+            })
+          end
+
           CompactResult.new(
             success: true,
             provider_name: @context.provider_name,
