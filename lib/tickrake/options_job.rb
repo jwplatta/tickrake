@@ -185,7 +185,21 @@ module Tickrake
           )
         end
         elapsed_ms = ((Time.now - started_at) * 1000).round
-        @runtime.logger.info({ msg: "fetch_success", event: "fetch_success", symbol: symbol, option_root: option_root, expiration_date: expiration_date.to_s, row_count: result.fetch(:row_count), duration_ms: elapsed_ms, path: result.fetch(:path), collection_id: collection_id })
+        @runtime.logger.info({
+          msg: "fetch_success",
+          event: "fetch_success",
+          data_type: "options",
+          provider: provider_name,
+          symbol: symbol,
+          option_root: option_root,
+          expiration_date: expiration_date.to_s,
+          market_date: expiration_date.to_s,
+          row_count: result.fetch(:row_count),
+          byte_count: result.fetch(:byte_count),
+          duration_ms: elapsed_ms,
+          path: result.fetch(:path),
+          collection_id: collection_id
+        })
         write_sidecar(
           job: job, run_time: run_time, collection_id: collection_id,
           started_at: started_at, status: "success", output_path: result.fetch(:path),
@@ -232,8 +246,9 @@ module Tickrake
         root: root
       )
       option_sample_writer.write(path: path, rows: rows)
+      byte_count = File.size(path)
 
-      { path: path, row_count: rows.length }
+      { path: path, row_count: rows.length, byte_count: byte_count }
     end
 
     def option_sample_rows(chain, option_root, provider_name)

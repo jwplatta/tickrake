@@ -72,6 +72,24 @@ RSpec.describe Tickrake::EventsIngestorJob do
         expect_any_instance_of(Tickrake::Storage::LevelOneParquetWriter).to receive(:write)
         job.run
       end
+
+      it "logs parquet_written with byte_count, market_date, and data_type" do
+        logged = []
+        allow(logger).to receive(:info) { |payload| logged << payload }
+
+        job.run
+
+        event = logged.find { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+        expect(event).not_to be_nil
+        expect(event[:data_type]).to eq("level_one")
+        expect(event[:provider]).to eq("schwab")
+        expect(event[:symbol]).to eq("SPY")
+        expect(event[:event_count]).to eq(1)
+        expect(event[:market_date]).to eq("2023-11-14")
+        expect(event[:path]).to be_a(String)
+        expect(event[:byte_count]).to eq(File.size(event[:path]))
+        expect(event[:byte_count]).to be > 0
+      end
     end
 
     context "with an order_book .ndjson file" do

@@ -124,6 +124,43 @@ RSpec.describe "option sample maintenance" do
     end
   end
 
+  it "emits structured parquet_written log event with byte_count for option sample compaction" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir)
+      Tickrake::Tracker.migrate!(config.sqlite_path)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      write_raw_fixture(config)
+
+      logged = []
+      test_logger = Logger.new(nil)
+      allow(test_logger).to receive(:info) { |payload| logged << payload }
+
+      context = Tickrake::Maintenance::OptionSamples::Context.new(
+        config: config,
+        tracker: tracker,
+        provider_name: "schwab",
+        option_root: "SPXW",
+        sample_date: Date.new(2026, 6, 26),
+        logger: test_logger
+      )
+
+      compact = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context).run(artifacts: %w[parquet])
+      expect(compact).to be_successful
+
+      event = logged.find { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+      expect(event).not_to be_nil
+      expect(event[:data_type]).to eq("options")
+      expect(event[:compaction_output]).to be(true)
+      expect(event[:provider]).to eq("schwab")
+      expect(event[:symbol]).to eq("SPXW")
+      expect(event[:market_date]).to eq("2026-06-26")
+      expect(event[:row_count]).to eq(compact.row_count)
+      expect(event[:path]).to be_a(String)
+      expect(event[:byte_count]).to eq(File.size(event[:path]))
+      expect(event[:byte_count]).to be > 0
+    end
+  end
+
   def build_maintenance_job(config, tracker, tasks:)
     Tickrake::MaintenanceJob.new(
       Tickrake::Runtime.new(

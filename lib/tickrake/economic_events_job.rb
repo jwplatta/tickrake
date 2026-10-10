@@ -104,9 +104,18 @@ module Tickrake
       grouped.each do |event_date, date_rows|
         path = storage_paths.economic_events_path(source: source, category: category, event_date: event_date)
         writer.write(path, rows: date_rows)
+        byte_count = File.size(path)
         @runtime.logger.info({
-          msg: "economic_events_written", source: source, category: category,
-          event_date: event_date.iso8601, row_count: date_rows.length, path: path
+          msg: "economic_events_written",
+          event: "parquet_written",
+          data_type: "economic_events",
+          source: source,
+          category: category,
+          event_date: event_date.iso8601,
+          market_date: event_date.iso8601,
+          row_count: date_rows.length,
+          byte_count: byte_count,
+          path: path
         })
       end
     end

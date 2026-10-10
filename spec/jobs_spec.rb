@@ -141,6 +141,8 @@ RSpec.describe "job execution" do
         )
       )
       client_factory = instance_double(Tickrake::ClientFactory, build: client)
+      logged_events = []
+      allow(logger).to receive(:info) { |payload| logged_events << payload }
       runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, client_factory: client_factory, logger: logger)
 
       Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
@@ -163,6 +165,15 @@ RSpec.describe "job execution" do
       # neither table should be written directly by the scrape job
       expect(tracker.file_metadata_rows).to be_empty
       expect(tracker.fetch_runs).to be_empty
+
+      fetch_success_event = logged_events.find { |evt| evt.is_a?(Hash) && evt[:event] == "fetch_success" }
+
+      expect(fetch_success_event).not_to be_nil
+      expect(fetch_success_event[:data_type]).to eq("options")
+      expect(fetch_success_event[:market_date]).to eq("2026-04-06")
+      expect(fetch_success_event[:provider]).to eq("schwab")
+      expect(fetch_success_event[:byte_count]).to be > 0
+      expect(fetch_success_event[:byte_count]).to eq(File.size(fetch_success_event[:path]))
     end
   end
 

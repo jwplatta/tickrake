@@ -63,6 +63,30 @@ RSpec.describe Tickrake::Maintenance::Candles::Compactor do
       expect(rows_2026.size).to eq(2)
     end
 
+    it "emits structured parquet_written log events with byte_count" do
+      logged = []
+      allow(logger).to receive(:info) { |payload| logged << payload }
+
+      write_csv([
+        ["2026-01-02T14:30:00Z", 450.0, 451.0, 449.5, 450.5, 100_000]
+      ])
+
+      compactor.run
+
+      event = logged.find { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+      expect(event).not_to be_nil
+      expect(event[:data_type]).to eq("candles")
+      expect(event[:compaction_output]).to be(true)
+      expect(event[:provider]).to eq("schwab")
+      expect(event[:symbol]).to eq("SPY")
+      expect(event[:frequency]).to eq("1min")
+      expect(event[:year]).to eq(2026)
+      expect(event[:row_count]).to eq(1)
+      expect(event[:path]).to be_a(String)
+      expect(event[:byte_count]).to eq(File.size(event[:path]))
+      expect(event[:byte_count]).to be > 0
+    end
+
     it "truncates CSV to headers-only after compaction" do
       write_csv([["2026-09-19T14:30:00Z", 450.0, 451.0, 449.5, 450.5, 100_000]])
 

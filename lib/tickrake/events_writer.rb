@@ -15,11 +15,17 @@ module Tickrake
       @current_path = nil
       @current_opened_at = nil
       @current_event_count = 0
+      @current_symbols = Set.new
+      @current_provider = nil
+      @current_data_type = nil
     end
 
     def write(event_hash)
       @lock.synchronize do
         maybe_rotate
+        @current_symbols << event_hash["symbol"] if event_hash["symbol"]
+        @current_provider ||= event_hash["provider"] if event_hash["provider"]
+        @current_data_type ||= event_hash["job_type"] || event_hash["data_type"]
         @current_file.puts(JSON.generate(event_hash))
         @current_file.flush
         @current_event_count += 1
@@ -77,6 +83,9 @@ module Tickrake
       @current_file = File.open(@current_path, "a")
       @current_opened_at = Time.now
       @current_event_count = 0
+      @current_symbols = Set.new
+      @current_provider = nil
+      @current_data_type = nil
     end
 
     def finalize_current_file
@@ -85,11 +94,26 @@ module Tickrake
       @current_file.close
       final_path = @current_path.sub(/\.tmp$/, "")
       File.rename(@current_path, final_path)
-      @logger.info({ msg: "file_rotated", event: "file_rotated", file: File.basename(final_path), event_count: @current_event_count })
+      byte_count = File.size(final_path)
+      @logger.info({
+        msg: "file_rotated",
+        event: "file_rotated",
+        data_type: @current_data_type || @job_name,
+        provider: @current_provider,
+        symbols: @current_symbols.to_a.sort,
+        file: File.basename(final_path),
+        path: final_path,
+        byte_count: byte_count,
+        event_count: @current_event_count,
+        rotated_at: Time.now.utc.iso8601
+      })
       @current_file = nil
       @current_path = nil
       @current_opened_at = nil
       @current_event_count = 0
+      @current_symbols = Set.new
+      @current_provider = nil
+      @current_data_type = nil
     end
   end
 end
