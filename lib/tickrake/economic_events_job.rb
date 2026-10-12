@@ -103,8 +103,10 @@ module Tickrake
 
       grouped.each do |event_date, date_rows|
         path = storage_paths.economic_events_path(source: source, category: category, event_date: event_date)
+        prior_byte_count = File.exist?(path) ? File.size(path) : 0
         writer.write(path, rows: date_rows)
         byte_count = File.size(path)
+        storage_byte_delta = byte_count - prior_byte_count
         @runtime.logger.info({
           msg: "economic_events_written",
           event: "parquet_written",
@@ -115,6 +117,7 @@ module Tickrake
           market_date: event_date.iso8601,
           row_count: date_rows.length,
           byte_count: byte_count,
+          storage_byte_delta: storage_byte_delta,
           path: path
         })
       end

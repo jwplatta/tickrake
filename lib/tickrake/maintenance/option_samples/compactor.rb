@@ -35,6 +35,8 @@ module Tickrake
             progress_reporter&.advance(title: "Compact #{@context.sample_date.iso8601} #{File.basename(path)}")
           end
 
+          prior_byte_count = (parquet_path && File.exist?(parquet_path)) ? File.size(parquet_path) : 0
+
           result = @writer.write(
             raw_files: raw_files,
             csv_path: csv_path,
@@ -46,6 +48,7 @@ module Tickrake
 
           if result.parquet_path && File.exist?(result.parquet_path)
             byte_count = File.size(result.parquet_path)
+            storage_byte_delta = byte_count - prior_byte_count
             @context.logger&.info({
               msg: "parquet_written",
               event: "parquet_written",
@@ -56,6 +59,7 @@ module Tickrake
               market_date: @context.sample_date.iso8601,
               row_count: result.row_count,
               byte_count: byte_count,
+              storage_byte_delta: storage_byte_delta,
               path: result.parquet_path
             })
           end

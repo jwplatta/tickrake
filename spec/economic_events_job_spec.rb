@@ -55,7 +55,17 @@ RSpec.describe Tickrake::EconomicEventsJob do
         expect(evt[:data_type]).to eq("economic_events")
         expect(evt[:byte_count]).to eq(File.size(evt[:path]))
         expect(evt[:byte_count]).to be > 0
+        expect(evt[:storage_byte_delta]).to eq(evt[:byte_count])
         expect(evt[:market_date]).not_to be_nil
+      end
+
+      # Second run overwriting files
+      logged.clear
+      job.run(now: Time.utc(2026, 9, 20))
+      rewritten_events = logged.select { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+      expect(rewritten_events.size).to eq(4)
+      rewritten_events.each do |evt|
+        expect(evt[:storage_byte_delta]).to eq(0)
       end
     end
 

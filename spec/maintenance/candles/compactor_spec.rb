@@ -63,7 +63,7 @@ RSpec.describe Tickrake::Maintenance::Candles::Compactor do
       expect(rows_2026.size).to eq(2)
     end
 
-    it "emits structured parquet_written log events with byte_count" do
+    it "emits structured parquet_written log events with byte_count and storage_byte_delta" do
       logged = []
       allow(logger).to receive(:info) { |payload| logged << payload }
 
@@ -85,6 +85,50 @@ RSpec.describe Tickrake::Maintenance::Candles::Compactor do
       expect(event[:path]).to be_a(String)
       expect(event[:byte_count]).to eq(File.size(event[:path]))
       expect(event[:byte_count]).to be > 0
+      expect(event[:storage_byte_delta]).to eq(event[:byte_count])
+    end
+
+    it "emits correct storage_byte_delta when replacing an existing parquet file" do
+      logged = []
+      allow(logger).to receive(:info) { |payload| logged << payload }
+
+      parquet_path = context.compacted_path(2026)
+      FileUtils.mkdir_p(File.dirname(parquet_path))
+      Tickrake::Storage::CandleParquetWriter.new.write(parquet_path, rows: [
+        ["2026-01-02T14:30:00Z", 450.0, 451.0, 449.5, 450.5, 100_000]
+      ])
+      initial_size = File.size(parquet_path)
+
+      write_csv([
+        ["2026-01-02T14:31:00Z", 450.5, 452.0, 450.0, 451.5, 80_000]
+      ])
+
+      compactor.run
+
+      event = logged.find { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+      expect(event).not_to be_nil
+      expect(event[:storage_byte_delta]).to eq(event[:byte_count] - initial_size)
+    end
+
+    it "does not emit parquet_written event when writer raises" do
+      logged = []
+      allow(logger).to receive(:info) { |payload| logged << payload }
+
+      write_csv([
+        ["2026-01-02T14:30:00Z", 450.0, 451.0, 449.5, 450.5, 100_000]
+      ])
+
+      failing_writer = instance_double(Tickrake::Storage::CandleParquetWriter)
+      allow(failing_writer).to receive(:read).and_return([])
+      allow(failing_writer).to receive(:write).and_raise(IOError, "disk full")
+
+      failing_compactor = described_class.new(context: context, writer: failing_writer)
+      result = failing_compactor.run
+      expect(result).not_to be_successful
+      expect(result.errors.first).to include("disk full")
+
+      written_events = logged.select { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+      expect(written_events).to be_empty
     end
 
     it "truncates CSV to headers-only after compaction" do

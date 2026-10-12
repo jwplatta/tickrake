@@ -79,8 +79,10 @@ module Tickrake
             provider: provider, symbol: symbol,
             flush_start: flush_start, provider_definition: provider_definition
           )
+          prior_byte_count = File.exist?(path) ? File.size(path) : 0
           @level_one_writer.write(path, rows: group)
           byte_count = File.size(path)
+          storage_byte_delta = byte_count - prior_byte_count
           @runtime.logger.info({
             msg: "parquet_written",
             event: "parquet_written",
@@ -90,6 +92,7 @@ module Tickrake
             market_date: flush_start.strftime("%Y-%m-%d"),
             event_count: group.size,
             byte_count: byte_count,
+            storage_byte_delta: storage_byte_delta,
             path: path
           })
         when "order_book"
@@ -97,8 +100,10 @@ module Tickrake
             provider: provider, symbol: symbol,
             flush_start: flush_start, provider_definition: provider_definition
           )
+          prior_byte_count = File.exist?(path) ? File.size(path) : 0
           @order_book_writer.write(path, rows: group)
           byte_count = File.size(path)
+          storage_byte_delta = byte_count - prior_byte_count
           @runtime.logger.info({
             msg: "parquet_written",
             event: "parquet_written",
@@ -108,6 +113,7 @@ module Tickrake
             market_date: flush_start.strftime("%Y-%m-%d"),
             event_count: group.size,
             byte_count: byte_count,
+            storage_byte_delta: storage_byte_delta,
             path: path
           })
         else
