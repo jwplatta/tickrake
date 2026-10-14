@@ -29,15 +29,19 @@ module Tickrake
         intrinsic_value
         extrinsic_value
         underlying_price
+        time_value
+        net_change
+        percent_change
       ].freeze
 
       INT64_COLUMNS = %w[
         bid_size
         ask_size
         transactions
+        multiplier
       ].freeze
 
-      TIMESTAMP_COLUMNS = %w[sampled_at].freeze
+      TIMESTAMP_COLUMNS = %w[sampled_at quote_at trade_at].freeze
 
       def write(path, headers:, rows:)
         directory = File.dirname(path)
@@ -64,9 +68,16 @@ module Tickrake
       end
 
       def typed_rows(headers, rows)
+        sampled_at_index = headers.index("sampled_at")
+        quote_at_index = headers.index("quote_at")
+
         rows.map do |row|
           headers.each_with_index.map do |header, index|
-            coerce_value(header, row[index])
+            val = row[index]
+            if header == "quote_at" && (val.nil? || (val.is_a?(String) && val.strip.empty?)) && sampled_at_index
+              val = row[sampled_at_index]
+            end
+            coerce_value(header, val)
           end
         end
       end

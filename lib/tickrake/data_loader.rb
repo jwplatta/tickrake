@@ -33,6 +33,9 @@ module Tickrake
       intrinsic_value
       extrinsic_value
       underlying_price
+      time_value
+      net_change
+      percent_change
     ].freeze
     OPTION_INTEGER_FIELDS = %w[
       bid_size
@@ -41,6 +44,7 @@ module Tickrake
       open_interest
       total_volume
       transactions
+      multiplier
     ].freeze
 
     def initialize(config_path: Tickrake::PathSupport.config_path, config: nil, tracker: nil)
@@ -306,6 +310,8 @@ module Tickrake
           case key
           when "expiration_date"
             blank?(value) ? nil : Date.iso8601(value)
+          when "quote_at", "trade_at"
+            blank?(value) ? nil : Time.iso8601(value).utc
           else
             coerce_value(key, value, float_fields: OPTION_FLOAT_FIELDS, integer_fields: OPTION_INTEGER_FIELDS)
           end

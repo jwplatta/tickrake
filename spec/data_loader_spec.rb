@@ -163,7 +163,7 @@ RSpec.describe Tickrake::DataLoader do
       FileUtils.mkdir_p(provider_dir)
       first_path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-30-00.csv")
       second_path = File.join(provider_dir, "SPXW_exp2026-04-17_2026-04-10_14-35-00.csv")
-      File.write(first_path, "contract_type,symbol,description,strike,bid,ask,expiration_date,open_interest\nCALL,SPXW,first,5100,1.25,1.35,2026-04-17,42\n")
+      File.write(first_path, "contract_type,symbol,description,strike,bid,ask,expiration_date,open_interest,quote_at,trade_at,time_value,multiplier\nCALL,SPXW,first,5100,1.25,1.35,2026-04-17,42,2026-04-10T14:30:00Z,2026-04-10T14:28:00Z,0.45,100\n")
       File.write(second_path, "contract_type,symbol,description,strike,bid,ask,expiration_date,open_interest\nCALL,SPXW,second,5105,1.45,1.6,2026-04-17,55\n")
 
       config = build_config(candles_dir: candles_dir, options_dir: options_dir, sqlite_path: sqlite_path)
@@ -217,7 +217,11 @@ RSpec.describe Tickrake::DataLoader do
         "bid" => 1.25,
         "ask" => 1.35,
         "expiration_date" => Date.iso8601("2026-04-17"),
-        "open_interest" => 42
+        "open_interest" => 42,
+        "quote_at" => Time.utc(2026, 4, 10, 14, 30, 0),
+        "trade_at" => Time.utc(2026, 4, 10, 14, 28, 0),
+        "time_value" => 0.45,
+        "multiplier" => 100
       )
       expect(rows.first).not_to have_key("metadata")
     end

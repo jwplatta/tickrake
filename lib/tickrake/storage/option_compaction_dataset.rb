@@ -26,28 +26,37 @@ module Tickrake
       end
 
       def build_rows(sample_date:, raw_files: nil, progress_reporter: nil, progress_title_prefix: nil)
-        headers = nil
+        file_headers = nil
         rows = []
         sampled_times = []
         files = raw_files || raw_snapshot_files(sample_date: sample_date)
+        target_headers = Tickrake::Storage::OptionSampleWriter::CSV_HEADERS
 
         files.each do |file|
           sampled_at = sampled_at_for_path(file)
           sampled_times << sampled_at
           CSV.foreach(file, headers: true) do |row|
-            headers ||= row.headers
-            unless row.headers == headers
+            file_headers ||= row.headers
+            unless row.headers == file_headers
               raise Tickrake::Error, "Cannot compact option snapshots with mismatched headers for #{@option_root} on #{File.basename(file)}."
             end
 
-            rows << row.fields + [sampled_at.utc.iso8601]
+            field_values = target_headers.map do |header|
+              val = row[header]
+              if header == "quote_at" && (val.nil? || val.strip.empty?)
+                sampled_at.utc.iso8601
+              else
+                val
+              end
+            end
+            rows << field_values + [sampled_at.utc.iso8601]
           end
           progress_reporter&.advance(title: [progress_title_prefix, File.basename(file)].compact.join(" "))
         end
 
         {
           raw_files: files,
-          headers: (headers || Tickrake::Storage::OptionSampleWriter::CSV_HEADERS) + ["sampled_at"],
+          headers: target_headers + ["sampled_at"],
           rows: rows,
           sampled_times: sampled_times
         }
