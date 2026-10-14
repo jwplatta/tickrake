@@ -26,6 +26,31 @@ tickrake migrate
 
 Edit `~/.tickrake/tickrake.yml` to configure providers, universes, storage paths, and timezone.
 
+### Database Backend
+
+Tickrake uses SQLite by default (`~/.tickrake/tickrake.sqlite3`). You can optionally select PostgreSQL as the backend:
+
+```yaml
+database:
+  backend: postgres # or sqlite
+  host: localhost
+  port: 5432
+  database: tickrake
+  user: tickrake
+  password: secret
+  # Or connection URL:
+  # url: postgres://user:password@localhost:5432/tickrake
+```
+
+Run `tickrake migrate` to apply schema migrations to the configured backend.
+
+To perform a one-time migration of existing SQLite state into PostgreSQL, use the operator script:
+
+```bash
+bundle exec ruby scripts/import_sqlite_to_postgres.rb --dry-run
+bundle exec ruby scripts/import_sqlite_to_postgres.rb
+```
+
 ### Environment Variables
 
 | Variable | Required | Description |

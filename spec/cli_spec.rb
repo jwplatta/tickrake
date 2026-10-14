@@ -7,6 +7,7 @@ RSpec.describe Tickrake::CLI do
       jobs: [index_options_job, eod_candles_job, maintenance_job],
       job: nil,
       sqlite_path: "/tmp/tickrake.sqlite3",
+      database: nil,
       default_provider_name: "schwab"
     )
   end

@@ -70,8 +70,14 @@ module Tickrake
     def migrate_command(argv, config)
       raise OptionParser::InvalidOption, argv.first if argv.any?
 
-      Tickrake::Tracker.migrate!(config.sqlite_path)
-      @stdout.puts("Migrated Tickrake database at #{config.sqlite_path}.")
+      target = config.respond_to?(:database) && config.database ? config.database : config.sqlite_path
+      Tickrake::Tracker.migrate!(target)
+      dest = if config.respond_to?(:database) && config.database&.postgres?
+               "PostgreSQL database #{config.database.database || config.database.url}"
+             else
+               "Tickrake database at #{config.sqlite_path}"
+             end
+      @stdout.puts("Migrated #{dest}.")
       0
     end
 

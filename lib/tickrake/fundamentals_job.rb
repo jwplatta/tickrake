@@ -266,7 +266,7 @@ module Tickrake
       interval = provider_def.rate_limit_interval_seconds
 
       @rate_limiter = if max_req && interval
-        Tickrake::DB::SqliteRateLimiter.new(
+        Tickrake::DB::RateLimiter.build(
           @runtime.config,
           provider: provider_name,
           capacity: max_req,

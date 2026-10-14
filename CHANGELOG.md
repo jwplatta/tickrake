@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added PostgreSQL metadata and shared rate-limit backend alongside default SQLite, configured via `database.backend` (`postgres` or `sqlite`).
+- Added database abstraction layer (`Tickrake::DB::Adapters`) with `SqliteAdapter` and `PostgresAdapter`, routing `Tracker`, `DataLoader`, rate limiting (`PostgresRateLimiter`), and `tickrake migrate` through the configured backend.
+- Added one-time operator script `scripts/import_sqlite_to_postgres.rb` with dry-run support, empty target enforcement, data and sequence verification, and primary key preservation.
 - Added option contract fields and ISO 8601 UTC timestamps to `OptionsJob`, `OptionSampleRow`, `OptionSampleWriter`, `DataLoader`, and DuckDB/Parquet compaction: `quote_at` (World Time), `trade_at`, `time_value`, `net_change`, `percent_change`, `settlement_type`, `exercise_type`, `expiration_type`, `multiplier`, and `non_standard`. For historical option samples without `quote_at`, compaction backfills `quote_at` from `sampled_at`.
 - Added `storage_byte_delta` signed integer field to successful finalized Parquet write events (`parquet_written`) across candle compaction, option sample compaction, event stream ingestion (`level_one` and `order_book`), economic events, and fundamentals to accurately measure net durable storage added.
 - Added intraday options time series and top-of-series publishing to `IntradayPublisherJob`, with incremental uploads, structured `latest` and `series` sections in per-root index JSON, and a daily `clear_at` eviction parameter in the DSL.

@@ -7,6 +7,7 @@ PATH
       duckdb
       ib-api (~> 972.5)
       parquet
+      pg (>= 1.5)
       ruby-progressbar (~> 1.13)
       schwab_rb (>= 1.0.4)
       sqlite3 (>= 1.6)
@@ -146,6 +147,9 @@ GEM
       bigdecimal
     parquet (0.8.0-x86_64-linux)
       bigdecimal
+    pg (1.7.0-aarch64-linux)
+    pg (1.7.0-arm64-darwin)
+    pg (1.7.0-x86_64-linux)
     prism (1.9.0)
     protocol-hpack (1.5.1)
     protocol-http (0.59.0)

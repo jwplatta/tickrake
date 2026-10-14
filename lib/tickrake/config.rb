@@ -197,7 +197,7 @@ module Tickrake
   ImportJobConfig = Struct.new(:name, :type, :provider, :ticker, :option_root, :paths, :force, keyword_init: true)
 
   class Config
-    attr_reader :timezone, :sqlite_path, :providers, :default_provider_name, :data_dir, :candles_dir, :options_dir, :max_workers,
+    attr_reader :timezone, :sqlite_path, :database, :providers, :default_provider_name, :data_dir, :candles_dir, :options_dir, :max_workers,
                 :retry_count, :retry_delay_seconds, :option_fetch_timeout_seconds, :candle_fetch_timeout_seconds, :jobs, :import_jobs,
                 :option_root_tickers, :option_snapshot_filename_timezone, :datastores, :universes, :pending_metadata_dir,
                 :pending_events_dir
@@ -205,6 +205,7 @@ module Tickrake
     def initialize(
       timezone:,
       sqlite_path:,
+      database: nil,
       providers:,
       default_provider_name:,
       option_root_tickers:,
@@ -226,6 +227,7 @@ module Tickrake
     )
       @timezone = timezone
       @sqlite_path = sqlite_path
+      @database = database || DatabaseConfig.new(backend: "sqlite", sqlite_path: sqlite_path)
       @providers = providers
       @default_provider_name = default_provider_name
       @option_root_tickers = option_root_tickers
