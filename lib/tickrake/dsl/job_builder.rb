@@ -138,7 +138,7 @@ module Tickrake
         when "intraday_publish" then build_intraday_publish_job!(config, schedule)
         when "events_ingest"    then build_events_ingest_job!(config, schedule)
         when "reconciler"       then build_reconcile_job!(schedule)
-        when "fundamentals"     then build_fundamentals_job!(schedule)
+        when "fundamentals"     then build_fundamentals_job!(config, schedule)
         when "chart_stream"      then build_chart_stream_job!(schedule)
         when "economic_events"   then build_economic_events_job!(schedule)
         when "stream"            then build_stream_job!(config, schedule)
@@ -418,8 +418,18 @@ module Tickrake
         )
       end
 
-      def build_fundamentals_job!(schedule)
+      def build_fundamentals_job!(config, schedule)
         raise Tickrake::Error, "fundamentals job `#{@name}` requires a fundamentals block" if @fundamentals_builder.nil?
+
+        symbol_list = if @universe_name
+                        config.universe(@universe_name).entries.map(&:symbol)
+                      elsif @universe_builder
+                        @universe_builder.entries.map(&:symbol)
+                      else
+                        @inline_symbols
+                      end
+
+        raise Tickrake::Error, "fundamentals job `#{@name}` requires symbols or universe" if symbol_list.empty?
 
         Tickrake::ScheduledJobConfig.new(
           name: @name,
@@ -431,7 +441,7 @@ module Tickrake
           days: schedule[:days],
           lookback_days: nil,
           dte_buckets: [],
-          universe: @inline_symbols,
+          universe: symbol_list,
           tasks: [],
           task: nil,
           settings: @fundamentals_builder.build!,

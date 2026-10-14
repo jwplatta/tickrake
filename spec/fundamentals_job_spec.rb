@@ -91,6 +91,91 @@ RSpec.describe Tickrake::FundamentalsJob do
       expect(second_event[:storage_byte_delta]).to eq(0)
     end
 
+    it "captures expanded fundamental, dividend, borrow, and quote fields in the generated parquet file" do
+      inst_payload = {
+        instruments: [
+          {
+            symbol: "AAPL",
+            assetType: "EQUITY",
+            exchange: "NASDAQ",
+            description: "Apple Inc",
+            cusip: "037833100",
+            fundamental: {
+              symbol: "AAPL",
+              high52: 200.0,
+              low52: 150.0,
+              peRatio: 30.5,
+              epsChange: 1.25,
+              epsChangeYear: 12.5,
+              revChangeIn: 8.4,
+              fundLeverageFactor: 100.0,
+              declarationDate: "2026-08-01 00:00:00.0",
+              nextDividendDate: "2026-11-06 00:00:00.0",
+              nextDividendPayDate: "2026-11-13 00:00:00.0",
+              dividendAmount: 1.0,
+              dividendYield: 0.5
+            }
+          }
+        ]
+      }
+      quotes_payload = {
+        "AAPL" => {
+          fundamental: {
+            lastEarningsDate: "2026-08-01T00:00:00Z",
+            avg1YearVolume: 55_000_000.0
+          },
+          reference: {
+            cusip: "037833100",
+            isHardToBorrow: false,
+            isShortable: true,
+            htbQuantity: 1_000_000,
+            htbRate: 0.25
+          },
+          quote: {
+            closePrice: 195.5,
+            lastPrice: 196.0,
+            netChange: 1.5,
+            netPercentChange: 0.77,
+            totalVolume: 42_000_000
+          }
+        }
+      }
+
+      allow(client).to receive(:get_instruments).and_return(inst_payload)
+      allow(client).to receive(:get_quotes).and_return(quotes_payload)
+
+      result = job.run(now: Time.utc(2026, 9, 20, 12, 0, 0))
+      expect(result.successful?).to be(true)
+
+      expected_path = File.join(tmpdir, "fundamentals", "schwab", "2026", "09", "20.parquet")
+      expect(File.exist?(expected_path)).to be(true)
+
+      rows = Parquet.each_row(expected_path).to_a
+      expect(rows.length).to eq(1)
+      row = rows.first
+
+      expect(row["symbol"]).to eq("AAPL")
+      expect(row["cusip"]).to eq("037833100")
+      expect(row["eps_change"]).to eq(1.25)
+      expect(row["eps_change_year"]).to eq(12.5)
+      expect(row["rev_change_in"]).to eq(8.4)
+      expect(row["fund_leverage_factor"]).to eq(100.0)
+      expect(row["is_hard_to_borrow"]).to eq(false)
+      expect(row["is_shortable"]).to eq(true)
+      expect(row["htb_quantity"]).to eq(1_000_000)
+      expect(row["htb_rate"]).to eq(0.25)
+      expect(row["declaration_date"]).to eq("2026-08-01 00:00:00.0")
+      expect(row["next_div_ex_date"]).to eq("2026-11-06 00:00:00.0")
+      expect(row["next_div_pay_date"]).to eq("2026-11-13 00:00:00.0")
+      expect(row["close_price"]).to eq(195.5)
+      expect(row["last_price"]).to eq(196.0)
+      expect(row["net_change"]).to eq(1.5)
+      expect(row["net_percent_change"]).to eq(0.77)
+      expect(row["total_volume"]).to eq(42_000_000)
+      expect(row["avg_1_year_volume"]).to eq(55_000_000)
+      expect(row["last_earnings_date"]).to eq("2026-08-01T00:00:00Z")
+    end
+
     it "does not emit parquet_written event if parquet writing fails" do
       logged = []
       allow(logger).to receive(:info) { |payload| logged << payload }

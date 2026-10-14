@@ -98,12 +98,27 @@ module Tickrake
         end
 
         data.each do |sym, quote_data|
-          fundamental = quote_data[:fundamental]
-          next unless fundamental
+          fundamental = quote_data[:fundamental] || {}
+          reference = quote_data[:reference] || {}
+          quote = quote_data[:quote] || {}
 
           result[sym.to_s] = {
             last_earnings_date: fundamental[:lastEarningsDate],
-            avg_1_year_volume: fundamental[:avg1YearVolume]
+            avg_1_year_volume: fundamental[:avg1YearVolume],
+            declaration_date: fundamental[:declarationDate],
+            next_div_ex_date: fundamental[:nextDivExDate],
+            next_div_pay_date: fundamental[:nextDivPayDate],
+            fund_leverage_factor: fundamental[:fundLeverageFactor],
+            cusip: reference[:cusip],
+            is_hard_to_borrow: reference[:isHardToBorrow],
+            is_shortable: reference[:isShortable],
+            htb_quantity: reference[:htbQuantity],
+            htb_rate: reference[:htbRate],
+            close_price: quote[:closePrice],
+            last_price: quote[:lastPrice],
+            net_change: quote[:netChange],
+            net_percent_change: quote[:netPercentChange],
+            total_volume: quote[:totalVolume]
           }
         end
       end
@@ -118,6 +133,7 @@ module Tickrake
         asset_type: inst[:assetType],
         exchange: inst[:exchange],
         description: inst[:description],
+        cusip: inst[:cusip] || supplement[:cusip],
         pe_ratio: fundamental[:peRatio],
         peg_ratio: fundamental[:pegRatio],
         pb_ratio: fundamental[:pbRatio],
@@ -140,25 +156,41 @@ module Tickrake
         total_debt_to_equity: fundamental[:totalDebtToEquity],
         eps_ttm: fundamental[:epsTTM],
         eps_change_percent_ttm: fundamental[:epsChangePercentTTM],
+        eps_change: fundamental[:epsChange],
+        eps_change_year: fundamental[:epsChangeYear],
         eps: fundamental[:eps],
         rev_change_year: fundamental[:revChangeYear],
         rev_change_ttm: fundamental[:revChangeTTM],
+        rev_change_in: fundamental[:revChangeIn],
         shares_outstanding: fundamental[:sharesOutstanding],
         market_cap_float: fundamental[:marketCapFloat],
         market_cap: fundamental[:marketCap],
         book_value_per_share: fundamental[:bookValuePerShare],
         short_int_to_float: fundamental[:shortIntToFloat],
         short_int_day_to_cover: fundamental[:shortIntDayToCover],
+        fund_leverage_factor: fundamental[:fundLeverageFactor] || supplement[:fund_leverage_factor],
+        is_hard_to_borrow: supplement[:is_hard_to_borrow],
+        is_shortable: supplement[:is_shortable],
+        htb_quantity: supplement[:htb_quantity],
+        htb_rate: supplement[:htb_rate],
         dividend_amount: fundamental[:dividendAmount],
         dividend_yield: fundamental[:dividendYield],
         dividend_date: fundamental[:dividendDate],
         dividend_pay_date: fundamental[:dividendPayDate],
         dividend_pay_amount: fundamental[:dividendPayAmount],
+        declaration_date: fundamental[:declarationDate] || supplement[:declaration_date],
+        next_div_ex_date: fundamental[:nextDividendDate] || supplement[:next_div_ex_date],
+        next_div_pay_date: fundamental[:nextDividendPayDate] || supplement[:next_div_pay_date],
         div_growth_rate_3year: fundamental[:divGrowthRate3Year],
         dividend_freq: fundamental[:dividendFreq],
         beta: fundamental[:beta],
         high_52: fundamental[:high52],
         low_52: fundamental[:low52],
+        close_price: supplement[:close_price],
+        last_price: supplement[:last_price],
+        net_change: supplement[:net_change],
+        net_percent_change: supplement[:net_percent_change],
+        total_volume: supplement[:total_volume],
         avg_10_days_volume: fundamental[:avg10DaysVolume],
         avg_1_day_volume: fundamental[:avg1DayVolume],
         avg_3_month_volume: fundamental[:avg3MonthVolume],

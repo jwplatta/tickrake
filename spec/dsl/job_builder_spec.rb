@@ -680,4 +680,78 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       expect(job.settings.subscriptions.first.symbols).to eq(%w[AAPL SPY])
     end
   end
+
+  describe "fundamentals job" do
+    def build_fundamentals(name = "daily_fundamentals", &block)
+      builder = described_class.new(name)
+      builder.instance_eval(&block)
+      builder.build!(config)
+    end
+
+    it "builds a fundamentals job with symbols from a named universe" do
+      job = build_fundamentals do
+        provider :schwab
+        universe "stock_universe"
+        schedule do
+          at "15:30"
+          weekdays
+        end
+        fundamentals do
+          batch_size 25
+        end
+      end
+
+      expect(job.type).to eq("fundamentals")
+      expect(job.provider).to eq("schwab")
+      expect(job.universe).to eq(%w[AAPL SPY])
+      expect(job.run_at).to eq([15, 30])
+      expect(job.days).to eq(%w[mon tue wed thu fri])
+      expect(job.settings).to eq("batch_size" => 25)
+    end
+
+    it "builds a fundamentals job with symbols from an inline universe block" do
+      job = build_fundamentals do
+        provider :schwab
+        universe do
+          ticker "JEPI"
+          ticker "JEPQ"
+        end
+        fundamentals {}
+      end
+
+      expect(job.type).to eq("fundamentals")
+      expect(job.universe).to eq(%w[JEPI JEPQ])
+      expect(job.settings).to eq("batch_size" => 50)
+    end
+
+    it "builds a fundamentals job with inline symbols" do
+      job = build_fundamentals do
+        provider :schwab
+        symbols "AAPL", "MSFT"
+        fundamentals {}
+      end
+
+      expect(job.type).to eq("fundamentals")
+      expect(job.universe).to eq(%w[AAPL MSFT])
+    end
+
+    it "raises when no universe or symbols are defined" do
+      expect do
+        build_fundamentals do
+          provider :schwab
+          fundamentals {}
+        end
+      end.to raise_error(Tickrake::Error, /fundamentals job `daily_fundamentals` requires symbols or universe/)
+    end
+
+    it "raises when fundamentals block is missing" do
+      expect do
+        build_fundamentals do
+          provider :schwab
+          symbols "AAPL"
+          type :fundamentals
+        end
+      end.to raise_error(Tickrake::Error, /fundamentals job `daily_fundamentals` requires a fundamentals block/)
+    end
+  end
 end
