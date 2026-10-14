@@ -309,7 +309,7 @@ RSpec.describe "job execution" do
       expect(File.exist?(expected_path)).to eq(true)
       csv_table = CSV.read(expected_path, headers: true)
       expect(csv_table.headers).to include(
-        "quote_time_in_long", "trade_time_in_long", "time_value", "net_change",
+        "quote_at", "trade_at", "time_value", "net_change",
         "percent_change", "settlement_type", "exercise_type", "expiration_type",
         "multiplier", "non_standard"
       )

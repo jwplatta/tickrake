@@ -38,12 +38,10 @@ module Tickrake
         bid_size
         ask_size
         transactions
-        quote_time_in_long
-        trade_time_in_long
         multiplier
       ].freeze
 
-      TIMESTAMP_COLUMNS = %w[sampled_at].freeze
+      TIMESTAMP_COLUMNS = %w[sampled_at quote_at trade_at].freeze
 
       def write(path, headers:, rows:)
         directory = File.dirname(path)
@@ -71,17 +69,13 @@ module Tickrake
 
       def typed_rows(headers, rows)
         sampled_at_index = headers.index("sampled_at")
-        quote_time_index = headers.index("quote_time_in_long")
+        quote_at_index = headers.index("quote_at")
 
         rows.map do |row|
           headers.each_with_index.map do |header, index|
             val = row[index]
-            if header == "quote_time_in_long" && (val.nil? || (val.is_a?(String) && val.strip.empty?)) && sampled_at_index
-              sampled_at_val = row[sampled_at_index]
-              if sampled_at_val
-                sampled_time = time_value(sampled_at_val)
-                val = (sampled_time.to_f * 1000).to_i
-              end
+            if header == "quote_at" && (val.nil? || (val.is_a?(String) && val.strip.empty?)) && sampled_at_index
+              val = row[sampled_at_index]
             end
             coerce_value(header, val)
           end

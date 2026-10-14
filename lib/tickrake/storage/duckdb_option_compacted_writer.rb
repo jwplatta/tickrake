@@ -85,8 +85,10 @@ module Tickrake
 
       def csv_select_list
         cols = Tickrake::Storage::OptionSampleWriter::CSV_HEADERS.map do |header|
-          if header == "quote_time_in_long"
-            "COALESCE(quote_time_in_long, CAST(epoch(sampled_at) * 1000 AS BIGINT)::VARCHAR) AS quote_time_in_long"
+          if header == "quote_at"
+            "strftime(timezone('UTC', COALESCE(TRY_CAST(quote_at AS TIMESTAMP WITH TIME ZONE), sampled_at)), '%Y-%m-%dT%H:%M:%SZ') AS quote_at"
+          elsif header == "trade_at"
+            "CASE WHEN trade_at IS NOT NULL AND trade_at != '' THEN strftime(timezone('UTC', TRY_CAST(trade_at AS TIMESTAMP WITH TIME ZONE)), '%Y-%m-%dT%H:%M:%SZ') ELSE NULL END AS trade_at"
           else
             header
           end
@@ -129,8 +131,8 @@ module Tickrake
           "TRY_CAST(intrinsic_value AS DOUBLE) AS intrinsic_value",
           "TRY_CAST(extrinsic_value AS DOUBLE) AS extrinsic_value",
           "TRY_CAST(underlying_price AS DOUBLE) AS underlying_price",
-          "COALESCE(TRY_CAST(quote_time_in_long AS BIGINT), CAST(epoch(sampled_at) * 1000 AS BIGINT)) AS quote_time_in_long",
-          "TRY_CAST(trade_time_in_long AS BIGINT) AS trade_time_in_long",
+          "COALESCE(TRY_CAST(quote_at AS TIMESTAMP WITH TIME ZONE), sampled_at) AS quote_at",
+          "TRY_CAST(trade_at AS TIMESTAMP WITH TIME ZONE) AS trade_at",
           "TRY_CAST(time_value AS DOUBLE) AS time_value",
           "TRY_CAST(net_change AS DOUBLE) AS net_change",
           "TRY_CAST(percent_change AS DOUBLE) AS percent_change",

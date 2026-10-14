@@ -293,8 +293,8 @@ module Tickrake
           intrinsic_value: option.intrinsic_value,
           extrinsic_value: option.extrinsic_value,
           underlying_price: chain.underlying_price,
-          quote_time_in_long: option.respond_to?(:quote_time_in_long) ? option.quote_time_in_long : nil,
-          trade_time_in_long: option.respond_to?(:trade_time_in_long) ? option.trade_time_in_long : nil,
+          quote_at: format_epoch_ms(option.respond_to?(:quote_time_in_long) ? option.quote_time_in_long : nil) || batch_time.iso8601,
+          trade_at: format_epoch_ms(option.respond_to?(:trade_time_in_long) ? option.trade_time_in_long : nil),
           time_value: option.respond_to?(:time_value) ? option.time_value : nil,
           net_change: option.respond_to?(:net_change) ? option.net_change : nil,
           percent_change: option.respond_to?(:percent_change) ? option.percent_change : nil,
@@ -307,6 +307,12 @@ module Tickrake
           fetched_at: batch_time
         )
       end
+    end
+
+    def format_epoch_ms(ms)
+      return nil if ms.nil? || ms.to_i.zero?
+
+      Time.at(ms.to_f / 1000.0).utc.iso8601
     end
 
     def filtered_options(chain, option_root)

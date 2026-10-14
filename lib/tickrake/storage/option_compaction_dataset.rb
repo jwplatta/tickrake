@@ -43,8 +43,8 @@ module Tickrake
 
             field_values = target_headers.map do |header|
               val = row[header]
-              if header == "quote_time_in_long" && (val.nil? || val.strip.empty?)
-                (sampled_at.utc.to_f * 1000).to_i.to_s
+              if header == "quote_at" && (val.nil? || val.strip.empty?)
+                sampled_at.utc.iso8601
               else
                 val
               end

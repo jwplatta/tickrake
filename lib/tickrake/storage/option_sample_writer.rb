@@ -34,8 +34,8 @@ module Tickrake
         intrinsic_value
         extrinsic_value
         underlying_price
-        quote_time_in_long
-        trade_time_in_long
+        quote_at
+        trade_at
         time_value
         net_change
         percent_change
@@ -90,8 +90,8 @@ module Tickrake
           row.intrinsic_value,
           row.extrinsic_value,
           row.underlying_price,
-          row.quote_time_in_long,
-          row.trade_time_in_long,
+          row.quote_at,
+          row.trade_at,
           row.time_value,
           row.net_change,
           row.percent_change,

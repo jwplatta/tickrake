@@ -44,8 +44,6 @@ module Tickrake
       open_interest
       total_volume
       transactions
-      quote_time_in_long
-      trade_time_in_long
       multiplier
     ].freeze
 
@@ -312,6 +310,8 @@ module Tickrake
           case key
           when "expiration_date"
             blank?(value) ? nil : Date.iso8601(value)
+          when "quote_at", "trade_at"
+            blank?(value) ? nil : Time.iso8601(value).utc
           else
             coerce_value(key, value, float_fields: OPTION_FLOAT_FIELDS, integer_fields: OPTION_INTEGER_FIELDS)
           end

@@ -145,7 +145,7 @@ RSpec.describe "duckdb option compaction parity" do
     end
   end
 
-  it "matches ruby and duckdb compaction when raw files contain quote_time_in_long and new contract fields" do
+  it "matches ruby and duckdb compaction when raw files contain quote_at, trade_at and new contract fields" do
     Dir.mktmpdir do |dir|
       config = build_config(dir)
       tracker = Tickrake::Tracker.new(config.sqlite_path)
@@ -153,7 +153,7 @@ RSpec.describe "duckdb option compaction parity" do
       FileUtils.mkdir_p(sample_dir)
       raw_a = File.join(sample_dir, "SPXW_exp2027-07-01_2027-07-01_14-30-00.csv")
       headers = Tickrake::Storage::OptionSampleWriter::CSV_HEADERS.join(",")
-      row_a = "CALL,SPXW1,desc1,2800.0,2027-07-01,1.0,1.2,0.9,1.1,1.1,1.0,2,1.2,3,1.15,1,10,20,4,0.5,0.1,-0.2,0.3,0.05,0.22,0.21,1.05,0.5,0.55,6000.0,1814452200000,1814452195000,0.55,0.05,4.5,PM,EUROPEAN,WEEKLY,100,false"
+      row_a = "CALL,SPXW1,desc1,2800.0,2027-07-01,1.0,1.2,0.9,1.1,1.1,1.0,2,1.2,3,1.15,1,10,20,4,0.5,0.1,-0.2,0.3,0.05,0.22,0.21,1.05,0.5,0.55,6000.0,2027-07-01T14:29:55Z,2027-07-01T14:29:50Z,0.55,0.05,4.5,PM,EUROPEAN,WEEKLY,100,false"
       File.write(raw_a, "#{headers}\n#{row_a}\n")
 
       context = Tickrake::Maintenance::OptionSamples::Context.new(
@@ -184,11 +184,11 @@ RSpec.describe "duckdb option compaction parity" do
         expect(File.read(duckdb_result.csv_path)).to eq(File.read(ruby_result.csv_path))
         expect(parquet_rows(duckdb_result.parquet_path)).to eq(parquet_rows(ruby_result.parquet_path))
         parquet_data = parquet_rows(duckdb_result.parquet_path)
-        expect(parquet_data.first[30]).to eq(1814452200000) # quote_time_in_long
-        expect(parquet_data.first[31]).to eq(1814452195000) # trade_time_in_long
-        expect(parquet_data.first[32]).to eq(0.55)          # time_value
-        expect(parquet_data.first[35]).to eq("PM")           # settlement_type
-        expect(parquet_data.first[38]).to eq(100)            # multiplier
+        expect(parquet_data.first[30]).to eq("2027-07-01T14:29:55Z") # quote_at
+        expect(parquet_data.first[31]).to eq("2027-07-01T14:29:50Z") # trade_at
+        expect(parquet_data.first[32]).to eq(0.55)                  # time_value
+        expect(parquet_data.first[35]).to eq("PM")                   # settlement_type
+        expect(parquet_data.first[38]).to eq(100)                    # multiplier
       end
     end
   end
