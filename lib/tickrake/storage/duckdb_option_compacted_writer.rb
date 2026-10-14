@@ -58,6 +58,7 @@ module Tickrake
       end
 
       def insert_raw_file(con, raw_file, sampled_at)
+        validate_raw_file_schema!(raw_file)
         con.query(<<~SQL)
           INSERT INTO compacted_option_samples BY NAME
           SELECT
@@ -147,6 +148,21 @@ module Tickrake
 
       def sql_string(value)
         "'#{value.to_s.gsub("'", "''")}'"
+      end
+
+      def validate_raw_file_schema!(raw_file)
+        headers = CSV.open(raw_file, &:readline)
+        raise Tickrake::Error, "Option snapshot #{File.basename(raw_file)} is empty or missing headers." if headers.nil? || headers.empty?
+
+        duplicates = headers.select { |h| headers.count(h) > 1 }.uniq
+        unless duplicates.empty?
+          raise Tickrake::Error, "Option snapshot #{File.basename(raw_file)} contains duplicate headers: #{duplicates.join(", ")}."
+        end
+
+        unsupported = headers - Tickrake::Storage::OptionSampleWriter::CSV_HEADERS
+        unless unsupported.empty?
+          raise Tickrake::Error, "Option snapshot #{File.basename(raw_file)} contains unsupported headers: #{unsupported.join(", ")}."
+        end
       end
     end
   end

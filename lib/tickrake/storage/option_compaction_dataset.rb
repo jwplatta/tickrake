@@ -26,21 +26,16 @@ module Tickrake
       end
 
       def build_rows(sample_date:, raw_files: nil, progress_reporter: nil, progress_title_prefix: nil)
-        file_headers = nil
         rows = []
         sampled_times = []
         files = raw_files || raw_snapshot_files(sample_date: sample_date)
         target_headers = Tickrake::Storage::OptionSampleWriter::CSV_HEADERS
 
         files.each do |file|
+          validate_raw_file_schema!(file)
           sampled_at = sampled_at_for_path(file)
           sampled_times << sampled_at
           CSV.foreach(file, headers: true) do |row|
-            file_headers ||= row.headers
-            unless row.headers == file_headers
-              raise Tickrake::Error, "Cannot compact option snapshots with mismatched headers for #{@option_root} on #{File.basename(file)}."
-            end
-
             field_values = target_headers.map do |header|
               val = row[header]
               if header == "quote_at" && (val.nil? || val.strip.empty?)
@@ -78,6 +73,21 @@ module Tickrake
       end
 
       private
+
+      def validate_raw_file_schema!(path)
+        headers = CSV.open(path, &:readline)
+        raise Tickrake::Error, "Option snapshot #{File.basename(path)} is empty or missing headers." if headers.nil? || headers.empty?
+
+        duplicates = headers.select { |h| headers.count(h) > 1 }.uniq
+        unless duplicates.empty?
+          raise Tickrake::Error, "Option snapshot #{File.basename(path)} contains duplicate headers: #{duplicates.join(", ")}."
+        end
+
+        unsupported = headers - Tickrake::Storage::OptionSampleWriter::CSV_HEADERS
+        unless unsupported.empty?
+          raise Tickrake::Error, "Option snapshot #{File.basename(path)} contains unsupported headers: #{unsupported.join(", ")}."
+        end
+      end
 
       def raw_snapshot_filename?(path)
         /\A#{Regexp.escape(@storage_root)}_exp\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.csv\z/.match?(File.basename(path))
