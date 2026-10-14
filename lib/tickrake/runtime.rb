@@ -7,7 +7,7 @@ module Tickrake
     def initialize(config:, tracker: nil, client_factory: nil, provider_factory: nil, logger: nil, provider_name: nil, verbose: false, stdout: $stdout, log_path: Tickrake::PathSupport.cli_log_path, config_path: Tickrake::PathSupport.config_path, context: {})
       @config = config
       @config_path = Tickrake::PathSupport.expand_path(config_path)
-      @tracker = tracker || Tracker.new(config.sqlite_path)
+      @tracker = tracker || Tracker.new(config)
       @provider_override_name = provider_name
       @provider_name = provider_name || config.default_provider_name
       @provider_definition = config.provider_definition(@provider_name)

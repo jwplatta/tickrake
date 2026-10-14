@@ -3,8 +3,17 @@
 module Tickrake
   module DB
     class SqliteRateLimiter
-      def initialize(config, provider:, capacity:, refill_rate:)
-        @db          = Tickrake::DB.connection(config.sqlite_path)
+      def initialize(config_or_path, provider:, capacity:, refill_rate:)
+        path = if config_or_path.is_a?(String)
+                 config_or_path
+               elsif config_or_path.respond_to?(:sqlite_path)
+                 config_or_path.sqlite_path
+               elsif config_or_path.respond_to?(:path)
+                 config_or_path.path
+               else
+                 Tickrake::PathSupport.sqlite_path
+               end
+        @db          = Tickrake::DB.connection(path)
         @provider    = provider
         @capacity    = capacity.to_f
         @refill_rate = refill_rate.to_f

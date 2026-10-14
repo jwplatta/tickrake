@@ -22,62 +22,69 @@ module Tickrake
       collection_id
     ].freeze
 
-    def self.migrate!(path)
-      tracker = new(path, migrate: true)
+    def self.migrate!(config_or_path)
+      tracker = new(config_or_path, migrate: true)
       tracker.close
       nil
     end
 
-    def self.migrations
-      [
-        Tickrake::DB::Migrations::CreateFetchRuns,
-        Tickrake::DB::Migrations::CreateFileMetadataCache,
-        Tickrake::DB::Migrations::AddFetchRunsFrequency,
-        Tickrake::DB::Migrations::AddOptionExpirationAndIndexes,
-        Tickrake::DB::Migrations::AddOptionTickerTimeIndex,
-        Tickrake::DB::Migrations::CreateMarketIndexTables,
-        Tickrake::DB::Migrations::AddArtifactMetadataToFileCache,
-        Tickrake::DB::Migrations::AddCollectionId,
-        Tickrake::DB::Migrations::CreateApiRateLimits,
-        Tickrake::DB::Migrations::CreateJobSessions,
-        Tickrake::DB::Migrations::CreateOrderBookEvents,
-        Tickrake::DB::Migrations::CreateLevelOneEvents,
-        Tickrake::DB::Migrations::DropStreamingEventTables,
-        Tickrake::DB::Migrations::RemoveArchiveMetadataFromFileCache
-      ].freeze
+    def self.migrations(backend = "sqlite")
+      if backend.to_s == "postgres" || backend.to_s == "postgresql"
+        [
+          Tickrake::DB::PostgresMigrations::CreateSchema
+        ].freeze
+      else
+        [
+          Tickrake::DB::Migrations::CreateFetchRuns,
+          Tickrake::DB::Migrations::CreateFileMetadataCache,
+          Tickrake::DB::Migrations::AddFetchRunsFrequency,
+          Tickrake::DB::Migrations::AddOptionExpirationAndIndexes,
+          Tickrake::DB::Migrations::AddOptionTickerTimeIndex,
+          Tickrake::DB::Migrations::CreateMarketIndexTables,
+          Tickrake::DB::Migrations::AddArtifactMetadataToFileCache,
+          Tickrake::DB::Migrations::AddCollectionId,
+          Tickrake::DB::Migrations::CreateApiRateLimits,
+          Tickrake::DB::Migrations::CreateJobSessions,
+          Tickrake::DB::Migrations::CreateOrderBookEvents,
+          Tickrake::DB::Migrations::CreateLevelOneEvents,
+          Tickrake::DB::Migrations::DropStreamingEventTables,
+          Tickrake::DB::Migrations::RemoveArchiveMetadataFromFileCache
+        ].freeze
+      end
     end
 
-    def initialize(path, migrate: false)
-      @path = Tickrake::PathSupport.expand_path(path)
+    attr_reader :adapter, :path
+
+    def initialize(config_or_path, migrate: false)
+      @adapter = Tickrake::DB::Adapters.build(config_or_path)
+      @path = @adapter.respond_to?(:path) ? @adapter.path : nil
       @db_lock = Monitor.new
-      FileUtils.mkdir_p(File.dirname(@path))
       migrate ? migrate! : ensure_schema_current!
     end
 
     def close
       synchronize_db do
-        return unless defined?(@db) && @db
-
-        @db.close
+        @adapter&.close
         @db = nil
       end
     end
 
     def checkpoint!
       synchronize_db do
-        db.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        adapter.checkpoint!
       end
     end
 
     def record_start(attrs)
       synchronize_db do
-        db.execute(
+        returning_clause = postgres? ? " RETURNING id" : ""
+        res = db.execute(
           <<~SQL,
             INSERT INTO fetch_runs (
               job_type, dataset_type, symbol, frequency, option_root, requested_buckets,
               resolved_expiration, scheduled_for, started_at, status, output_path, error_message,
               collection_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)#{returning_clause}
           SQL
           [
             attrs.fetch(:job_type),
@@ -95,7 +102,11 @@ module Tickrake
             attrs[:collection_id]
           ]
         )
-        db.last_insert_row_id
+        if postgres?
+          res.first["id"].to_i
+        else
+          db.respond_to?(:last_insert_id) ? db.last_insert_id : db.last_insert_row_id
+        end
       end
     end
 
@@ -175,7 +186,9 @@ module Tickrake
 
     def evict_stale_metadata(older_than_days:)
       cutoff = (Time.now.utc - older_than_days * 86400).iso8601
-      @db.execute("DELETE FROM file_metadata_cache WHERE updated_at < ?", [cutoff])
+      synchronize_db do
+        db.execute("DELETE FROM file_metadata_cache WHERE updated_at < ?", [cutoff])
+      end
     end
 
     def bulk_upsert_file_metadata(attrs_list)
@@ -428,14 +441,9 @@ module Tickrake
       end
     end
 
-    def with_transaction
+    def with_transaction(&block)
       synchronize_db do
-        db.transaction
-        yield
-        db.commit
-      rescue StandardError
-        db.rollback if db.transaction_active?
-        raise
+        db.transaction(&block)
       end
     end
 
@@ -502,13 +510,12 @@ module Tickrake
       @db_lock.synchronize(&block)
     end
 
+    def postgres?
+      @adapter.backend == "postgres"
+    end
+
     def db
-      @db ||= SQLite3::Database.new(@path).tap do |database|
-        database.busy_timeout(SQLITE_BUSY_TIMEOUT_MS)
-        database.execute("PRAGMA journal_mode = WAL")
-        database.execute("PRAGMA wal_autocheckpoint = 0")
-        database.results_as_hash = true
-      end
+      @adapter
     end
 
     def normalized_file_metadata_values(attrs)
@@ -531,7 +538,8 @@ module Tickrake
     end
 
     def migrate!
-      Tickrake::DB::Migrator.new(db, migrations: self.class.migrations).migrate!
+      migrations = self.class.migrations(@adapter.backend)
+      Tickrake::DB::Migrator.new(@adapter, migrations: migrations).migrate!
     end
 
     def iso(value)
@@ -539,19 +547,22 @@ module Tickrake
     end
 
     def ensure_schema_current!
-      raise Tickrake::Error, pending_migrations_message unless File.exist?(@path)
+      if !postgres? && @path && !File.exist?(@path)
+        raise Tickrake::Error, pending_migrations_message
+      end
 
       applied_versions = db.execute("SELECT version FROM schema_migrations ORDER BY version").map do |row|
         row.fetch("version").to_i
       end
-      pending_versions = self.class.migrations.map(&:version) - applied_versions
+      pending_versions = self.class.migrations(@adapter.backend).map(&:version) - applied_versions
       raise Tickrake::Error, pending_migrations_message unless pending_versions.empty?
-    rescue SQLite3::SQLException
+    rescue StandardError
       raise Tickrake::Error, pending_migrations_message
     end
 
     def pending_migrations_message
-      "Database migrations are pending for #{@path}. Run `tickrake migrate`."
+      target_desc = @path || "database"
+      "Database migrations are pending for #{target_desc}. Run `tickrake migrate`."
     end
 
     def upsert_market_index(index_code:, index_name:)

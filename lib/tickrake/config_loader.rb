@@ -28,6 +28,7 @@ module Tickrake
 
       timezone = data.fetch("timezone", ENV.fetch("TZ", "America/Chicago"))
       sqlite_path = Tickrake::PathSupport.expand_path(data.fetch("sqlite_path", Tickrake::PathSupport.sqlite_path))
+      database = load_database(data, default_sqlite_path: sqlite_path)
       providers, default_provider_name = load_providers(data)
       options_config = data.fetch("options", {})
       option_root_tickers = load_option_root_tickers(options_config)
@@ -48,6 +49,7 @@ module Tickrake
       config = Config.new(
         timezone: timezone,
         sqlite_path: sqlite_path,
+        database: database,
         providers: providers,
         default_provider_name: default_provider_name,
         option_root_tickers: option_root_tickers,
@@ -111,7 +113,65 @@ module Tickrake
         raise ConfigError, "import job `#{job.name}` requires at least one path." if job.paths.empty?
       end
 
+      validate_database!(config.database)
+
       raise ConfigError, "max_workers must be positive." if config.max_workers <= 0
+    end
+
+    def load_database(data, default_sqlite_path:)
+      raw_db = data.fetch("database", nil)
+      if raw_db.nil?
+        return DatabaseConfig.new(
+          backend: "sqlite",
+          sqlite_path: default_sqlite_path
+        )
+      end
+
+      raise ConfigError, "database must be a mapping." unless raw_db.is_a?(Hash)
+
+      backend = raw_db.fetch("backend", "sqlite").to_s.strip.downcase
+      sqlite_path = if raw_db["sqlite_path"]
+                      Tickrake::PathSupport.expand_path(raw_db["sqlite_path"])
+                    else
+                      default_sqlite_path
+                    end
+
+      url = raw_db["url"] || raw_db["connection_string"]
+      host = raw_db["host"]
+      port = raw_db["port"]
+      database = raw_db["database"] || raw_db["dbname"]
+      user = raw_db["user"] || raw_db["username"]
+      password = raw_db["password"]
+      sslmode = raw_db["sslmode"]
+      connect_timeout = raw_db["connect_timeout"]
+
+      DatabaseConfig.new(
+        backend: backend,
+        sqlite_path: sqlite_path,
+        url: url,
+        host: host,
+        port: port,
+        database: database,
+        user: user,
+        password: password,
+        sslmode: sslmode,
+        connect_timeout: connect_timeout
+      )
+    end
+
+    def validate_database!(database)
+      return unless database
+
+      case database.backend
+      when "sqlite", ""
+        # SQLite is valid
+      when "postgres", "postgresql"
+        if database.url.to_s.empty? && database.database.to_s.empty?
+          raise ConfigError, "PostgreSQL backend requires `database` name or `url`."
+        end
+      else
+        raise ConfigError, "Unsupported database backend: #{database.backend}. Supported backends: sqlite, postgres."
+      end
     end
 
     def load_option_snapshot_filename_timezone(raw_options)

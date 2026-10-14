@@ -49,7 +49,7 @@ module Tickrake
 
     def initialize(config_path: Tickrake::PathSupport.config_path, config: nil, tracker: nil)
       @config = config || Tickrake::ConfigLoader.load(config_path)
-      @tracker = tracker || Tickrake::Tracker.new(@config.sqlite_path)
+      @tracker = tracker || Tickrake::Tracker.new(@config)
       @frequency_normalizer = Tickrake::Query::FrequencyNormalizer.new
     end
 

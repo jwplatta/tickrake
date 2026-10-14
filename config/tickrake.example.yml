@@ -1,5 +1,14 @@
 timezone: America/Chicago
 sqlite_path: ~/.tickrake/tickrake.sqlite3
+# database:
+#   backend: postgres # sqlite (default) or postgres
+#   host: localhost
+#   port: 5432
+#   database: tickrake
+#   user: postgres
+#   password: secret
+#   # Or connection url:
+#   # url: postgres://user:password@localhost:5432/tickrake
 default_provider: schwab
 providers:
   schwab:
