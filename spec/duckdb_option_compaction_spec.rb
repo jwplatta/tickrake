@@ -192,4 +192,122 @@ RSpec.describe "duckdb option compaction parity" do
       end
     end
   end
+
+  it "compacts mixed same-day legacy and expanded snapshots and validates successfully" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      sample_dir = File.join(config.options_dir, "schwab", "2026", "10", "14")
+      FileUtils.mkdir_p(sample_dir)
+
+      legacy_headers = Tickrake::Storage::OptionSampleWriter::CSV_HEADERS[0...30]
+      expanded_headers = Tickrake::Storage::OptionSampleWriter::CSV_HEADERS
+
+      raw_legacy = File.join(sample_dir, "SPXW_exp2026-10-14_2026-10-14_13-25-00.csv")
+      row_legacy = "CALL,SPXW1,desc1,2800.0,2026-10-14,1.0,1.2,0.9,1.1,1.1,1.0,2,1.2,3,1.15,1,10,20,4,0.5,0.1,-0.2,0.3,0.05,0.22,0.21,1.05,0.5,0.55,6000.0"
+      File.write(raw_legacy, "#{legacy_headers.join(",")}\n#{row_legacy}\n")
+
+      raw_expanded = File.join(sample_dir, "SPXW_exp2026-10-14_2026-10-14_13-30-27.csv")
+      row_expanded = "CALL,SPXW1,desc1,2800.0,2026-10-14,1.0,1.2,0.9,1.1,1.1,1.0,2,1.2,3,1.15,1,10,20,4,0.5,0.1,-0.2,0.3,0.05,0.22,0.21,1.05,0.5,0.55,6000.0,2026-10-14T13:30:25Z,2026-10-14T13:30:20Z,0.55,0.05,4.5,PM,EUROPEAN,WEEKLY,100,false"
+      File.write(raw_expanded, "#{expanded_headers.join(",")}\n#{row_expanded}\n")
+
+      context = Tickrake::Maintenance::OptionSamples::Context.new(
+        config: config,
+        tracker: tracker,
+        provider_name: "schwab",
+        option_root: "SPXW",
+        sample_date: Date.new(2026, 10, 14),
+        logger: Logger.new(nil)
+      )
+
+      compactor = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context)
+      compact_result = compactor.run(artifacts: %w[csv parquet])
+      expect(compact_result.success).to eq(true)
+      expect(compact_result.errors).to be_empty
+      expect(compact_result.row_count).to eq(2)
+
+      # Verify Parquet content
+      parquet_data = parquet_rows(context.compacted_path("parquet"))
+      expect(parquet_data.length).to eq(2)
+
+      # First row from legacy snapshot: missing fields are null, quote_at derived from sampled_at
+      legacy_row = parquet_data.find { |r| r[40] == "2026-10-14T13:25:00Z" }
+      expect(legacy_row[30]).to eq("2026-10-14T13:25:00Z") # quote_at derived from sampled_at
+      expect(legacy_row[31]).to be_nil                      # trade_at is null
+      expect(legacy_row[32]).to be_nil                      # time_value is null
+      expect(legacy_row[35]).to be_nil                      # settlement_type is null
+
+      # Second row from expanded snapshot: new fields preserved
+      expanded_row = parquet_data.find { |r| r[40] == "2026-10-14T13:30:27Z" }
+      expect(expanded_row[30]).to eq("2026-10-14T13:30:25Z") # quote_at
+      expect(expanded_row[31]).to eq("2026-10-14T13:30:20Z") # trade_at
+      expect(expanded_row[32]).to eq(0.55)                  # time_value
+      expect(expanded_row[35]).to eq("PM")                   # settlement_type
+      expect(expanded_row[38]).to eq(100)                    # multiplier
+
+      # Parquet and CSV outputs match ruby compactor build_rows parity
+      built = context.dataset.build_rows(sample_date: context.sample_date)
+      expect(built.fetch(:rows).length).to eq(2)
+      expect(built.fetch(:rows).first[30]).to eq("2026-10-14T13:25:00Z") # legacy quote_at derived from sampled_at
+      expect(built.fetch(:rows).first[35]).to be_nil # settlement_type nil
+
+      # Validator passes
+      validator = Tickrake::Maintenance::OptionSamples::Validator.new(context: context)
+      val_result = validator.run
+      expect(val_result.safe_to_delete).to eq(true)
+      expect(val_result.errors).to be_empty
+    end
+  end
+
+  it "rejects snapshot files with malformed or unsupported headers identifying the file" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir)
+      tracker = Tickrake::Tracker.new(config.sqlite_path)
+      sample_dir = File.join(config.options_dir, "schwab", "2026", "10", "14")
+      FileUtils.mkdir_p(sample_dir)
+
+      raw_unsupported = File.join(sample_dir, "SPXW_exp2026-10-14_2026-10-14_13-25-00.csv")
+      File.write(raw_unsupported, "contract_type,symbol,unsupported_column\nCALL,SPXW1,foo\n")
+
+      context = Tickrake::Maintenance::OptionSamples::Context.new(
+        config: config,
+        tracker: tracker,
+        provider_name: "schwab",
+        option_root: "SPXW",
+        sample_date: Date.new(2026, 10, 14),
+        logger: Logger.new(nil)
+      )
+
+      expect do
+        context.dataset.build_rows(sample_date: context.sample_date, raw_files: [raw_unsupported])
+      end.to raise_error(Tickrake::Error, /Option snapshot SPXW_exp2026-10-14_2026-10-14_13-25-00\.csv contains unsupported headers: unsupported_column/)
+
+      compactor = Tickrake::Maintenance::OptionSamples::Compactor.new(context: context)
+      res = compactor.run(artifacts: %w[parquet])
+      expect(res.success).to eq(false)
+      expect(res.errors.first).to match(/Option snapshot SPXW_exp2026-10-14_2026-10-14_13-25-00\.csv contains unsupported headers: unsupported_column/)
+      # Source snapshot preserved
+      expect(File.exist?(raw_unsupported)).to eq(true)
+    end
+  end
+
+  it "rejects snapshot files with duplicate headers identifying the file" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir)
+      sample_dir = File.join(config.options_dir, "schwab", "2026", "10", "14")
+      FileUtils.mkdir_p(sample_dir)
+
+      raw_dup = File.join(sample_dir, "SPXW_exp2026-10-14_2026-10-14_13-25-00.csv")
+      File.write(raw_dup, "strike,strike,symbol\n1,2,SPXW\n")
+
+      writer = Tickrake::Storage::DuckdbOptionCompactedWriter.new
+      expect do
+        writer.write(
+          raw_files: [raw_dup],
+          parquet_path: File.join(dir, "out.parquet"),
+          sampled_at_resolver: ->(_) { Time.now }
+        )
+      end.to raise_error(Tickrake::Error, /Option snapshot SPXW_exp2026-10-14_2026-10-14_13-25-00\.csv contains duplicate headers: strike/)
+    end
+  end
 end
