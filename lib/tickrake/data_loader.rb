@@ -33,6 +33,9 @@ module Tickrake
       intrinsic_value
       extrinsic_value
       underlying_price
+      time_value
+      net_change
+      percent_change
     ].freeze
     OPTION_INTEGER_FIELDS = %w[
       bid_size
@@ -41,6 +44,9 @@ module Tickrake
       open_interest
       total_volume
       transactions
+      quote_time_in_long
+      trade_time_in_long
+      multiplier
     ].freeze
 
     def initialize(config_path: Tickrake::PathSupport.config_path, config: nil, tracker: nil)

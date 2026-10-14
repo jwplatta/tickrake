@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added option contract fields and timestamps to `OptionsJob`, `OptionSampleRow`, `OptionSampleWriter`, `DataLoader`, and DuckDB/Parquet compaction: `quote_time_in_long` (World Time), `trade_time_in_long`, `time_value`, `net_change`, `percent_change`, `settlement_type`, `exercise_type`, `expiration_type`, `multiplier`, and `non_standard`. For historical option samples without `quote_time_in_long`, compaction backfills `quote_time_in_long` from `sampled_at`.
 - Added `storage_byte_delta` signed integer field to successful finalized Parquet write events (`parquet_written`) across candle compaction, option sample compaction, event stream ingestion (`level_one` and `order_book`), economic events, and fundamentals to accurately measure net durable storage added.
 - Added intraday options time series and top-of-series publishing to `IntradayPublisherJob`, with incremental uploads, structured `latest` and `series` sections in per-root index JSON, and a daily `clear_at` eviction parameter in the DSL.
 - Added consolidated `stream` job type (`StreamJob`, `StreamRunner`, `DSL::StreamBuilder`, `StreamConfig`): allows combining multiple streaming services (Level 1 equities/futures/options, Level 2 order books, and candle chart streams) over a single Schwab WebSocket connection. Dynamically adds (`ADD`) and removes (`UNSUBS`) subscriptions as their individual schedule windows open and close.

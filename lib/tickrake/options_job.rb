@@ -244,7 +244,7 @@ module Tickrake
       end
       raise Tickrake::Error, "Option chain request returned nil for #{symbol} exp=#{expiration_date}" if chain.nil?
 
-      rows = option_sample_rows(chain, root, provider_name)
+      rows = option_sample_rows(chain, root, provider_name, timestamp: timestamp)
       path = storage_paths.option_sample_path(
         provider: provider_name,
         symbol: symbol,
@@ -258,7 +258,8 @@ module Tickrake
       { path: path, row_count: rows.length, byte_count: byte_count }
     end
 
-    def option_sample_rows(chain, option_root, provider_name)
+    def option_sample_rows(chain, option_root, provider_name, timestamp: Time.now.utc)
+      batch_time = timestamp.utc
       filtered_options(chain, option_root).sort_by do |option|
         [
           option.expiration_date&.iso8601.to_s,
@@ -292,8 +293,18 @@ module Tickrake
           intrinsic_value: option.intrinsic_value,
           extrinsic_value: option.extrinsic_value,
           underlying_price: chain.underlying_price,
+          quote_time_in_long: option.respond_to?(:quote_time_in_long) ? option.quote_time_in_long : nil,
+          trade_time_in_long: option.respond_to?(:trade_time_in_long) ? option.trade_time_in_long : nil,
+          time_value: option.respond_to?(:time_value) ? option.time_value : nil,
+          net_change: option.respond_to?(:net_change) ? option.net_change : nil,
+          percent_change: option.respond_to?(:percent_change) ? option.percent_change : nil,
+          settlement_type: option.respond_to?(:settlement_type) ? option.settlement_type : nil,
+          exercise_type: option.respond_to?(:exercise_type) ? option.exercise_type : nil,
+          expiration_type: option.respond_to?(:expiration_type) ? option.expiration_type : nil,
+          multiplier: option.respond_to?(:multiplier) ? option.multiplier : nil,
+          non_standard: option.respond_to?(:non_standard) ? option.non_standard : nil,
           source: provider_name,
-          fetched_at: Time.now.utc
+          fetched_at: batch_time
         )
       end
     end

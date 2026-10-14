@@ -34,6 +34,16 @@ module Tickrake
         intrinsic_value
         extrinsic_value
         underlying_price
+        quote_time_in_long
+        trade_time_in_long
+        time_value
+        net_change
+        percent_change
+        settlement_type
+        exercise_type
+        expiration_type
+        multiplier
+        non_standard
       ].freeze
 
       def initialize(csv_writer: Tickrake::Storage::CsvWriter.new)
@@ -79,7 +89,17 @@ module Tickrake
           row.theoretical_option_value,
           row.intrinsic_value,
           row.extrinsic_value,
-          row.underlying_price
+          row.underlying_price,
+          row.quote_time_in_long,
+          row.trade_time_in_long,
+          row.time_value,
+          row.net_change,
+          row.percent_change,
+          row.settlement_type,
+          row.exercise_type,
+          row.expiration_type,
+          row.multiplier,
+          row.non_standard
         ]
       end
     end

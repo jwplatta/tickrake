@@ -59,39 +59,10 @@ module Tickrake
 
       def insert_raw_file(con, raw_file, sampled_at)
         con.query(<<~SQL)
-          INSERT INTO compacted_option_samples
+          INSERT INTO compacted_option_samples BY NAME
           SELECT
-            contract_type,
-            symbol,
-            description,
-            strike,
-            expiration_date,
-            open,
-            high,
-            low,
-            close,
-            mark,
-            bid,
-            bid_size,
-            ask,
-            ask_size,
-            last,
-            last_size,
-            open_interest,
-            total_volume,
-            transactions,
-            delta,
-            gamma,
-            theta,
-            vega,
-            rho,
-            volatility,
-            theoretical_volatility,
-            theoretical_option_value,
-            intrinsic_value,
-            extrinsic_value,
-            underlying_price,
-            TIMESTAMPTZ #{sql_string(sampled_at.utc.iso8601)}
+            *,
+            TIMESTAMPTZ #{sql_string(sampled_at.utc.iso8601)} AS sampled_at
           FROM read_csv_auto(
             #{sql_string(raw_file)},
             header = true,
@@ -113,8 +84,15 @@ module Tickrake
       end
 
       def csv_select_list
+        cols = Tickrake::Storage::OptionSampleWriter::CSV_HEADERS.map do |header|
+          if header == "quote_time_in_long"
+            "COALESCE(quote_time_in_long, CAST(epoch(sampled_at) * 1000 AS BIGINT)::VARCHAR) AS quote_time_in_long"
+          else
+            header
+          end
+        end
         (
-          Tickrake::Storage::OptionSampleWriter::CSV_HEADERS +
+          cols +
           ["strftime(timezone('UTC', sampled_at), '%Y-%m-%dT%H:%M:%SZ') AS sampled_at"]
         ).join(", ")
       end
@@ -151,6 +129,16 @@ module Tickrake
           "TRY_CAST(intrinsic_value AS DOUBLE) AS intrinsic_value",
           "TRY_CAST(extrinsic_value AS DOUBLE) AS extrinsic_value",
           "TRY_CAST(underlying_price AS DOUBLE) AS underlying_price",
+          "COALESCE(TRY_CAST(quote_time_in_long AS BIGINT), CAST(epoch(sampled_at) * 1000 AS BIGINT)) AS quote_time_in_long",
+          "TRY_CAST(trade_time_in_long AS BIGINT) AS trade_time_in_long",
+          "TRY_CAST(time_value AS DOUBLE) AS time_value",
+          "TRY_CAST(net_change AS DOUBLE) AS net_change",
+          "TRY_CAST(percent_change AS DOUBLE) AS percent_change",
+          "settlement_type",
+          "exercise_type",
+          "expiration_type",
+          "TRY_CAST(multiplier AS BIGINT) AS multiplier",
+          "non_standard",
           "CAST(sampled_at AS TIMESTAMP WITH TIME ZONE) AS sampled_at"
         ].join(", ")
       end

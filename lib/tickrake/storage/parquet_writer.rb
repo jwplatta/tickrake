@@ -29,12 +29,18 @@ module Tickrake
         intrinsic_value
         extrinsic_value
         underlying_price
+        time_value
+        net_change
+        percent_change
       ].freeze
 
       INT64_COLUMNS = %w[
         bid_size
         ask_size
         transactions
+        quote_time_in_long
+        trade_time_in_long
+        multiplier
       ].freeze
 
       TIMESTAMP_COLUMNS = %w[sampled_at].freeze
@@ -64,9 +70,20 @@ module Tickrake
       end
 
       def typed_rows(headers, rows)
+        sampled_at_index = headers.index("sampled_at")
+        quote_time_index = headers.index("quote_time_in_long")
+
         rows.map do |row|
           headers.each_with_index.map do |header, index|
-            coerce_value(header, row[index])
+            val = row[index]
+            if header == "quote_time_in_long" && (val.nil? || (val.is_a?(String) && val.strip.empty?)) && sampled_at_index
+              sampled_at_val = row[sampled_at_index]
+              if sampled_at_val
+                sampled_time = time_value(sampled_at_val)
+                val = (sampled_time.to_f * 1000).to_i
+              end
+            end
+            coerce_value(header, val)
           end
         end
       end

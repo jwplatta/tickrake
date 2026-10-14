@@ -307,6 +307,12 @@ RSpec.describe "job execution" do
 
       expected_path = File.join(dir, "schwab", "2026", "04", "06", "SPXW_exp2026-04-06_2026-04-06_14-30-00.csv")
       expect(File.exist?(expected_path)).to eq(true)
+      csv_table = CSV.read(expected_path, headers: true)
+      expect(csv_table.headers).to include(
+        "quote_time_in_long", "trade_time_in_long", "time_value", "net_change",
+        "percent_change", "settlement_type", "exercise_type", "expiration_type",
+        "multiplier", "non_standard"
+      )
       expect(client).to have_received(:get_option_expiration_chain).with("$SPX").at_least(:once)
       expect(client).to have_received(:get_option_chain).with(
         "$SPX",
