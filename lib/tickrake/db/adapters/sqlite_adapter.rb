@@ -37,8 +37,8 @@ module Tickrake
           connection.execute("PRAGMA wal_checkpoint(PASSIVE)")
         end
 
-        def transaction(&block)
-          connection.transaction(&block)
+        def transaction(mode = :deferred, &block)
+          connection.transaction(mode, &block)
         end
 
         def transaction_active?

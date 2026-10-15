@@ -32,7 +32,7 @@ module Tickrake
           # No-op in PostgreSQL
         end
 
-        def transaction
+        def transaction(_mode = nil)
           if transaction_active?
             yield
           else

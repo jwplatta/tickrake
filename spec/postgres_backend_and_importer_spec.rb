@@ -35,8 +35,9 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
         example.run
       ensure
         admin_conn = PG.connect(dbname: "postgres")
-        admin_conn.exec("DROP DATABASE IF EXISTS #{pg_db_name}")
-        admin_conn.close
+        admin_conn.exec("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '#{pg_db_name}' AND pid <> pg_backend_pid()") rescue nil
+        admin_conn.exec("DROP DATABASE IF EXISTS #{pg_db_name}") rescue nil
+        admin_conn.close rescue nil
       end
     else
       skip "Local PostgreSQL not running"
@@ -315,7 +316,7 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
     it "migrates data, preserves IDs and balances, and resets sequences" do
       Dir.mktmpdir do |dir|
         sqlite_path = File.join(dir, "tickrake.sqlite3")
-        sqlite_tracker = Tickrake::Tracker.new(sqlite_path)
+        sqlite_tracker = Tickrake::Tracker.new(sqlite_path, migrate: true)
 
         # 1. Fetch runs
         run_id = sqlite_tracker.record_start(

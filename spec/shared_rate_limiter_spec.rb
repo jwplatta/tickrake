@@ -5,222 +5,157 @@ require "tmpdir"
 RSpec.describe "Shared Provider Rate Limiting" do
   let(:logger) { instance_double(Logger, info: nil, warn: nil, error: nil) }
 
-  describe "SqliteRateLimiter" do
-    it "maintains independent token and cooldown state across providers" do
+  describe "SQLite backend" do
+    around(:each) do |example|
       Dir.mktmpdir do |dir|
-        db_path = File.join(dir, "tickrake.sqlite3")
-        schwab_limiter = Tickrake::DB::SqliteRateLimiter.new(
-          db_path,
-          provider: "schwab",
-          capacity: 2,
-          refill_rate: 1.0,
-          logger: logger
-        )
-        custom_limiter = Tickrake::DB::SqliteRateLimiter.new(
-          db_path,
-          provider: "custom_provider",
-          capacity: 5,
-          refill_rate: 1.0,
-          logger: logger
-        )
-
-        # Exhaust schwab tokens
-        expect(schwab_limiter.try_consume).to eq(true)
-        expect(schwab_limiter.try_consume).to eq(true)
-        expect(schwab_limiter.try_consume).to eq(false)
-
-        # custom_provider should be unaffected
-        expect(custom_limiter.try_consume).to eq(true)
-        expect(custom_limiter.try_consume).to eq(true)
-
-        # Apply cooldown to schwab
-        schwab_limiter.apply_cooldown!(10.0)
-        expect(schwab_limiter.current_cooldown).to be > 0
-        expect(schwab_limiter.try_consume).to eq(false)
-
-        # custom_provider should still have 0 cooldown and be consumable
-        expect(custom_limiter.current_cooldown).to eq(0.0)
-        expect(custom_limiter.try_consume).to eq(true)
+        @db_path = File.join(dir, "tickrake.sqlite3")
+        Tickrake::Tracker.migrate!(@db_path)
+        example.run
       end
+    end
+
+    def build_limiter(provider:, capacity:, refill_rate:, logger: nil)
+      Tickrake::DB::RateLimiter.build(
+        @db_path,
+        provider: provider,
+        capacity: capacity,
+        refill_rate: refill_rate,
+        logger: logger
+      )
+    end
+
+    it "maintains independent token and cooldown state across providers" do
+      schwab_limiter = build_limiter(provider: "schwab", capacity: 2, refill_rate: 1.0, logger: logger)
+      custom_limiter = build_limiter(provider: "custom_provider", capacity: 5, refill_rate: 1.0, logger: logger)
+
+      # Exhaust schwab tokens
+      expect(schwab_limiter.try_consume).to eq(true)
+      expect(schwab_limiter.try_consume).to eq(true)
+      expect(schwab_limiter.try_consume).to eq(false)
+
+      # custom_provider should be unaffected
+      expect(custom_limiter.try_consume).to eq(true)
+      expect(custom_limiter.try_consume).to eq(true)
+
+      # Apply cooldown to schwab
+      schwab_limiter.apply_cooldown!(10.0)
+      expect(schwab_limiter.current_cooldown).to be > 0
+      expect(schwab_limiter.try_consume).to eq(false)
+
+      # custom_provider should still have 0 cooldown and be consumable
+      expect(custom_limiter.current_cooldown).to eq(0.0)
+      expect(custom_limiter.try_consume).to eq(true)
     end
 
     it "coordinates concurrent jobs sharing the same provider bucket" do
-      Dir.mktmpdir do |dir|
-        db_path = File.join(dir, "tickrake.sqlite3")
-        limiter = Tickrake::DB::SqliteRateLimiter.new(
-          db_path,
-          provider: "schwab",
-          capacity: 50,
-          refill_rate: 10.0,
-          logger: logger
-        )
+      limiter = build_limiter(provider: "schwab", capacity: 50, refill_rate: 10.0, logger: logger)
 
-        # 5 concurrent threads attempting 10 acquisitions each
-        consumed = 0
-        mutex = Mutex.new
+      # 5 concurrent threads attempting 10 acquisitions each
+      consumed = 0
+      mutex = Mutex.new
 
-        threads = Array.new(5) do
-          Thread.new do
-            job_limiter = Tickrake::DB::SqliteRateLimiter.new(
-              db_path,
-              provider: "schwab",
-              capacity: 50,
-              refill_rate: 10.0
-            )
-            10.times do
-              if job_limiter.try_consume
-                mutex.synchronize { consumed += 1 }
-              end
+      threads = Array.new(5) do
+        Thread.new do
+          job_limiter = build_limiter(provider: "schwab", capacity: 50, refill_rate: 10.0)
+          10.times do
+            if job_limiter.try_consume
+              mutex.synchronize { consumed += 1 }
             end
           end
         end
-        threads.each(&:join)
-
-        # Exactly 50 tokens available, so exactly 50 acquisitions should succeed
-        expect(consumed).to eq(50)
-        expect(limiter.try_consume).to eq(false)
       end
+      threads.each(&:join)
+
+      # Exactly 50 tokens available, so exactly 50 acquisitions should succeed
+      expect(consumed).to eq(50)
+      expect(limiter.try_consume).to eq(false)
     end
 
     it "waits for token replenishment and retries acquisition until success" do
-      Dir.mktmpdir do |dir|
-        db_path = File.join(dir, "tickrake.sqlite3")
-        limiter = Tickrake::DB::SqliteRateLimiter.new(
-          db_path,
-          provider: "schwab",
-          capacity: 1,
-          refill_rate: 10.0, # refills 1 token in 0.1s
-          logger: logger
-        )
+      limiter = build_limiter(provider: "schwab", capacity: 1, refill_rate: 10.0, logger: logger)
 
-        expect(limiter.try_consume).to eq(true)
-        expect(limiter.try_consume).to eq(false)
+      expect(limiter.try_consume).to eq(true)
+      expect(limiter.try_consume).to eq(false)
 
-        # consume! should wait briefly and succeed
-        t0 = Time.now
-        expect(limiter.consume!(timeout: 1.0, retry_interval: 0.05)).to eq(true)
-        expect(Time.now - t0).to be >= 0.08
-      end
+      # consume! should wait briefly and succeed
+      t0 = Time.now
+      expect(limiter.consume!(timeout: 1.0, retry_interval: 0.05)).to eq(true)
+      expect(Time.now - t0).to be >= 0.08
     end
 
     it "raises RateLimitWaitTimeoutError with provider and elapsed time when wait deadline expires" do
-      Dir.mktmpdir do |dir|
-        db_path = File.join(dir, "tickrake.sqlite3")
-        limiter = Tickrake::DB::SqliteRateLimiter.new(
-          db_path,
-          provider: "schwab",
-          capacity: 1,
-          refill_rate: 0.001, # essentially no refill
-          logger: logger
-        )
+      limiter = build_limiter(provider: "schwab", capacity: 1, refill_rate: 0.001, logger: logger)
 
-        expect(limiter.try_consume).to eq(true)
+      expect(limiter.try_consume).to eq(true)
 
-        expect do
-          limiter.consume!(timeout: 0.15, retry_interval: 0.05)
-        end.to raise_error(Tickrake::RateLimitWaitTimeoutError) do |error|
-          expect(error.provider).to eq("schwab")
-          expect(error.elapsed_seconds).to be >= 0.14
-          expect(error.message).to match(/Rate limit wait timeout for provider schwab after \d+(\.\d+)?s/)
-        end
+      expect do
+        limiter.consume!(timeout: 0.15, retry_interval: 0.05)
+      end.to raise_error(Tickrake::RateLimitWaitTimeoutError) do |error|
+        expect(error.provider).to eq("schwab")
+        expect(error.elapsed_seconds).to be >= 0.14
+        expect(error.message).to match(/Rate limit wait timeout for provider schwab after \d+(\.\d+)?s/)
       end
     end
 
     it "applies shared cooldown with integer Retry-After" do
-      Dir.mktmpdir do |dir|
-        db_path = File.join(dir, "tickrake.sqlite3")
-        limiter = Tickrake::DB::SqliteRateLimiter.new(
-          db_path,
-          provider: "schwab",
-          capacity: 10,
-          refill_rate: 10.0,
-          logger: logger
-        )
+      limiter = build_limiter(provider: "schwab", capacity: 10, refill_rate: 10.0, logger: logger)
 
-        limiter.apply_cooldown!("5")
-        expect(limiter.current_cooldown).to be_within(0.5).of(5.0)
-        expect(limiter.try_consume).to eq(false)
-      end
+      limiter.apply_cooldown!("5")
+      expect(limiter.current_cooldown).to be_within(0.5).of(5.0)
+      expect(limiter.try_consume).to eq(false)
     end
 
     it "applies shared cooldown with HTTP-date Retry-After" do
-      Dir.mktmpdir do |dir|
-        db_path = File.join(dir, "tickrake.sqlite3")
-        limiter = Tickrake::DB::SqliteRateLimiter.new(
-          db_path,
-          provider: "schwab",
-          capacity: 10,
-          refill_rate: 10.0,
-          logger: logger
-        )
+      limiter = build_limiter(provider: "schwab", capacity: 10, refill_rate: 10.0, logger: logger)
 
-        future_date = (Time.now + 10).httpdate
-        limiter.apply_cooldown!(future_date)
-        expect(limiter.current_cooldown).to be_within(1.5).of(10.0)
-        expect(limiter.try_consume).to eq(false)
-      end
+      future_date = (Time.now + 10).httpdate
+      limiter.apply_cooldown!(future_date)
+      expect(limiter.current_cooldown).to be_within(1.5).of(10.0)
+      expect(limiter.try_consume).to eq(false)
     end
 
     it "applies bounded fallback cooldown when Retry-After is missing or invalid" do
-      Dir.mktmpdir do |dir|
-        db_path = File.join(dir, "tickrake.sqlite3")
-        limiter = Tickrake::DB::SqliteRateLimiter.new(
-          db_path,
-          provider: "schwab",
-          capacity: 10,
-          refill_rate: 10.0,
-          logger: logger
-        )
+      limiter = build_limiter(provider: "schwab", capacity: 10, refill_rate: 10.0, logger: logger)
 
-        # Missing Retry-After
-        limiter.apply_cooldown!(nil, fallback: 15.0)
-        expect(limiter.current_cooldown).to be_within(0.5).of(15.0)
+      # Missing Retry-After
+      limiter.apply_cooldown!(nil, fallback: 15.0)
+      expect(limiter.current_cooldown).to be_within(0.5).of(15.0)
 
-        # Invalid Retry-After
-        limiter.apply_cooldown!("invalid-date-string", fallback: 20.0)
-        expect(limiter.current_cooldown).to be_within(0.5).of(20.0)
+      # Invalid Retry-After
+      limiter.apply_cooldown!("invalid-date-string", fallback: 20.0)
+      expect(limiter.current_cooldown).to be_within(0.5).of(20.0)
 
-        # Unbounded large Retry-After is capped at 300s
-        limiter.apply_cooldown!("999999", fallback: 30.0)
-        expect(limiter.current_cooldown).to be <= 300.0
-      end
+      # Unbounded large Retry-After is capped at 300s
+      limiter.apply_cooldown!("999999", fallback: 30.0)
+      expect(limiter.current_cooldown).to be <= 300.0
     end
 
     it "emits low-cardinality structured visibility without credentials" do
-      Dir.mktmpdir do |dir|
-        db_path = File.join(dir, "tickrake.sqlite3")
-        events = []
-        custom_logger = instance_double(Logger)
-        allow(custom_logger).to receive(:info) { |evt| events << evt }
-        allow(custom_logger).to receive(:warn) { |evt| events << evt }
-        allow(custom_logger).to receive(:error) { |evt| events << evt }
+      events = []
+      custom_logger = instance_double(Logger)
+      allow(custom_logger).to receive(:info) { |evt| events << evt }
+      allow(custom_logger).to receive(:warn) { |evt| events << evt }
+      allow(custom_logger).to receive(:error) { |evt| events << evt }
 
-        limiter = Tickrake::DB::SqliteRateLimiter.new(
-          db_path,
-          provider: "schwab",
-          capacity: 1,
-          refill_rate: 10.0,
-          logger: custom_logger
-        )
+      limiter = build_limiter(provider: "schwab", capacity: 1, refill_rate: 10.0, logger: custom_logger)
 
-        # First request consumes token
-        limiter.consume!(timeout: 1.0)
-        # Second request must wait
-        limiter.consume!(timeout: 1.0, retry_interval: 0.05)
-        # Apply cooldown
-        limiter.apply_cooldown!(2.0)
+      # First request consumes token
+      limiter.consume!(timeout: 1.0)
+      # Second request must wait
+      limiter.consume!(timeout: 1.0, retry_interval: 0.05)
+      # Apply cooldown
+      limiter.apply_cooldown!(2.0)
 
-        allowed_evt = events.find { |e| e[:event] == "provider_request" }
-        expect(allowed_evt).to include(msg: "provider_request", provider: "schwab")
+      allowed_evt = events.find { |e| e[:event] == "provider_request" }
+      expect(allowed_evt).to include(msg: "provider_request", provider: "schwab")
 
-        waited_evt = events.find { |e| e[:event] == "rate_limit_waited" }
-        expect(waited_evt).to include(msg: "rate_limit_waited", provider: "schwab")
-        expect(waited_evt[:wait_duration_ms]).to be > 0
+      waited_evt = events.find { |e| e[:event] == "rate_limit_waited" }
+      expect(waited_evt).to include(msg: "rate_limit_waited", provider: "schwab")
+      expect(waited_evt[:wait_duration_ms]).to be > 0
 
-        cooldown_evt = events.find { |e| e[:event] == "provider_cooldown" }
-        expect(cooldown_evt).to include(msg: "provider_cooldown", provider: "schwab")
-        expect(cooldown_evt[:cooldown_seconds]).to be_within(0.5).of(2.0)
-      end
+      cooldown_evt = events.find { |e| e[:event] == "provider_cooldown" }
+      expect(cooldown_evt).to include(msg: "provider_cooldown", provider: "schwab")
+      expect(cooldown_evt[:cooldown_seconds]).to be_within(0.5).of(2.0)
     end
   end
 

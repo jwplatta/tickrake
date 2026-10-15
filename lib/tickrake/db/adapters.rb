@@ -5,7 +5,11 @@ module Tickrake
     module Adapters
       class << self
         def build(config_or_path)
-          if config_or_path.is_a?(Tickrake::DatabaseConfig)
+          if config_or_path.respond_to?(:adapter) && config_or_path.adapter
+            config_or_path.adapter
+          elsif config_or_path.is_a?(SqliteAdapter) || config_or_path.is_a?(PostgresAdapter)
+            config_or_path
+          elsif config_or_path.is_a?(Tickrake::DatabaseConfig)
             build_from_database_config(config_or_path)
           elsif config_or_path.is_a?(Tickrake::Config)
             build_from_database_config(config_or_path.database)
