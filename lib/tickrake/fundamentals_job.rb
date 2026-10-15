@@ -227,7 +227,7 @@ module Tickrake
       fetch_run = {
         "job_type" => @scheduled_job&.name || "fundamentals",
         "dataset_type" => "fundamentals",
-        "symbol" => nil,
+        "symbol" => "none",
         "frequency" => nil,
         "option_root" => nil,
         "requested_buckets" => nil,

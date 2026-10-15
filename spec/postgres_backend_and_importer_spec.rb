@@ -103,6 +103,125 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
 
       tracker.close
     end
+
+    it "ingests fundamentals sidecars with symbol 'none' and legacy null-symbol sidecars without NOT NULL violation" do
+      Tickrake::Tracker.migrate!(pg_config)
+      tracker = Tickrake::Tracker.new(pg_config)
+
+      Dir.mktmpdir do |dir|
+        pending_dir = File.join(dir, "pending_metadata")
+        FileUtils.mkdir_p(pending_dir)
+
+        sidecar_new = {
+          "fetch_run" => {
+            "job_type" => "daily_fundamentals",
+            "dataset_type" => "fundamentals",
+            "symbol" => "none",
+            "frequency" => nil,
+            "option_root" => nil,
+            "requested_buckets" => nil,
+            "resolved_expiration" => nil,
+            "scheduled_for" => "2026-10-15T15:30:00Z",
+            "started_at" => "2026-10-15T15:30:01Z",
+            "finished_at" => "2026-10-15T15:30:10Z",
+            "status" => "success",
+            "output_path" => "/tmp/fundamentals_2026-10-15.parquet",
+            "error_message" => nil,
+            "collection_id" => "fundamentals-20261015T153000Z"
+          },
+          "file_metadata" => {
+            "path" => "/tmp/fundamentals_2026-10-15.parquet",
+            "dataset_type" => "fundamentals",
+            "provider_name" => "schwab",
+            "ticker" => "all",
+            "frequency" => nil,
+            "expiration_date" => nil,
+            "row_count" => 150,
+            "first_observed_at" => "2026-10-15T15:30:00Z",
+            "last_observed_at" => "2026-10-15T15:30:00Z",
+            "file_mtime" => 2000,
+            "file_size" => 50_000,
+            "updated_at" => Time.now.utc.iso8601,
+            "collection_id" => "fundamentals-20261015T153000Z"
+          }
+        }
+
+        sidecar_legacy = {
+          "fetch_run" => {
+            "job_type" => "daily_fundamentals",
+            "dataset_type" => "fundamentals",
+            "symbol" => nil,
+            "frequency" => nil,
+            "option_root" => nil,
+            "requested_buckets" => nil,
+            "resolved_expiration" => nil,
+            "scheduled_for" => "2026-10-14T15:30:00Z",
+            "started_at" => "2026-10-14T15:30:01Z",
+            "finished_at" => "2026-10-14T15:30:09Z",
+            "status" => "success",
+            "output_path" => "/tmp/fundamentals_2026-10-14.parquet",
+            "error_message" => nil,
+            "collection_id" => "fundamentals-20261014T153000Z"
+          },
+          "file_metadata" => {
+            "path" => "/tmp/fundamentals_2026-10-14.parquet",
+            "dataset_type" => "fundamentals",
+            "provider_name" => "schwab",
+            "ticker" => "all",
+            "frequency" => nil,
+            "expiration_date" => nil,
+            "row_count" => 148,
+            "first_observed_at" => "2026-10-14T15:30:00Z",
+            "last_observed_at" => "2026-10-14T15:30:00Z",
+            "file_mtime" => 1900,
+            "file_size" => 49_000,
+            "updated_at" => Time.now.utc.iso8601,
+            "collection_id" => "fundamentals-20261014T153000Z"
+          }
+        }
+
+        File.write(File.join(pending_dir, "fundamentals_2026-10-15.meta.json"), JSON.generate(sidecar_new))
+        File.write(File.join(pending_dir, "fundamentals_2026-10-14.meta.json"), JSON.generate(sidecar_legacy))
+
+        app_config = instance_double(
+          Tickrake::Config,
+          pending_metadata_dir: pending_dir,
+          database: pg_config,
+          default_provider_name: "schwab",
+          provider_definition: double("provider_def")
+        )
+        scheduled_job = Tickrake::ScheduledJobConfig.new(
+          name: "metadata_sync", type: "metadata_sync", settings: { "batch_size" => 500 }
+        )
+        logger = instance_double(Logger, info: nil, warn: nil, error: nil, "level=": nil)
+        runtime = Tickrake::Runtime.new(
+          config: app_config,
+          tracker: tracker,
+          client_factory: double("client_factory"),
+          provider_factory: double("provider_factory"),
+          logger: logger
+        )
+
+        count = Tickrake::MetadataSyncJob.new(runtime, scheduled_job: scheduled_job).run
+        expect(count).to eq(2)
+
+        runs = tracker.fetch_runs
+        expect(runs.length).to eq(2)
+        expect(runs.map { |r| r["symbol"] }).to eq(%w[none none])
+
+        meta15 = tracker.file_metadata("/tmp/fundamentals_2026-10-15.parquet")
+        expect(meta15["ticker"]).to eq("all")
+        expect(meta15["row_count"].to_i).to eq(150)
+
+        meta14 = tracker.file_metadata("/tmp/fundamentals_2026-10-14.parquet")
+        expect(meta14["ticker"]).to eq("all")
+        expect(meta14["row_count"].to_i).to eq(148)
+
+        expect(Dir.glob(File.join(pending_dir, "*.meta.json"))).to be_empty
+      ensure
+        tracker.close
+      end
+    end
   end
 
   describe "PostgresRateLimiter" do

@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file.
 - Changed option sample maintenance archival to archive only compacted Parquet files (`artifacts: [parquet]`) to remote S3 storage by default, omitting compacted CSV uploads.
 
 ### Fixed
+- Fixed `FundamentalsJob` sidecars writing `fetch_run.symbol` as `null`, which caused PostgreSQL `NOT NULL` constraint violations in `MetadataSyncJob`. Stored the literal `none` sentinel on new fundamentals fetch runs, normalized legacy pending null-symbol sidecars to `none` during metadata sync ingestion, and added fallback handling in `Tracker#insert_fetch_runs` and `Tracker#record_start`.
 - Fixed option compaction aborting on mixed legacy and expanded CSV headers within the same day (`OptionCompactionDataset` and `DuckdbOptionCompactedWriter`), enabling seamless compaction across schema deployment boundaries while rejecting unsupported or duplicate headers and preserving raw snapshot safety.
 - Fixed `OptionsJob#fetch_success` events to assign `market_date` from the collection/sample date in Tickrake's configured market timezone rather than the option expiration date, while retaining `expiration_date` as its own field.
 - Fixed `StreamJob` reconnect subscription state: cleared `@active_subscriptions` on session reconnect and teardown so all in-window subscriptions are re-subscribed on the replacement client.
