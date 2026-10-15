@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added PostgreSQL metadata and shared rate-limit backend alongside default SQLite, configured via `database.backend` (`postgres` or `sqlite`).
+- Added expanded corporate fundamental and quote attributes to `FundamentalsJob` and `FundamentalsParquetWriter` (`declaration_date`, `next_div_ex_date`, `next_div_pay_date`, `eps_change`, `eps_change_year`, `rev_change_in`, `cusip`, `fund_leverage_factor`, `is_hard_to_borrow`, `is_shortable`, `htb_quantity`, `htb_rate`, `close_price`, `last_price`, `net_change`, `net_percent_change`, and `total_volume`) for once-daily Parquet ingestion in downstream Apache Iceberg tables.
+- Added named and inline universe support to DSL fundamentals jobs (`JobBuilder#build_fundamentals_job!`), resolving symbols from `universe :name`, `universe do ... end`, or inline `symbols`.
 - Added database abstraction layer (`Tickrake::DB::Adapters`) with `SqliteAdapter` and `PostgresAdapter`, routing `Tracker`, `DataLoader`, rate limiting (`PostgresRateLimiter`), and `tickrake migrate` through the configured backend.
 - Added one-time operator script `scripts/import_sqlite_to_postgres.rb` with dry-run support, empty target enforcement, data and sequence verification, and primary key preservation.
 - Added option contract fields and ISO 8601 UTC timestamps to `OptionsJob`, `OptionSampleRow`, `OptionSampleWriter`, `DataLoader`, and DuckDB/Parquet compaction: `quote_at` (World Time), `trade_at`, `time_value`, `net_change`, `percent_change`, `settlement_type`, `exercise_type`, `expiration_type`, `multiplier`, and `non_standard`. For historical option samples without `quote_at`, compaction backfills `quote_at` from `sampled_at`.
