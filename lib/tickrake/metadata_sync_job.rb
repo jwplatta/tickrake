@@ -17,7 +17,13 @@ module Tickrake
 
       sidecars = sidecar_paths.map { |path| JSON.parse(File.read(path)) }
 
-      fetch_runs = sidecars.filter_map { |s| s["fetch_run"] }
+      fetch_runs = sidecars.filter_map { |s| s["fetch_run"] }.map do |fr|
+        if fr["symbol"].nil? || fr["symbol"].to_s.strip.empty?
+          fr.merge("symbol" => "none")
+        else
+          fr
+        end
+      end
       metadata_list = sidecars.filter_map { |s| s["file_metadata"] || (s["path"] ? s : nil) }.map do |attrs|
         attrs = attrs.transform_keys(&:to_sym)
         attrs[:updated_at] = Time.iso8601(attrs[:updated_at]) if attrs[:updated_at].is_a?(String)

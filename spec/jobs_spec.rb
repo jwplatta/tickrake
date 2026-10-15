@@ -241,6 +241,113 @@ RSpec.describe "job execution" do
     end
   end
 
+  it "ingests fundamentals sidecars with symbol 'none' and normalizes legacy null-symbol sidecars" do
+    Dir.mktmpdir do |dir|
+      pending_dir = File.join(dir, "pending_metadata")
+      FileUtils.mkdir_p(pending_dir)
+
+      # 1. New fundamentals sidecar with symbol: "none"
+      sidecar_new = {
+        "fetch_run" => {
+          "job_type" => "daily_fundamentals",
+          "dataset_type" => "fundamentals",
+          "symbol" => "none",
+          "frequency" => nil,
+          "option_root" => nil,
+          "requested_buckets" => nil,
+          "resolved_expiration" => nil,
+          "scheduled_for" => "2026-10-15T15:30:00Z",
+          "started_at" => "2026-10-15T15:30:01Z",
+          "finished_at" => "2026-10-15T15:30:10Z",
+          "status" => "success",
+          "output_path" => "/tmp/fundamentals_2026-10-15.parquet",
+          "error_message" => nil,
+          "collection_id" => "fundamentals-20261015T153000Z"
+        },
+        "file_metadata" => {
+          "path" => "/tmp/fundamentals_2026-10-15.parquet",
+          "dataset_type" => "fundamentals",
+          "provider_name" => "schwab",
+          "ticker" => "all",
+          "frequency" => nil,
+          "expiration_date" => nil,
+          "row_count" => 150,
+          "first_observed_at" => "2026-10-15T15:30:00Z",
+          "last_observed_at" => "2026-10-15T15:30:00Z",
+          "file_mtime" => 2000,
+          "file_size" => 50_000,
+          "updated_at" => Time.now.utc.iso8601,
+          "collection_id" => "fundamentals-20261015T153000Z"
+        }
+      }
+
+      # 2. Legacy pending fundamentals sidecar with symbol: nil
+      sidecar_legacy = {
+        "fetch_run" => {
+          "job_type" => "daily_fundamentals",
+          "dataset_type" => "fundamentals",
+          "symbol" => nil,
+          "frequency" => nil,
+          "option_root" => nil,
+          "requested_buckets" => nil,
+          "resolved_expiration" => nil,
+          "scheduled_for" => "2026-10-14T15:30:00Z",
+          "started_at" => "2026-10-14T15:30:01Z",
+          "finished_at" => "2026-10-14T15:30:09Z",
+          "status" => "success",
+          "output_path" => "/tmp/fundamentals_2026-10-14.parquet",
+          "error_message" => nil,
+          "collection_id" => "fundamentals-20261014T153000Z"
+        },
+        "file_metadata" => {
+          "path" => "/tmp/fundamentals_2026-10-14.parquet",
+          "dataset_type" => "fundamentals",
+          "provider_name" => "schwab",
+          "ticker" => "all",
+          "frequency" => nil,
+          "expiration_date" => nil,
+          "row_count" => 148,
+          "first_observed_at" => "2026-10-14T15:30:00Z",
+          "last_observed_at" => "2026-10-14T15:30:00Z",
+          "file_mtime" => 1900,
+          "file_size" => 49_000,
+          "updated_at" => Time.now.utc.iso8601,
+          "collection_id" => "fundamentals-20261014T153000Z"
+        }
+      }
+
+      File.write(File.join(pending_dir, "fundamentals_2026-10-15.meta.json"), JSON.generate(sidecar_new))
+      File.write(File.join(pending_dir, "fundamentals_2026-10-14.meta.json"), JSON.generate(sidecar_legacy))
+
+      custom = config_with(config, pending_metadata_dir: pending_dir)
+      scheduled_job = Tickrake::ScheduledJobConfig.new(
+        name: "metadata_sync", type: "metadata_sync", settings: { "batch_size" => 500 }
+      )
+      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, logger: logger)
+
+      count = Tickrake::MetadataSyncJob.new(runtime, scheduled_job: scheduled_job).run
+      expect(count).to eq(2)
+
+      rows = tracker.fetch_runs
+      expect(rows.length).to eq(2)
+      symbols = rows.map { |r| r["symbol"] }
+      expect(symbols).to eq(%w[none none])
+
+      meta_15 = tracker.file_metadata("/tmp/fundamentals_2026-10-15.parquet")
+      expect(meta_15["ticker"]).to eq("all")
+      expect(meta_15["row_count"]).to eq(150)
+      expect(meta_15["collection_id"]).to eq("fundamentals-20261015T153000Z")
+
+      meta_14 = tracker.file_metadata("/tmp/fundamentals_2026-10-14.parquet")
+      expect(meta_14["ticker"]).to eq("all")
+      expect(meta_14["row_count"]).to eq(148)
+      expect(meta_14["collection_id"]).to eq("fundamentals-20261014T153000Z")
+
+      # All sidecars drained
+      expect(Dir.glob(File.join(pending_dir, "*.meta.json"))).to be_empty
+    end
+  end
+
   it "writes option samples and tracks metadata" do
     Dir.mktmpdir do |dir|
       custom = config_with(config, options_dir: dir)

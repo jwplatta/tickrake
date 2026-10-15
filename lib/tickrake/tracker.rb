@@ -89,7 +89,7 @@ module Tickrake
           [
             attrs.fetch(:job_type),
             attrs.fetch(:dataset_type),
-            attrs.fetch(:symbol),
+            (attrs[:symbol].nil? || attrs[:symbol].to_s.strip.empty?) ? "none" : attrs[:symbol],
             attrs[:frequency],
             attrs[:option_root],
             attrs[:requested_buckets] && JSON.dump(attrs[:requested_buckets]),
@@ -462,7 +462,7 @@ module Tickrake
           [
             attrs.fetch("job_type"),
             attrs.fetch("dataset_type"),
-            attrs.fetch("symbol"),
+            (attrs["symbol"].nil? || attrs["symbol"].to_s.strip.empty?) ? "none" : attrs["symbol"],
             attrs["frequency"],
             attrs["option_root"],
             attrs["requested_buckets"] && JSON.dump(attrs["requested_buckets"]),

@@ -174,6 +174,15 @@ RSpec.describe Tickrake::FundamentalsJob do
       expect(row["total_volume"]).to eq(42_000_000)
       expect(row["avg_1_year_volume"]).to eq(55_000_000)
       expect(row["last_earnings_date"]).to eq("2026-08-01T00:00:00Z")
+
+      sidecar_files = Dir.glob(File.join(tmpdir, "pending_metadata", "*.meta.json"))
+      expect(sidecar_files.length).to eq(1)
+      sidecar_content = JSON.parse(File.read(sidecar_files.first))
+      expect(sidecar_content["fetch_run"]["symbol"]).to eq("none")
+      expect(sidecar_content["fetch_run"]["dataset_type"]).to eq("fundamentals")
+      expect(sidecar_content["fetch_run"]["status"]).to eq("success")
+      expect(sidecar_content["file_metadata"]["ticker"]).to eq("all")
+      expect(sidecar_content["file_metadata"]["row_count"]).to eq(1)
     end
 
     it "does not emit parquet_written event if parquet writing fails" do
