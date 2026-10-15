@@ -104,12 +104,18 @@ module Tickrake
   ProviderDefinition = Struct.new(:name, :adapter, :settings, :symbol_map, keyword_init: true) do
     def rate_limit_max_requests
       configured = settings.fetch("rate_limit_max_requests", nil)
-      Integer(configured) if configured
+      return Integer(configured) if configured
+      return 110 if adapter == "schwab"
+
+      nil
     end
 
     def rate_limit_interval_seconds
       configured = settings.fetch("rate_limit_interval_seconds", nil)
-      Integer(configured) if configured
+      return Integer(configured) if configured
+      return 60 if adapter == "schwab"
+
+      nil
     end
 
     def restart_after_consecutive_failures

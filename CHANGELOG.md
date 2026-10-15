@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added shared provider REST rate limiting (`RateLimiter`, `SqliteRateLimiter`, `PostgresRateLimiter`):
+  - Coordinated token-bucket rate limiter supporting both SQLite and PostgreSQL backends across concurrent worker processes.
+  - Patient acquisition waits (default timeout up to 120s with non-blocking retry intervals outside transactions) and structured `rate_limit_waited` / `rate_limit_timeout` logging.
+  - Shared HTTP 429 cooldown state (`cooldown_until` in SQLite migration 015 and Postgres migration 002) parsing integer or HTTP-date `Retry-After` headers, bounded to safe ranges (up to 300s) with fallback duration.
+  - Default rate limiting for Schwab REST API (110 requests per 60s) with configurable overrides in `providers.<name>.rate_limit_max_requests` and `providers.<name>.rate_limit_interval_seconds`.
+  - Provider isolation ensuring rate-limit counters and cooldown states are partitioned strictly per provider name.
+- Added Schwab REST HTTP response diagnostics and correlation (`Tickrake::Schwab::ClientDiagnostics`):
+  - Unique per-request correlation IDs formatted as `<job_name>-<pid>-<hex>-<counter>` propagating through logs and internal Schwab client calls.
+  - Rich response metadata tracking (`http_status`, `content_type`, `content_length`, `body_bytes`, `duration_ms`, `parse_outcome`) preserved across successful responses, JSON parse errors (empty or truncated responses), and transport/timeout failures.
+  - Propagation of correlation IDs and HTTP response metadata to Tickrake `fetch_start`, `fetch_retry`, and `fetch_failed` logging events in `OptionsJob`.
+  - Sensitive credential and body redaction ensuring access tokens, authorization headers, and raw payload bodies are not leaked into logs.
 - Added PostgreSQL metadata and shared rate-limit backend alongside default SQLite, configured via `database.backend` (`postgres` or `sqlite`).
 - Added expanded corporate fundamental and quote attributes to `FundamentalsJob` and `FundamentalsParquetWriter` (`declaration_date`, `next_div_ex_date`, `next_div_pay_date`, `eps_change`, `eps_change_year`, `rev_change_in`, `cusip`, `fund_leverage_factor`, `is_hard_to_borrow`, `is_shortable`, `htb_quantity`, `htb_rate`, `close_price`, `last_price`, `net_change`, `net_percent_change`, and `total_volume`) for once-daily Parquet ingestion in downstream Apache Iceberg tables.
 - Added named and inline universe support to DSL fundamentals jobs (`JobBuilder#build_fundamentals_job!`), resolving symbols from `universe :name`, `universe do ... end`, or inline `symbols`.

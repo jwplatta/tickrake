@@ -55,12 +55,19 @@ module Tickrake
         }
       }.freeze
 
-      def initialize(provider_name:, client:)
+      attr_reader :rate_limiter
+
+      def initialize(provider_name:, client:, rate_limiter: nil)
         super(provider_name: provider_name, adapter_name: "schwab")
         @client = client
+        @rate_limiter = rate_limiter
       end
 
       def fetch_bars(symbol:, frequency:, start_date:, end_date:, extended_hours:, previous_close:)
+        Thread.current[:tickrake_job_name] ||= "candles"
+        unless @client.respond_to?(:rate_limiter) && @client.rate_limiter
+          @rate_limiter&.consume!
+        end
         config = FREQUENCY_ALIASES.fetch(frequency)
         response = @client.get_price_history(
           api_symbol(symbol),

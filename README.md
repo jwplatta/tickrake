@@ -443,7 +443,7 @@ providers:
   schwab:
     adapter: schwab
     settings:
-      rate_limit_max_requests: 120
+      rate_limit_max_requests: 110 # default 110 req / 60s for Schwab REST
       rate_limit_interval_seconds: 60
       restart_after_consecutive_failures: 3
       restart_cooldown_seconds: 30
@@ -454,6 +454,16 @@ providers:
       port: 4002
       client_id: 1001
 ```
+
+### Shared Rate Limiting & Diagnostics
+
+Tickrake coordinates provider REST request rates across concurrent processes and containers using a shared database-backed token bucket (SQLite or PostgreSQL):
+- **Coordinated Rate Limiting**: Shared token bucket state ensures all concurrent workers querying the same provider respect defined thresholds (defaults to 110 req / 60s for Schwab).
+- **Patient Acquisition**: When rate limit tokens are exhausted, workers wait patiently up to 120 seconds with non-blocking retry intervals outside database transactions before failing with `RateLimitWaitTimeoutError`.
+- **429 Cooldown**: If a provider returns HTTP 429 Too Many Requests, Tickrake parses the `Retry-After` header (seconds or HTTP-date, bounded up to 300s) and writes a shared cooldown timestamp so all workers pause requests until the cooldown window elapses.
+- **Per-Request Correlation IDs**: Every outgoing Schwab REST request receives a unique correlation ID formatted as `<job_name>-<pid>-<hex>-<seq>`, which propagates to logger outputs and Tickrake `fetch_start`, `fetch_retry`, and `fetch_failed` events.
+- **Response Diagnostics**: Detailed metadata (HTTP status, content type, declared vs actual body bytes, duration, parse outcome) is tracked and attached to exceptions when JSON decoding fails or transport errors occur, with sensitive credentials and tokens redacted.
+
 
 ### Provider Precedence
 

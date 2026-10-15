@@ -8,6 +8,8 @@ module Tickrake
     end
 
     def run(now: Time.now)
+      job_name = @scheduled_job&.name || "fundamentals"
+      Thread.current[:tickrake_job_name] = job_name
       sample_date = now.to_date
       collection_id = "fundamentals-#{now.utc.strftime("%Y%m%dT%H%M%SZ")}"
       @runtime.logger.info({ msg: "scrape_start", event: "scrape_start", data_type: "fundamentals", collection_id: collection_id })
@@ -72,7 +74,7 @@ module Tickrake
       result = {}
 
       symbols.each_slice(batch_size) do |batch|
-        rate_limiter&.consume!
+        rate_limiter&.consume! unless client.respond_to?(:rate_limiter) && client.rate_limiter
         data = with_retries("get_instruments batch of #{batch.length}") do
           client.get_instruments(batch, SchwabRb::Orders::Instrument::Projections::FUNDAMENTAL, return_data_objects: false)
         end
@@ -92,7 +94,7 @@ module Tickrake
       result = {}
 
       symbols.each_slice(batch_size) do |batch|
-        rate_limiter&.consume!
+        rate_limiter&.consume! unless client.respond_to?(:rate_limiter) && client.rate_limiter
         data = with_retries("get_quotes batch of #{batch.length}") do
           client.get_quotes(batch, return_data_objects: false)
         end
@@ -293,6 +295,8 @@ module Tickrake
       return @rate_limiter if defined?(@rate_limiter)
 
       provider_name = @scheduled_job&.provider || "schwab"
+      return nil unless @runtime.config.respond_to?(:providers) && @runtime.config.providers.key?(provider_name)
+
       provider_def = @runtime.config.provider_definition(provider_name)
       max_req = provider_def.rate_limit_max_requests
       interval = provider_def.rate_limit_interval_seconds
@@ -302,7 +306,9 @@ module Tickrake
           @runtime.config,
           provider: provider_name,
           capacity: max_req,
-          refill_rate: max_req.to_f / interval
+          refill_rate: max_req.to_f / interval,
+          adapter: @runtime.respond_to?(:tracker) ? @runtime.tracker&.adapter : nil,
+          logger: @runtime.respond_to?(:logger) ? @runtime.logger : nil
         )
       end
     end

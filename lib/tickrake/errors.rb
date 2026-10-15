@@ -25,4 +25,31 @@ module Tickrake
       EXIT_STATUS
     end
   end
+
+  class RateLimitWaitTimeoutError < Error
+    attr_reader :provider, :elapsed_seconds, :timeout_seconds
+
+    def initialize(provider:, elapsed_seconds:, timeout_seconds: 120.0, message: nil)
+      @provider = provider
+      @elapsed_seconds = elapsed_seconds
+      @timeout_seconds = timeout_seconds
+      msg = message || "Rate limit wait timeout for provider #{@provider} after #{@elapsed_seconds.round(2)}s (timeout: #{@timeout_seconds}s)"
+      super(msg)
+    end
+  end
+
+  class ResponseParseError < JSON::ParserError
+    attr_reader :response_metadata, :correlation_id, :http_status, :content_type, :content_length, :body_bytes, :duration_ms
+
+    def initialize(message, response_metadata: nil)
+      super(message)
+      @response_metadata = response_metadata || {}
+      @correlation_id = @response_metadata[:correlation_id]
+      @http_status = @response_metadata[:http_status]
+      @content_type = @response_metadata[:content_type]
+      @content_length = @response_metadata[:content_length]
+      @body_bytes = @response_metadata[:body_bytes]
+      @duration_ms = @response_metadata[:duration_ms]
+    end
+  end
 end

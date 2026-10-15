@@ -31,7 +31,8 @@ module Tickrake
     def self.migrations(backend = "sqlite")
       if backend.to_s == "postgres" || backend.to_s == "postgresql"
         [
-          Tickrake::DB::PostgresMigrations::CreateSchema
+          Tickrake::DB::PostgresMigrations::CreateSchema,
+          Tickrake::DB::PostgresMigrations::AddCooldownUntilToApiRateLimits
         ].freeze
       else
         [
@@ -48,7 +49,8 @@ module Tickrake
           Tickrake::DB::Migrations::CreateOrderBookEvents,
           Tickrake::DB::Migrations::CreateLevelOneEvents,
           Tickrake::DB::Migrations::DropStreamingEventTables,
-          Tickrake::DB::Migrations::RemoveArchiveMetadataFromFileCache
+          Tickrake::DB::Migrations::RemoveArchiveMetadataFromFileCache,
+          Tickrake::DB::Migrations::AddCooldownUntilToApiRateLimits
         ].freeze
       end
     end

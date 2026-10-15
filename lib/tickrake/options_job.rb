@@ -36,7 +36,9 @@ module Tickrake
 
       selected_universe.flat_map do |entry|
         provider_name = provider_name_for(entry)
-        rate_limiter_for(provider_name_for(entry))&.consume!
+        unless client.respond_to?(:rate_limiter) && client.rate_limiter
+          rate_limiter_for(provider_name_for(entry))&.consume!
+        end
         expiration_chain = fetch_expiration_chain(client, entry.symbol)
 
         buckets.filter_map do |bucket|
@@ -74,7 +76,26 @@ module Tickrake
     end
 
     def fetch_expiration_chain(client, symbol)
-      chain = with_retries("option expiration chain for #{symbol}") do
+      chain = with_retries("option expiration chain for #{symbol}", on_retry: ->(attempt, error) {
+        metadata = Thread.current[:tickrake_last_response_metadata] || {}
+        corr_id = metadata[:correlation_id] || (error.respond_to?(:correlation_id) ? error.correlation_id : nil)
+        http_status = metadata[:http_status] || (error.respond_to?(:response) ? error.response&.status : nil)
+        @runtime.logger.warn({
+          msg: "fetch_retry",
+          event: "fetch_retry",
+          correlation_id: corr_id,
+          symbol: symbol,
+          attempt: attempt,
+          error_class: error.class.name,
+          error_message: error.message,
+          http_status: http_status,
+          content_type: metadata[:content_type],
+          content_length: metadata[:content_length],
+          body_bytes: metadata[:body_bytes],
+          duration_ms: metadata[:duration_ms],
+          parse_outcome: metadata[:parse_outcome]
+        }.compact)
+      }) do
         client.get_option_expiration_chain(symbol)
       end
       raise Tickrake::Error, "Option expiration chain request returned nil for #{symbol}" if chain.nil?
@@ -164,16 +185,47 @@ module Tickrake
     end
 
     def fetch_one(job, run_time, collection_id)
+      job_name = @scheduled_job&.name || "options"
+      Thread.current[:tickrake_job_name] = job_name
       symbol = job.fetch(:symbol)
       expiration_date = job.fetch(:expiration_date)
       provider_name = job.fetch(:provider_name)
       option_root = job[:option_root]
       requested_bucket = job.fetch(:requested_buckets).join(",")
-      @runtime.logger.info({ msg: "fetch_start", event: "fetch_start", symbol: symbol, option_root: option_root, bucket: requested_bucket, expiration_date: expiration_date.to_s, collection_id: collection_id })
+      correlation_id = Tickrake::Schwab::ClientDiagnostics.correlation_id_generator(job_name)
+      Thread.current[:tickrake_current_correlation_id] = correlation_id
+      @runtime.logger.info({
+        msg: "fetch_start",
+        event: "fetch_start",
+        correlation_id: correlation_id,
+        symbol: symbol,
+        option_root: option_root,
+        bucket: requested_bucket,
+        expiration_date: expiration_date.to_s,
+        collection_id: collection_id
+      })
       started_at = Time.now
       begin
         result = with_retries("#{symbol} exp=#{expiration_date}", on_retry: ->(attempt, error) {
-          @runtime.logger.warn({ msg: "fetch_retry", event: "fetch_retry", symbol: symbol, expiration_date: expiration_date.to_s, attempt: attempt, error_class: error.class.name, error_message: error.message })
+          metadata = Thread.current[:tickrake_last_response_metadata] || {}
+          corr_id = metadata[:correlation_id] || (error.respond_to?(:correlation_id) ? error.correlation_id : nil) || correlation_id
+          http_status = metadata[:http_status] || (error.respond_to?(:response) ? error.response&.status : nil)
+          @runtime.logger.warn({
+            msg: "fetch_retry",
+            event: "fetch_retry",
+            correlation_id: corr_id,
+            symbol: symbol,
+            expiration_date: expiration_date.to_s,
+            attempt: attempt,
+            error_class: error.class.name,
+            error_message: error.message,
+            http_status: http_status,
+            content_type: metadata[:content_type],
+            content_length: metadata[:content_length],
+            body_bytes: metadata[:body_bytes],
+            duration_ms: metadata[:duration_ms],
+            parse_outcome: metadata[:parse_outcome]
+          }.compact)
         }) do
           write_option_chain(
             client: client,
@@ -188,6 +240,7 @@ module Tickrake
         @runtime.logger.info({
           msg: "fetch_success",
           event: "fetch_success",
+          correlation_id: correlation_id,
           data_type: "options",
           provider: provider_name,
           symbol: symbol,
@@ -209,8 +262,26 @@ module Tickrake
         :success
       rescue StandardError, Timeout::ExitException => e
         elapsed_ms = ((Time.now - started_at) * 1000).round
-        http_status = e.respond_to?(:response) ? e.response&.status : nil
-        @runtime.logger.error({ msg: "fetch_failed", event: "fetch_failed", symbol: symbol, option_root: option_root, expiration_date: expiration_date.to_s, error_class: e.class.name, error_message: e.message, http_status: http_status, duration_ms: elapsed_ms, collection_id: collection_id })
+        metadata = Thread.current[:tickrake_last_response_metadata] || {}
+        corr_id = metadata[:correlation_id] || (e.respond_to?(:correlation_id) ? e.correlation_id : nil) || correlation_id
+        http_status = metadata[:http_status] || (e.respond_to?(:response) ? e.response&.status : nil)
+        @runtime.logger.error({
+          msg: "fetch_failed",
+          event: "fetch_failed",
+          correlation_id: corr_id,
+          symbol: symbol,
+          option_root: option_root,
+          expiration_date: expiration_date.to_s,
+          error_class: e.class.name,
+          error_message: e.message,
+          http_status: http_status,
+          content_type: metadata[:content_type],
+          content_length: metadata[:content_length],
+          body_bytes: metadata[:body_bytes],
+          duration_ms: metadata[:duration_ms] || elapsed_ms,
+          parse_outcome: metadata[:parse_outcome],
+          collection_id: collection_id
+        }.compact)
         write_sidecar(
           job: job, run_time: run_time, collection_id: collection_id,
           started_at: started_at, status: "failed", error_message: "#{http_status ? "HTTP #{http_status} " : ""}#{e.message}".strip
@@ -232,7 +303,9 @@ module Tickrake
     end
 
     def write_option_chain(client:, provider_name:, symbol:, expiration_date:, timestamp:, root:)
-      rate_limiter_for(provider_name)&.consume!
+      unless client.respond_to?(:rate_limiter) && client.rate_limiter
+        rate_limiter_for(provider_name)&.consume!
+      end
       chain = Timeout.timeout(@runtime.config.option_fetch_timeout_seconds) do
         client.get_option_chain(
           self.class.option_chain_api_symbol(symbol),
@@ -333,6 +406,7 @@ module Tickrake
     def rate_limiter_for(provider_name)
       @rate_limiters ||= {}
       return @rate_limiters[provider_name] if @rate_limiters.key?(provider_name)
+      return nil unless @runtime.config.respond_to?(:providers) && @runtime.config.providers.key?(provider_name)
 
       provider_def = @runtime.config.provider_definition(provider_name)
       max_req = provider_def.rate_limit_max_requests
@@ -343,7 +417,9 @@ module Tickrake
           @runtime.config,
           provider: provider_name,
           capacity: max_req,
-          refill_rate: max_req.to_f / interval
+          refill_rate: max_req.to_f / interval,
+          adapter: @runtime.respond_to?(:tracker) ? @runtime.tracker&.adapter : nil,
+          logger: @runtime.respond_to?(:logger) ? @runtime.logger : nil
         )
       end
     end

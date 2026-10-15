@@ -25,6 +25,10 @@ end
 
 require_relative "tickrake/version"
 require_relative "tickrake/errors"
+require_relative "tickrake/schwab/client_diagnostics"
+
+SchwabRb::Client.prepend(Tickrake::Schwab::ClientDiagnostics) unless SchwabRb::Client.ancestors.include?(Tickrake::Schwab::ClientDiagnostics)
+
 require_relative "tickrake/database_config"
 require_relative "tickrake/config"
 require_relative "tickrake/config_loader"
@@ -64,7 +68,9 @@ require_relative "tickrake/db/migrations/011_create_order_book_events"
 require_relative "tickrake/db/migrations/012_create_level_one_events"
 require_relative "tickrake/db/migrations/013_drop_streaming_event_tables"
 require_relative "tickrake/db/migrations/014_remove_archive_metadata_from_file_cache"
+require_relative "tickrake/db/migrations/015_add_cooldown_until_to_api_rate_limits"
 require_relative "tickrake/db/postgres_migrations/001_create_schema"
+require_relative "tickrake/db/postgres_migrations/002_add_cooldown_until_to_api_rate_limits"
 require_relative "tickrake/db/adapters/sqlite_adapter"
 require_relative "tickrake/db/adapters/postgres_adapter"
 require_relative "tickrake/db/adapters"
