@@ -437,52 +437,21 @@ RSpec.describe "query engine" do
       File.write(path, "contract_type,symbol\nCALL,SPXW\n")
 
       config = build_config(candles_dir: candles_dir, options_dir: options_dir)
-      db = SQLite3::Database.new(config.sqlite_path)
-      db.execute_batch(
-        <<~SQL
-          CREATE TABLE schema_migrations (
-            version INTEGER PRIMARY KEY
-          );
-
-          CREATE TABLE file_metadata_cache (
-            path TEXT PRIMARY KEY,
-            dataset_type TEXT NOT NULL,
-            provider_name TEXT NOT NULL,
-            ticker TEXT NOT NULL,
-            frequency TEXT,
-            expiration_date TEXT,
-            row_count INTEGER NOT NULL,
-            first_observed_at TEXT,
-            last_observed_at TEXT,
-            file_mtime INTEGER NOT NULL,
-            file_size INTEGER NOT NULL,
-            updated_at TEXT NOT NULL
-          );
-        SQL
+      tracker = Tickrake::Tracker.new(config.sqlite_path, migrate: true)
+      tracker.upsert_file_metadata(
+        path: path,
+        dataset_type: "options",
+        provider_name: "schwab",
+        ticker: "SPXW",
+        frequency: nil,
+        expiration_date: "2026-04-17",
+        row_count: 1,
+        first_observed_at: "2026-04-10T14:30:00Z",
+        last_observed_at: "2026-04-10T14:30:00Z",
+        file_mtime: File.stat(path).mtime.to_i,
+        file_size: File.size(path),
+        updated_at: "2026-04-10T14:30:00Z"
       )
-      db.execute("INSERT INTO schema_migrations (version) VALUES (2)")
-      db.execute(
-        <<~SQL,
-          INSERT INTO file_metadata_cache (
-            path, dataset_type, provider_name, ticker, frequency, row_count,
-            first_observed_at, last_observed_at, file_mtime, file_size, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        SQL
-        [
-          path,
-          "options",
-          "schwab",
-          "SPXW",
-          nil,
-          1,
-          "2026-04-10T14:30:00Z",
-          "2026-04-10T14:30:00Z",
-          File.stat(path).mtime.to_i,
-          File.size(path),
-          "2026-04-10T14:30:00Z"
-        ]
-      )
-      db.close
 
       tracker = Tickrake::Tracker.new(config.sqlite_path)
       scanner = Tickrake::Query::OptionsScanner.new(config: config, tracker: tracker)

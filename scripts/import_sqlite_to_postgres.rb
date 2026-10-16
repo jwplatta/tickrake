@@ -38,11 +38,11 @@ class SqliteToPostgresMigrator
     "fetch_runs" => "id"
   }.freeze
 
-  attr_reader :sqlite_db, :pg_adapter, :dry_run, :stdout
+  attr_reader :sqlite_db, :pg_config, :dry_run, :stdout
 
-  def initialize(sqlite_path:, pg_adapter:, dry_run: false, stdout: $stdout)
+  def initialize(sqlite_path:, pg_config: nil, pg_adapter: nil, dry_run: false, stdout: $stdout)
     @sqlite_path = Tickrake::PathSupport.expand_path(sqlite_path)
-    @pg_adapter = pg_adapter
+    @pg_config = pg_config || (pg_adapter.respond_to?(:config) ? pg_adapter.config : pg_adapter)
     @dry_run = dry_run
     @stdout = stdout
   end
@@ -59,10 +59,11 @@ class SqliteToPostgresMigrator
     stdout.puts "Checking PostgreSQL schema and row counts..."
 
     # Ensure schema migrations have run on postgres target
-    Tickrake::Tracker.migrate!(@pg_adapter.config)
+    Tickrake::Tracker.migrate!(@pg_config)
+    connection = Tickrake::DB::ConnectionManager.establish_connection(@pg_config)
 
     # Empty target check
-    verify_empty_target!
+    verify_empty_target!(connection)
 
     source_counts = fetch_source_counts
     stdout.puts "\nSource table row counts:"
@@ -76,23 +77,23 @@ class SqliteToPostgresMigrator
     end
 
     stdout.puts "\nCopying data to PostgreSQL..."
-    @pg_adapter.transaction do
+    connection.transaction do
       TABLES_IN_ORDER.each do |table|
-        count = copy_table(table)
+        count = copy_table(connection, table)
         stdout.puts "  Copied #{count} rows into #{table}"
       end
 
       # Reset sequences
       stdout.puts "\nResetting PostgreSQL ID sequences..."
       TABLE_SEQUENCES.each do |table, pk|
-        @pg_adapter.reset_sequence!(table, pk)
+        connection.reset_pk_sequence!(table, pk) rescue nil
         stdout.puts "  Reset sequence for #{table}.#{pk}"
       end
     end
 
     # Verification check
     stdout.puts "\nVerifying row counts..."
-    verify_copied_counts!(source_counts)
+    verify_copied_counts!(connection, source_counts)
 
     stdout.puts "\nSuccessfully migrated SQLite state to PostgreSQL!"
   ensure
@@ -101,12 +102,12 @@ class SqliteToPostgresMigrator
 
   private
 
-  def verify_empty_target!
+  def verify_empty_target!(connection)
     non_empty = []
     TABLES_IN_ORDER.each do |table|
-      next unless @pg_adapter.table_exists?(table)
+      next unless connection.table_exists?(table)
 
-      count = @pg_adapter.row_count(table)
+      count = connection.select_value("SELECT COUNT(*) FROM #{table}").to_i
       non_empty << "#{table} (#{count} rows)" if count.positive?
     end
 
@@ -135,31 +136,30 @@ class SqliteToPostgresMigrator
     !val.nil?
   end
 
-  def copy_table(table)
+  def copy_table(connection, table)
     return 0 unless sqlite_table_exists?(table)
 
     rows = @sqlite_db.execute("SELECT * FROM #{table}")
     return 0 if rows.empty?
 
     columns = rows.first.keys
-    col_names = columns.join(", ")
-    placeholders = (["?"] * columns.length).join(", ")
-    sql = "INSERT INTO #{table} (#{col_names}) VALUES (#{placeholders})"
+    quoted_table = connection.quote_table_name(table)
+    quoted_columns = columns.map { |c| connection.quote_column_name(c) }.join(", ")
 
     rows.each_slice(500) do |batch|
-      batch.each do |row|
-        binds = columns.map { |c| row[c] }
-        @pg_adapter.execute(sql, binds)
+      values_list = batch.map do |row|
+        "(" + columns.map { |c| connection.quote(row[c]) }.join(", ") + ")"
       end
+      connection.execute("INSERT INTO #{quoted_table} (#{quoted_columns}) VALUES #{values_list.join(", ")}")
     end
 
     rows.length
   end
 
-  def verify_copied_counts!(source_counts)
+  def verify_copied_counts!(connection, source_counts)
     mismatches = []
     TABLES_IN_ORDER.each do |table|
-      pg_count = @pg_adapter.row_count(table)
+      pg_count = connection.select_value("SELECT COUNT(*) FROM #{table}").to_i
       expected = source_counts[table]
       if pg_count != expected
         mismatches << "#{table}: expected #{expected}, got #{pg_count}"
@@ -204,8 +204,6 @@ if __FILE__ == $PROGRAM_NAME
                 raise Tickrake::Error, "No PostgreSQL target configured. Specify --postgres-url or configure postgres in #{options[:config_path]}."
               end
 
-  pg_adapter = Tickrake::DB::Adapters::PostgresAdapter.new(pg_config)
-
   unless options[:dry_run] || options[:force]
     puts "About to migrate SQLite state from #{sqlite_path} to PostgreSQL (#{pg_config.database || pg_config.url})."
     print "Are you sure you want to proceed? (y/N): "
@@ -218,7 +216,7 @@ if __FILE__ == $PROGRAM_NAME
 
   migrator = SqliteToPostgresMigrator.new(
     sqlite_path: sqlite_path,
-    pg_adapter: pg_adapter,
+    pg_config: pg_config,
     dry_run: options[:dry_run]
   )
 

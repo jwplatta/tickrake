@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added standalone `ActiveRecord` (`>= 7.1`) to manage data persistence and migrations across SQLite and PostgreSQL backends.
+- Added ActiveRecord domain models in `Tickrake::Models` (`FetchRun`, `FileMetadata`, `MarketIndex`, `Ticker`, `TickerAlias`, `MarketIndexMembership`, `ApiRateLimit`).
+- Added single canonical ActiveRecord migration (`001_create_tickrake_schema.rb`) for unified, cross-database schema management.
 - Added PostgreSQL metadata and shared rate-limit backend alongside default SQLite, configured via `database.backend` (`postgres` or `sqlite`).
 - Added expanded corporate fundamental and quote attributes to `FundamentalsJob` and `FundamentalsParquetWriter` (`declaration_date`, `next_div_ex_date`, `next_div_pay_date`, `eps_change`, `eps_change_year`, `rev_change_in`, `cusip`, `fund_leverage_factor`, `is_hard_to_borrow`, `is_shortable`, `htb_quantity`, `htb_rate`, `close_price`, `last_price`, `net_change`, `net_percent_change`, and `total_volume`) for once-daily Parquet ingestion in downstream Apache Iceberg tables.
 - Added named and inline universe support to DSL fundamentals jobs (`JobBuilder#build_fundamentals_job!`), resolving symbols from `universe :name`, `universe do ... end`, or inline `symbols`.
@@ -24,9 +27,16 @@ All notable changes to this project will be documented in this file.
 - Added `universe` support to `stream` job subscriptions (`StreamSubscriptionBuilder`), allowing subscriptions like `level_one`, `order_book`, and `chart_stream` to resolve symbols directly from configured universe files instead of requiring inline symbol lists.
 
 ### Changed
+- Unified `SqliteRateLimiter` and `PostgresRateLimiter` into a single, model-backed `Tickrake::RateLimiter` using transactional locking.
+- Replaced custom SQL database adapters (`Tickrake::DB::Adapters`) and hand-rolled SQL migration runner with `Tickrake::DB::ConnectionManager` and ActiveRecord's `MigrationContext`.
+- Streamlined `Tickrake::Tracker` to delegate all persistence and querying to ActiveRecord models while maintaining full compatibility with existing public APIs.
 - Defaulted option sample compaction to Parquet only (`artifacts: %w[parquet]`). Compacting to CSV is now optional and can be explicitly requested via `artifacts: [:csv, :parquet]` or `artifacts: [:csv]` in the maintenance DSL or configuration.
 - Updated `DuckdbOptionCompactedWriter` to accept optional `csv_path` and `parquet_path`, and updated `Validator` to validate against compacted Parquet files directly using DuckDB when CSV is not present.
 - Changed option sample maintenance archival to archive only compacted Parquet files (`artifacts: [parquet]`) to remote S3 storage by default, omitting compacted CSV uploads.
+
+### Removed
+- Removed legacy incremental SQLite migration files (001-014) and duplicate PostgreSQL schema script in favor of unified ActiveRecord migrations.
+- Removed custom `SqliteAdapter`, `PostgresAdapter`, `Adapters`, and separate `sqlite_rate_limiter.rb` / `postgres_rate_limiter.rb`.
 
 ### Fixed
 - Fixed `FundamentalsJob` sidecars writing `fetch_run.symbol` as `null`, which caused PostgreSQL `NOT NULL` constraint violations in `MetadataSyncJob`. Stored the literal `none` sentinel on new fundamentals fetch runs, normalized legacy pending null-symbol sidecars to `none` during metadata sync ingestion, and added fallback handling in `Tracker#insert_fetch_runs` and `Tracker#record_start`.

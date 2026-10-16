@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "monitor"
+require "json"
+require "time"
 
 module Tickrake
   class Tracker
@@ -22,162 +24,149 @@ module Tickrake
       collection_id
     ].freeze
 
-    def self.migrate!(config_or_path)
-      tracker = new(config_or_path, migrate: true)
-      tracker.close
-      nil
-    end
-
-    def self.migrations(backend = "sqlite")
-      if backend.to_s == "postgres" || backend.to_s == "postgresql"
-        [
-          Tickrake::DB::PostgresMigrations::CreateSchema
-        ].freeze
-      else
-        [
-          Tickrake::DB::Migrations::CreateFetchRuns,
-          Tickrake::DB::Migrations::CreateFileMetadataCache,
-          Tickrake::DB::Migrations::AddFetchRunsFrequency,
-          Tickrake::DB::Migrations::AddOptionExpirationAndIndexes,
-          Tickrake::DB::Migrations::AddOptionTickerTimeIndex,
-          Tickrake::DB::Migrations::CreateMarketIndexTables,
-          Tickrake::DB::Migrations::AddArtifactMetadataToFileCache,
-          Tickrake::DB::Migrations::AddCollectionId,
-          Tickrake::DB::Migrations::CreateApiRateLimits,
-          Tickrake::DB::Migrations::CreateJobSessions,
-          Tickrake::DB::Migrations::CreateOrderBookEvents,
-          Tickrake::DB::Migrations::CreateLevelOneEvents,
-          Tickrake::DB::Migrations::DropStreamingEventTables,
-          Tickrake::DB::Migrations::RemoveArchiveMetadataFromFileCache
-        ].freeze
+    class << self
+      def migrate!(config_or_path = nil)
+        Tickrake::DB::Migrator.migrate!(config_or_path)
+        nil
       end
     end
 
-    attr_reader :adapter, :path
+    attr_reader :config_or_path, :path
 
-    def initialize(config_or_path, migrate: false)
-      @adapter = Tickrake::DB::Adapters.build(config_or_path)
-      @path = @adapter.respond_to?(:path) ? @adapter.path : nil
-      @db_lock = Monitor.new
-      migrate ? migrate! : ensure_schema_current!
+    def initialize(config_or_path = nil, migrate: false)
+      @config_or_path = config_or_path
+      @db_config = Tickrake::DB::ConnectionManager.resolve_config(config_or_path)
+      @path = @db_config.sqlite? ? Tickrake::PathSupport.expand_path(@db_config.sqlite_path || Tickrake::PathSupport.sqlite_path) : nil
+      @lock = Monitor.new
+
+      Tickrake::DB::ConnectionManager.establish_connection(config_or_path)
+
+      if migrate
+        migrate!
+      else
+        ensure_schema_current!
+      end
     end
 
     def close
-      synchronize_db do
-        @adapter&.close
-        @db = nil
-      end
+      # Managed by ActiveRecord connection pool
     end
 
     def checkpoint!
-      synchronize_db do
-        adapter.checkpoint!
+      if sqlite?
+        ActiveRecord::Base.connection.execute("PRAGMA wal_checkpoint(PASSIVE)") rescue nil
       end
     end
 
     def record_start(attrs)
-      synchronize_db do
-        returning_clause = postgres? ? " RETURNING id" : ""
-        res = db.execute(
-          <<~SQL,
-            INSERT INTO fetch_runs (
-              job_type, dataset_type, symbol, frequency, option_root, requested_buckets,
-              resolved_expiration, scheduled_for, started_at, status, output_path, error_message,
-              collection_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)#{returning_clause}
-          SQL
-          [
-            attrs.fetch(:job_type),
-            attrs.fetch(:dataset_type),
-            (attrs[:symbol].nil? || attrs[:symbol].to_s.strip.empty?) ? "none" : attrs[:symbol],
-            attrs[:frequency],
-            attrs[:option_root],
-            attrs[:requested_buckets] && JSON.dump(attrs[:requested_buckets]),
-            attrs[:resolved_expiration],
-            iso(attrs[:scheduled_for]),
-            iso(attrs.fetch(:started_at)),
-            "running",
-            attrs[:output_path],
-            nil,
-            attrs[:collection_id]
-          ]
+      synchronize do
+        symbol = (attrs[:symbol].nil? || attrs[:symbol].to_s.strip.empty?) ? "none" : attrs[:symbol]
+        requested_buckets = attrs[:requested_buckets] ? JSON.dump(attrs[:requested_buckets]) : nil
+
+        run = Models::FetchRun.create!(
+          job_type: attrs.fetch(:job_type),
+          dataset_type: attrs.fetch(:dataset_type),
+          symbol: symbol,
+          frequency: attrs[:frequency],
+          option_root: attrs[:option_root],
+          requested_buckets: requested_buckets,
+          resolved_expiration: attrs[:resolved_expiration],
+          scheduled_for: iso(attrs[:scheduled_for]),
+          started_at: iso(attrs.fetch(:started_at)),
+          status: "running",
+          output_path: attrs[:output_path],
+          collection_id: attrs[:collection_id]
         )
-        if postgres?
-          res.first["id"].to_i
-        else
-          db.respond_to?(:last_insert_id) ? db.last_insert_id : db.last_insert_row_id
-        end
+        run.id
       end
     end
 
     def record_finish(id:, status:, finished_at:, output_path: nil, error_message: nil)
-      synchronize_db do
-        db.execute(
-          <<~SQL,
-            UPDATE fetch_runs
-            SET status = ?, finished_at = ?, output_path = COALESCE(?, output_path), error_message = ?
-            WHERE id = ?
-          SQL
-          [
-            status,
-            iso(finished_at),
-            output_path,
-            error_message,
-            id
-          ]
-        )
+      synchronize do
+        run = Models::FetchRun.find(id)
+        updates = {
+          status: status,
+          finished_at: iso(finished_at),
+          error_message: error_message
+        }
+        updates[:output_path] = output_path if output_path
+        run.update!(updates)
       end
     end
 
     def ingest_sidecars(fetch_runs:, metadata_list:)
       with_transaction do
-        insert_fetch_runs(fetch_runs) if fetch_runs.any?
-        upsert_metadata(metadata_list) if metadata_list.any?
+        bulk_insert_fetch_runs(fetch_runs) if fetch_runs.any?
+        bulk_upsert_file_metadata(metadata_list) if metadata_list.any?
       end
     end
 
     def bulk_insert_fetch_runs(attrs_list)
       return if attrs_list.empty?
 
-      with_transaction { insert_fetch_runs(attrs_list) }
+      synchronize do
+        records = attrs_list.map do |attrs|
+          symbol = (attrs["symbol"].nil? || attrs["symbol"].to_s.strip.empty?) ? "none" : attrs["symbol"]
+          requested_buckets = attrs["requested_buckets"]
+          requested_buckets = JSON.dump(requested_buckets) if requested_buckets.is_a?(Array) || requested_buckets.is_a?(Hash)
+
+          {
+            job_type: attrs.fetch("job_type"),
+            dataset_type: attrs.fetch("dataset_type"),
+            symbol: symbol,
+            frequency: attrs["frequency"],
+            option_root: attrs["option_root"],
+            requested_buckets: requested_buckets,
+            resolved_expiration: attrs["resolved_expiration"],
+            scheduled_for: attrs["scheduled_for"],
+            started_at: attrs.fetch("started_at"),
+            finished_at: attrs["finished_at"],
+            status: attrs.fetch("status"),
+            output_path: attrs["output_path"],
+            error_message: attrs["error_message"],
+            collection_id: attrs["collection_id"]
+          }
+        end
+        Models::FetchRun.insert_all(records)
+      end
     end
 
     def fetch_runs
-      synchronize_db { db.execute("SELECT * FROM fetch_runs ORDER BY id") }
+      synchronize do
+        Models::FetchRun.order(:id).as_json
+      end
     end
 
     def file_metadata(path)
-      synchronize_db do
-        db.get_first_row("SELECT * FROM file_metadata_cache WHERE path = ?", [Tickrake::PathSupport.expand_path(path)])
+      synchronize do
+        expanded = Tickrake::PathSupport.expand_path(path)
+        record = Models::FileMetadata.where(path: expanded).take
+        record&.as_json
       end
     end
 
     def file_metadata_aggregate(where: nil, binds: [])
-      base = "SELECT COUNT(*) AS file_count, COALESCE(SUM(file_size), 0) AS total_bytes, MIN(last_observed_at) AS oldest_observed_at, MAX(last_observed_at) AS newest_observed_at FROM file_metadata_cache"
-      sql = where && !where.empty? ? "#{base} WHERE #{where}" : base
-      synchronize_db { db.get_first_row(sql, binds) }
+      synchronize do
+        Models::FileMetadata.aggregate_summary(where: where, binds: binds)
+      end
     end
 
     def file_metadata_aggregate_by_provider(where: nil, binds: [])
-      base = "SELECT provider_name, COUNT(*) AS file_count, COALESCE(SUM(file_size), 0) AS total_bytes, MIN(last_observed_at) AS oldest_observed_at, MAX(last_observed_at) AS newest_observed_at FROM file_metadata_cache"
-      sql = where && !where.empty? ? "#{base} WHERE #{where}" : base
-      sql += " GROUP BY provider_name ORDER BY provider_name"
-      synchronize_db { db.execute(sql, binds) }
+      synchronize do
+        Models::FileMetadata.aggregate_by_provider(where: where, binds: binds)
+      end
     end
 
     def file_metadata_largest(where: nil, binds: [], limit: 5)
-      base = "SELECT path, file_size FROM file_metadata_cache"
-      sql = where && !where.empty? ? "#{base} WHERE #{where}" : base
-      sql += " ORDER BY file_size DESC LIMIT #{Integer(limit)}"
-      synchronize_db { db.execute(sql, binds) }
+      synchronize do
+        Models::FileMetadata.largest(where: where, binds: binds, limit: limit)
+      end
     end
 
     def file_metadata_rows(where: nil, binds: [], order_by: nil, limit: nil)
-      sql = +"SELECT * FROM file_metadata_cache"
-      sql << " WHERE #{where}" if where && !where.empty?
-      sql << " ORDER BY #{order_by}" if order_by && !order_by.empty?
-      sql << " LIMIT #{Integer(limit)}" if limit
-      synchronize_db { db.execute(sql, binds) }
+      synchronize do
+        Models::FileMetadata.query_rows(where: where, binds: binds, order_by: order_by, limit: limit)
+      end
     end
 
     def upsert_file_metadata(attrs)
@@ -185,378 +174,187 @@ module Tickrake
     end
 
     def evict_stale_metadata(older_than_days:)
-      cutoff = (Time.now.utc - older_than_days * 86400).iso8601
-      synchronize_db do
-        db.execute("DELETE FROM file_metadata_cache WHERE updated_at < ?", [cutoff])
+      synchronize do
+        cutoff = (Time.now.utc - (older_than_days * 86_400)).iso8601
+        Models::FileMetadata.where("updated_at < ?", cutoff).delete_all
       end
     end
 
     def bulk_upsert_file_metadata(attrs_list)
       return if attrs_list.empty?
 
-      with_transaction { upsert_metadata(attrs_list) }
+      synchronize do
+        records = attrs_list.map { |attrs| normalized_file_metadata_values(attrs) }
+        Models::FileMetadata.upsert_all(records, unique_by: :path)
+      end
     end
 
     def intraday_index_rows(provider_name:, root:, date: nil)
-      date_clause = date ? "?" : "date('now')"
-      binds = [provider_name, root]
-      binds << date if date
-      binds.concat([provider_name, root])
-      binds << date if date
-
-      synchronize_db do
-        db.execute(
-          <<~SQL,
-            SELECT
-              f.provider_name,
-              f.ticker AS root,
-              f.collection_id,
-              date(f.last_observed_at) AS sample_date,
-              f.last_observed_at AS sampled_at,
-              f.expiration_date,
-              f.path,
-              f.row_count,
-              f.file_size,
-              f.updated_at
-            FROM file_metadata_cache f
-            INNER JOIN (
-              SELECT expiration_date, MAX(last_observed_at) AS latest_observed_at
-              FROM file_metadata_cache
-              WHERE dataset_type = 'options'
-                AND provider_name = ?
-                AND ticker = ?
-                AND date(last_observed_at) = #{date_clause}
-              GROUP BY expiration_date
-            ) latest
-              ON f.expiration_date = latest.expiration_date
-             AND f.last_observed_at = latest.latest_observed_at
-            WHERE f.dataset_type = 'options'
-              AND f.provider_name = ?
-              AND f.ticker = ?
-              AND date(f.last_observed_at) = #{date_clause}
-            ORDER BY f.expiration_date
-          SQL
-          binds
-        )
+      synchronize do
+        Models::FileMetadata.intraday_index_rows(provider_name: provider_name, root: root, date: date)
       end
     end
 
     def intraday_series_rows(provider_name:, root:, date: nil)
-      date_clause = date ? "?" : "date('now')"
-      binds = [provider_name, root]
-      binds << date if date
-
-      synchronize_db do
-        db.execute(
-          <<~SQL,
-            SELECT
-              f.provider_name,
-              f.ticker AS root,
-              f.collection_id,
-              date(f.last_observed_at) AS sample_date,
-              f.last_observed_at AS sampled_at,
-              f.expiration_date,
-              f.path,
-              f.row_count,
-              f.file_size,
-              f.updated_at
-            FROM file_metadata_cache f
-            WHERE f.dataset_type = 'options'
-              AND f.provider_name = ?
-              AND f.ticker = ?
-              AND date(f.last_observed_at) = #{date_clause}
-            ORDER BY f.expiration_date, f.last_observed_at ASC
-          SQL
-          binds
-        )
+      synchronize do
+        Models::FileMetadata.intraday_series_rows(provider_name: provider_name, root: root, date: date)
       end
     end
 
     def collection_file_count(collection_id:, provider_name:, root:)
-      synchronize_db do
-        db.get_first_value(
-          <<~SQL,
-            SELECT COUNT(*)
-            FROM file_metadata_cache
-            WHERE dataset_type = 'options'
-              AND provider_name = ?
-              AND ticker = ?
-              AND collection_id = ?
-          SQL
-          [provider_name, root, collection_id]
-        ).to_i
+      synchronize do
+        Models::FileMetadata.where(
+          dataset_type: "options",
+          provider_name: provider_name,
+          ticker: root,
+          collection_id: collection_id
+        ).count
       end
     end
 
     def intraday_active_roots(date: nil)
-      date_clause = date ? "?" : "date('now')"
-      binds = date ? [date] : []
-
-      synchronize_db do
-        db.execute(
-          <<~SQL,
-            SELECT DISTINCT provider_name, ticker AS root
-            FROM file_metadata_cache
-            WHERE dataset_type = 'options'
-              AND date(last_observed_at) = #{date_clause}
-            ORDER BY provider_name, ticker
-          SQL
-          binds
-        ).map { |row| { provider_name: row.fetch("provider_name"), root: row.fetch("root") } }
+      synchronize do
+        Models::FileMetadata.intraday_active_roots(date: date)
       end
     end
 
     def delete_file_metadata_paths(paths)
-      normalized_paths = Array(paths).map { |path| Tickrake::PathSupport.expand_path(path) }.uniq
+      normalized_paths = Array(paths).map { |p| Tickrake::PathSupport.expand_path(p) }.uniq
       return 0 if normalized_paths.empty?
 
-      total_deleted = 0
-      normalized_paths.each_slice(500) do |batch|
-        placeholders = (["?"] * batch.length).join(", ")
-        synchronize_db do
-          with_transaction do
-            db.execute("DELETE FROM file_metadata_cache WHERE path IN (#{placeholders})", batch)
-          end
-          total_deleted += db.changes
-        end
+      synchronize do
+        Models::FileMetadata.where(path: normalized_paths).delete_all
       end
-      total_deleted
     end
 
     def upsert_tickers(rows)
       return if rows.empty?
 
       timestamp = iso(Time.now)
-      synchronize_db do
-        rows.each do |row|
-          db.execute(
-            <<~SQL,
-              INSERT INTO tickers (
-                ticker, security_name, gics_sector, gics_sub_industry,
-                headquarters_location, cik, founded, status, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT(ticker) DO UPDATE SET
-                security_name = excluded.security_name,
-                gics_sector = excluded.gics_sector,
-                gics_sub_industry = excluded.gics_sub_industry,
-                headquarters_location = excluded.headquarters_location,
-                cik = excluded.cik,
-                founded = excluded.founded,
-                status = excluded.status,
-                updated_at = excluded.updated_at
-            SQL
-            [
-              row.fetch("ticker"),
-              row["security_name"],
-              row["gics_sector"],
-              row["gics_sub_industry"],
-              row["headquarters_location"],
-              row["cik"],
-              row["founded"],
-              row["status"],
-              timestamp,
-              timestamp
-            ]
-          )
+      synchronize do
+        records = rows.map do |row|
+          {
+            "ticker" => row.fetch("ticker"),
+            "security_name" => row["security_name"],
+            "gics_sector" => row["gics_sector"],
+            "gics_sub_industry" => row["gics_sub_industry"],
+            "headquarters_location" => row["headquarters_location"],
+            "cik" => row["cik"],
+            "founded" => row["founded"],
+            "status" => row["status"],
+            "created_at" => timestamp,
+            "updated_at" => timestamp
+          }
         end
+        Models::Ticker.upsert_all(records, unique_by: :ticker)
       end
     end
 
     def replace_ticker_aliases(rows)
       return if rows.empty?
 
-      synchronize_db do
-        tickers = rows.map { |row| row.fetch("ticker") }.uniq
+      synchronize do
+        tickers = rows.map { |r| r.fetch("ticker") }.uniq
         ensure_tickers_for_aliases(tickers)
         ticker_ids = ticker_id_map(tickers)
-        placeholders = (["?"] * ticker_ids.length).join(", ")
-        db.execute("DELETE FROM ticker_aliases WHERE ticker_id IN (#{placeholders})", ticker_ids.values)
 
         timestamp = iso(Time.now)
-        rows.each do |row|
-          db.execute(
-            <<~SQL,
-              INSERT INTO ticker_aliases (
-                ticker_id, alias_ticker, start_date, end_date, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?)
-            SQL
-            [
-              ticker_ids.fetch(row.fetch("ticker")),
-              row.fetch("alias_ticker"),
-              row["start_date"],
-              row["end_date"],
-              timestamp,
-              timestamp
-            ]
-          )
+        with_transaction do
+          Models::TickerAlias.where(ticker_id: ticker_ids.values).delete_all
+          records = rows.map do |row|
+            {
+              "ticker_id" => ticker_ids.fetch(row.fetch("ticker")),
+              "alias_ticker" => row.fetch("alias_ticker"),
+              "start_date" => row["start_date"],
+              "end_date" => row["end_date"],
+              "created_at" => timestamp,
+              "updated_at" => timestamp
+            }
+          end
+          Models::TickerAlias.insert_all(records)
         end
       end
     end
 
     def replace_market_index_memberships(index_code:, index_name:, rows:)
-      synchronize_db do
-        market_index_id = upsert_market_index(index_code: index_code, index_name: index_name)
-        db.execute("DELETE FROM market_index_memberships WHERE market_index_id = ?", [market_index_id])
-
-        ensure_tickers_for_memberships(rows)
-        ticker_ids = ticker_id_map(rows.map { |row| row.fetch("ticker") })
+      synchronize do
         timestamp = iso(Time.now)
-        rows.each do |row|
-          db.execute(
-            <<~SQL,
-              INSERT INTO market_index_memberships (
-                market_index_id, ticker_id, start_date, end_date, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?)
-            SQL
-            [
-              market_index_id,
-              ticker_ids.fetch(row.fetch("ticker")),
-              row.fetch("start_date"),
-              row["end_date"],
-              timestamp,
-              timestamp
-            ]
-          )
+        with_transaction do
+          market_index = Models::MarketIndex.where(code: index_code).take ||
+                         Models::MarketIndex.create!(code: index_code, name: index_name, created_at: timestamp, updated_at: timestamp)
+          market_index.update!(name: index_name, updated_at: timestamp)
+
+          Models::MarketIndexMembership.where(market_index_id: market_index.id).delete_all
+
+          ensure_tickers_for_memberships(rows)
+          ticker_ids = ticker_id_map(rows.map { |r| r.fetch("ticker") })
+
+          if rows.any?
+            records = rows.map do |row|
+              {
+                "market_index_id" => market_index.id,
+                "ticker_id" => ticker_ids.fetch(row.fetch("ticker")),
+                "start_date" => row.fetch("start_date"),
+                "end_date" => row["end_date"],
+                "created_at" => timestamp,
+                "updated_at" => timestamp
+              }
+            end
+            Models::MarketIndexMembership.insert_all(records)
+          end
         end
       end
     end
 
     def members_for_index(index_code:, as_of:)
-      synchronize_db do
-        db.execute(
-          <<~SQL,
-            SELECT tickers.ticker
-            FROM market_index_memberships memberships
-            INNER JOIN market_indexes indexes
-              ON indexes.id = memberships.market_index_id
-            INNER JOIN tickers
-              ON tickers.id = memberships.ticker_id
-            WHERE indexes.code = ?
-              AND memberships.start_date <= ?
-              AND (memberships.end_date IS NULL OR memberships.end_date >= ?)
-            ORDER BY tickers.ticker ASC
-          SQL
-          [index_code, as_of, as_of]
-        ).map { |row| row.fetch("ticker") }
+      synchronize do
+        Models::Ticker.joins(memberships: :market_index)
+                      .where(market_indexes: { code: index_code })
+                      .where("market_index_memberships.start_date <= ?", as_of)
+                      .where("market_index_memberships.end_date IS NULL OR market_index_memberships.end_date >= ?", as_of)
+                      .order(:ticker)
+                      .pluck(:ticker)
       end
     end
 
     def with_transaction(&block)
-      synchronize_db do
-        db.transaction(&block)
-      end
+      ActiveRecord::Base.transaction(&block)
     end
+
+    def connection
+      ActiveRecord::Base.connection
+    end
+    alias db connection
 
     private
 
-    def insert_fetch_runs(attrs_list)
-      attrs_list.each do |attrs|
-        db.execute(
-          <<~SQL,
-            INSERT INTO fetch_runs (
-              job_type, dataset_type, symbol, frequency, option_root, requested_buckets,
-              resolved_expiration, scheduled_for, started_at, finished_at, status, output_path,
-              error_message, collection_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          SQL
-          [
-            attrs.fetch("job_type"),
-            attrs.fetch("dataset_type"),
-            (attrs["symbol"].nil? || attrs["symbol"].to_s.strip.empty?) ? "none" : attrs["symbol"],
-            attrs["frequency"],
-            attrs["option_root"],
-            attrs["requested_buckets"] && JSON.dump(attrs["requested_buckets"]),
-            attrs["resolved_expiration"],
-            attrs["scheduled_for"],
-            attrs.fetch("started_at"),
-            attrs["finished_at"],
-            attrs.fetch("status"),
-            attrs["output_path"],
-            attrs["error_message"],
-            attrs["collection_id"]
-          ]
-        )
-      end
-    end
-
-    def upsert_metadata(attrs_list)
-      attrs_list.each do |attrs|
-        values = normalized_file_metadata_values(attrs)
-        db.execute(
-          <<~SQL,
-            INSERT INTO file_metadata_cache (
-              #{FILE_METADATA_COLUMNS.join(", ")}
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(path) DO UPDATE SET
-              dataset_type = excluded.dataset_type,
-              provider_name = excluded.provider_name,
-              ticker = excluded.ticker,
-              frequency = excluded.frequency,
-              expiration_date = excluded.expiration_date,
-              row_count = excluded.row_count,
-              first_observed_at = excluded.first_observed_at,
-              last_observed_at = excluded.last_observed_at,
-              file_mtime = excluded.file_mtime,
-              file_size = excluded.file_size,
-              updated_at = excluded.updated_at,
-              collection_id = excluded.collection_id
-          SQL
-          FILE_METADATA_COLUMNS.map { |column| values.fetch(column) }
-        )
-      end
-    end
-
-    def synchronize_db(&block)
-      @db_lock.synchronize(&block)
+    def synchronize(&block)
+      @lock.synchronize(&block)
     end
 
     def postgres?
-      @adapter.backend == "postgres"
+      @db_config.postgres?
     end
 
-    def db
-      @adapter
-    end
-
-    def normalized_file_metadata_values(attrs)
-      path = Tickrake::PathSupport.expand_path(attrs.fetch(:path))
-      {
-        "path" => path,
-        "dataset_type" => attrs.fetch(:dataset_type),
-        "provider_name" => attrs.fetch(:provider_name),
-        "ticker" => attrs.fetch(:ticker),
-        "frequency" => attrs[:frequency],
-        "expiration_date" => attrs[:expiration_date],
-        "row_count" => Integer(attrs.fetch(:row_count)),
-        "first_observed_at" => attrs[:first_observed_at],
-        "last_observed_at" => attrs[:last_observed_at],
-        "file_mtime" => attrs.fetch(:file_mtime).to_i,
-        "file_size" => attrs.fetch(:file_size).to_i,
-        "updated_at" => iso(attrs[:updated_at] || Time.now),
-        "collection_id" => attrs[:collection_id]
-      }
+    def sqlite?
+      @db_config.sqlite?
     end
 
     def migrate!
-      migrations = self.class.migrations(@adapter.backend)
-      Tickrake::DB::Migrator.new(@adapter, migrations: migrations).migrate!
-    end
-
-    def iso(value)
-      value&.utc&.iso8601
+      Tickrake::DB::Migrator.migrate!(@config_or_path)
     end
 
     def ensure_schema_current!
-      if !postgres? && @path && !File.exist?(@path)
+      if sqlite? && @path && !File.exist?(@path)
         raise Tickrake::Error, pending_migrations_message
       end
 
-      applied_versions = db.execute("SELECT version FROM schema_migrations ORDER BY version").map do |row|
-        row.fetch("version").to_i
+      if Tickrake::DB::Migrator.pending?(@config_or_path)
+        raise Tickrake::Error, pending_migrations_message
       end
-      pending_versions = self.class.migrations(@adapter.backend).map(&:version) - applied_versions
-      raise Tickrake::Error, pending_migrations_message unless pending_versions.empty?
-    rescue StandardError
+    rescue StandardError => e
+      raise e if e.is_a?(Tickrake::Error)
+
       raise Tickrake::Error, pending_migrations_message
     end
 
@@ -565,23 +363,38 @@ module Tickrake
       "Database migrations are pending for #{target_desc}. Run `tickrake migrate`."
     end
 
-    def upsert_market_index(index_code:, index_name:)
-      timestamp = iso(Time.now)
-      db.execute(
-        <<~SQL,
-          INSERT INTO market_indexes (code, name, created_at, updated_at)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(code) DO UPDATE SET
-            name = excluded.name,
-            updated_at = excluded.updated_at
-        SQL
-        [index_code, index_name, timestamp, timestamp]
-      )
-      db.get_first_value("SELECT id FROM market_indexes WHERE code = ?", [index_code])
+    def iso(value)
+      case value
+      when Time, DateTime
+        value.utc.iso8601
+      when Date
+        value.iso8601
+      else
+        value
+      end
+    end
+
+    def normalized_file_metadata_values(attrs)
+      path = Tickrake::PathSupport.expand_path(attrs[:path] || attrs["path"])
+      {
+        "path" => path,
+        "dataset_type" => attrs[:dataset_type] || attrs["dataset_type"],
+        "provider_name" => attrs[:provider_name] || attrs["provider_name"],
+        "ticker" => attrs[:ticker] || attrs["ticker"],
+        "frequency" => attrs[:frequency] || attrs["frequency"],
+        "expiration_date" => attrs[:expiration_date] || attrs["expiration_date"],
+        "row_count" => Integer(attrs[:row_count] || attrs["row_count"]),
+        "first_observed_at" => attrs[:first_observed_at] || attrs["first_observed_at"],
+        "last_observed_at" => attrs[:last_observed_at] || attrs["last_observed_at"],
+        "file_mtime" => (attrs[:file_mtime] || attrs["file_mtime"]).to_i,
+        "file_size" => (attrs[:file_size] || attrs["file_size"]).to_i,
+        "updated_at" => iso(attrs[:updated_at] || attrs["updated_at"] || Time.now),
+        "collection_id" => attrs[:collection_id] || attrs["collection_id"]
+      }
     end
 
     def ensure_tickers_for_memberships(rows)
-      ensure_tickers_for_aliases(rows.map { |row| row.fetch("ticker") })
+      ensure_tickers_for_aliases(rows.map { |r| r.fetch("ticker") })
     end
 
     def ensure_tickers_for_aliases(tickers)
@@ -589,29 +402,20 @@ module Tickrake
       return if tickers.empty?
 
       timestamp = iso(Time.now)
-      tickers.each do |ticker|
-        db.execute(
-          <<~SQL,
-            INSERT INTO tickers (ticker, created_at, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(ticker) DO NOTHING
-          SQL
-          [ticker, timestamp, timestamp]
-        )
+      records = tickers.map do |ticker|
+        {
+          "ticker" => ticker,
+          "created_at" => timestamp,
+          "updated_at" => timestamp
+        }
       end
+      Models::Ticker.upsert_all(records, unique_by: :ticker)
     end
 
     def ticker_id_map(tickers)
       return {} if tickers.empty?
 
-      placeholders = (["?"] * tickers.uniq.length).join(", ")
-      rows = db.execute(
-        "SELECT id, ticker FROM tickers WHERE ticker IN (#{placeholders})",
-        tickers.uniq
-      )
-      rows.each_with_object({}) do |row, memo|
-        memo[row.fetch("ticker")] = row.fetch("id")
-      end
+      Models::Ticker.where(ticker: tickers.uniq).pluck(:ticker, :id).to_h
     end
   end
 end
