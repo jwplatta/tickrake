@@ -36,8 +36,4 @@ module Tickrake
       end
     end
   end
-
-  module DB
-    RateLimiter = Tickrake::RateLimiter
-  end
 end
