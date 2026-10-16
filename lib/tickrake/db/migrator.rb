@@ -1,44 +1,29 @@
 # frozen_string_literal: true
 
+require "active_record"
+require_relative "connection_manager"
+
 module Tickrake
   module DB
     class Migrator
-      def initialize(database, migrations:)
-        @database = database
-        @migrations = migrations.sort_by(&:version)
-      end
+      MIGRATIONS_PATH = File.expand_path("migrate", __dir__)
 
-      def migrate!
-        ensure_schema_migrations_table
-        @migrations.each do |migration|
-          next if migrated_versions.include?(migration.version)
-
-          migration.new(@database).up
-          record_migration(migration.version)
+      class << self
+        def migrations_path
+          MIGRATIONS_PATH
         end
-      end
 
-      private
-
-      def ensure_schema_migrations_table
-        @database.execute_batch(
-          <<~SQL
-            CREATE TABLE IF NOT EXISTS schema_migrations (
-              version INTEGER PRIMARY KEY
-            );
-          SQL
-        )
-      end
-
-      def migrated_versions
-        @migrated_versions ||= @database.execute("SELECT version FROM schema_migrations ORDER BY version").map do |row|
-          row["version"].to_i
+        def migrate!(config_or_path = nil)
+          ConnectionManager.establish_connection(config_or_path)
+          context = ActiveRecord::MigrationContext.new(migrations_path)
+          context.migrate
         end
-      end
 
-      def record_migration(version)
-        @database.execute("INSERT INTO schema_migrations (version) VALUES (?)", [version])
-        migrated_versions << version
+        def pending?(config_or_path = nil)
+          ConnectionManager.establish_connection(config_or_path)
+          context = ActiveRecord::MigrationContext.new(migrations_path)
+          context.needs_migration?
+        end
       end
     end
   end

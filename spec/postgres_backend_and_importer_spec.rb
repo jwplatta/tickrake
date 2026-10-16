@@ -34,7 +34,11 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
       begin
         example.run
       ensure
+        ActiveRecord::Base.connection_handler.clear_all_connections!
         admin_conn = PG.connect(dbname: "postgres")
+        admin_conn.exec(
+          "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '#{pg_db_name}' AND pid <> pg_backend_pid();"
+        )
         admin_conn.exec("DROP DATABASE IF EXISTS #{pg_db_name}")
         admin_conn.close
       end
@@ -43,15 +47,14 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
     end
   end
 
-  describe "PostgresAdapter and Tracker migrations" do
+  describe "Postgres backend and Tracker migrations" do
     it "runs migrations and verifies tables exist" do
-      adapter = Tickrake::DB::Adapters::PostgresAdapter.new(pg_config)
-      expect(adapter.tables).not_to include("fetch_runs")
+      conn = Tickrake::DB::ConnectionManager.establish_connection(pg_config)
+      expect(conn.tables).not_to include("fetch_runs")
 
       Tickrake::Tracker.migrate!(pg_config)
 
-      expect(adapter.tables).to include("fetch_runs", "file_metadata_cache", "api_rate_limits", "tickers")
-      adapter.close
+      expect(conn.tables).to include("fetch_runs", "file_metadata_cache", "api_rate_limits", "tickers")
     end
 
     it "records fetch runs and file metadata using Tracker with Postgres backend" do
@@ -224,12 +227,12 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
     end
   end
 
-  describe "PostgresRateLimiter" do
+  describe "RateLimiter with Postgres backend" do
     it "consumes tokens and replenishes across requests" do
       Tickrake::Tracker.migrate!(pg_config)
-      adapter = Tickrake::DB::Adapters::PostgresAdapter.new(pg_config)
-      limiter = Tickrake::DB::PostgresRateLimiter.new(
-        adapter,
+      conn = Tickrake::DB::ConnectionManager.establish_connection(pg_config)
+      limiter = Tickrake::DB::RateLimiter.new(
+        pg_config,
         provider: "schwab",
         capacity: 2,
         refill_rate: 1.0 # 1 token per second
@@ -240,11 +243,10 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
       expect(limiter.try_consume).to eq(false)
 
       # Fast forward
-      row = adapter.get_first_row("SELECT tokens, last_refill_at FROM api_rate_limits WHERE provider = 'schwab'")
-      adapter.execute("UPDATE api_rate_limits SET last_refill_at = $1 WHERE provider = 'schwab'", [row["last_refill_at"].to_f - 1.5])
+      row = conn.select_one("SELECT tokens, last_refill_at FROM api_rate_limits WHERE provider = 'schwab'")
+      conn.execute("UPDATE api_rate_limits SET last_refill_at = #{row["last_refill_at"].to_f - 1.5} WHERE provider = 'schwab'")
 
       expect(limiter.try_consume).to eq(true)
-      adapter.close
     end
   end
 
@@ -263,11 +265,10 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
         )
         tracker.close
 
-        pg_adapter = Tickrake::DB::Adapters::PostgresAdapter.new(pg_config)
         stdout = StringIO.new
         migrator = SqliteToPostgresMigrator.new(
           sqlite_path: sqlite_path,
-          pg_adapter: pg_adapter,
+          pg_config: pg_config,
           dry_run: true,
           stdout: stdout
         )
@@ -276,8 +277,8 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
 
         expect(stdout.string).to include("[DRY RUN]")
         expect(stdout.string).to include("fetch_runs: 1 rows")
-        expect(pg_adapter.row_count("fetch_runs")).to eq(0)
-        pg_adapter.close
+        conn = Tickrake::DB::ConnectionManager.establish_connection(pg_config)
+        expect(conn.select_value("SELECT COUNT(*) FROM fetch_runs").to_i).to eq(0)
       end
     end
 
@@ -299,16 +300,14 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
         )
         pg_tracker.close
 
-        pg_adapter = Tickrake::DB::Adapters::PostgresAdapter.new(pg_config)
         migrator = SqliteToPostgresMigrator.new(
           sqlite_path: sqlite_path,
-          pg_adapter: pg_adapter,
+          pg_config: pg_config,
           dry_run: false,
           stdout: StringIO.new
         )
 
         expect { migrator.run }.to raise_error(Tickrake::Error, /Target PostgreSQL database is not empty/)
-        pg_adapter.close
       end
     end
 
@@ -359,8 +358,8 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
         )
 
         # 4. Rate limits
-        sqlite_limiter = Tickrake::DB::SqliteRateLimiter.new(
-          sqlite_tracker,
+        sqlite_limiter = Tickrake::DB::RateLimiter.new(
+          sqlite_path,
           provider: "schwab",
           capacity: 10,
           refill_rate: 2.0
@@ -368,11 +367,10 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
         sqlite_limiter.try_consume
         sqlite_tracker.close
 
-        pg_adapter = Tickrake::DB::Adapters::PostgresAdapter.new(pg_config)
         stdout = StringIO.new
         migrator = SqliteToPostgresMigrator.new(
           sqlite_path: sqlite_path,
-          pg_adapter: pg_adapter,
+          pg_config: pg_config,
           dry_run: false,
           stdout: stdout
         )
@@ -396,7 +394,8 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
         expect(members).to eq(["AAPL"])
 
         # Verify rate limit balance
-        limit_row = pg_adapter.get_first_row("SELECT tokens FROM api_rate_limits WHERE provider = 'schwab'")
+        conn = Tickrake::DB::ConnectionManager.establish_connection(pg_config)
+        limit_row = conn.select_one("SELECT tokens FROM api_rate_limits WHERE provider = 'schwab'")
         expect(limit_row["tokens"].to_f).to be_within(0.5).of(9.0)
 
         # Verify sequence was reset and next insert increments properly without collision
@@ -410,7 +409,6 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
         expect(next_run_id).to eq(run_id + 1)
 
         pg_tracker.close
-        pg_adapter.close
       end
     end
   end
