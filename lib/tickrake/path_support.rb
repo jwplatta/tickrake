@@ -38,6 +38,26 @@ module Tickrake
       File.join(home_dir, "logs")
     end
 
+    def staging_dir
+      File.join(home_dir, "staging")
+    end
+
+    def default_pending_metadata_dir(data_dir: nil)
+      if data_dir
+        legacy = File.join(expand_path(data_dir), "pending_metadata")
+        return legacy if Dir.exist?(legacy) && !Dir.empty?(legacy)
+      end
+      File.join(staging_dir, "pending_metadata")
+    end
+
+    def default_pending_events_dir(data_dir: nil)
+      if data_dir
+        legacy = File.join(expand_path(data_dir), "pending_events")
+        return legacy if Dir.exist?(legacy) && !Dir.empty?(legacy)
+      end
+      File.join(staging_dir, "pending_events")
+    end
+
     def jobs_dir
       File.join(home_dir, "jobs")
     end

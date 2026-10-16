@@ -19,6 +19,7 @@ module Tickrake
         @level_one_builder = nil
         @metadata_sync_builder = nil
         @intraday_publish_builder = nil
+        @historical_publish_builder = nil
         @events_ingest_builder = nil
         @reconcile_builder = nil
         @fundamentals_builder = nil
@@ -92,6 +93,11 @@ module Tickrake
         @intraday_publish_builder.instance_eval(&block) if block
       end
 
+      def historical_publish(&block)
+        @historical_publish_builder = HistoricalPublishBuilder.new
+        @historical_publish_builder.instance_eval(&block) if block
+      end
+
       def events_ingest(&block)
         @events_ingest_builder = EventsIngestBuilder.new
         @events_ingest_builder.instance_eval(&block) if block
@@ -124,24 +130,25 @@ module Tickrake
 
       def build!(config)
         inferred_type = infer_type
-        provider_optional = %w[metadata_sync intraday_publish events_ingest reconciler economic_events].include?(inferred_type)
+        provider_optional = %w[metadata_sync intraday_publish historical_publish events_ingest reconciler economic_events].include?(inferred_type)
         raise Tickrake::Error, "job `#{@name}` requires provider" if @provider.nil? && !provider_optional
         schedule = @schedule_builder&.build! || {}
 
         case inferred_type
-        when "options"         then build_options_job!(config, schedule)
-        when "candles"         then build_candles_job!(config, schedule)
-        when "maintenance"     then build_maintenance_job!(config, schedule)
-        when "order_book"      then build_order_book_job!(schedule)
-        when "level_one"       then build_level_one_job!(schedule)
-        when "metadata_sync"   then build_metadata_sync_job!(schedule)
-        when "intraday_publish" then build_intraday_publish_job!(config, schedule)
-        when "events_ingest"    then build_events_ingest_job!(config, schedule)
-        when "reconciler"       then build_reconcile_job!(schedule)
-        when "fundamentals"     then build_fundamentals_job!(config, schedule)
-        when "chart_stream"      then build_chart_stream_job!(schedule)
-        when "economic_events"   then build_economic_events_job!(schedule)
-        when "stream"            then build_stream_job!(config, schedule)
+        when "options"            then build_options_job!(config, schedule)
+        when "candles"            then build_candles_job!(config, schedule)
+        when "maintenance"        then build_maintenance_job!(config, schedule)
+        when "order_book"         then build_order_book_job!(schedule)
+        when "level_one"          then build_level_one_job!(schedule)
+        when "metadata_sync"      then build_metadata_sync_job!(schedule)
+        when "intraday_publish"   then build_intraday_publish_job!(config, schedule)
+        when "historical_publish" then build_historical_publish_job!(config, schedule)
+        when "events_ingest"      then build_events_ingest_job!(config, schedule)
+        when "reconciler"         then build_reconcile_job!(schedule)
+        when "fundamentals"       then build_fundamentals_job!(config, schedule)
+        when "chart_stream"       then build_chart_stream_job!(schedule)
+        when "economic_events"    then build_economic_events_job!(schedule)
+        when "stream"             then build_stream_job!(config, schedule)
         else raise Tickrake::Error, "job `#{@name}` has unknown type: #{inferred_type.inspect}"
         end
       end
@@ -264,9 +271,10 @@ module Tickrake
           "maintenance"      => @maintenance_builder,
           "order_book"       => @order_book_builder,
           "level_one"        => @level_one_builder,
-          "metadata_sync"    => @metadata_sync_builder,
-          "intraday_publish" => @intraday_publish_builder,
-          "events_ingest"    => @events_ingest_builder,
+          "metadata_sync"      => @metadata_sync_builder,
+          "intraday_publish"   => @intraday_publish_builder,
+          "historical_publish" => @historical_publish_builder,
+          "events_ingest"      => @events_ingest_builder,
           "reconciler"       => @reconcile_builder,
           "fundamentals"     => @fundamentals_builder,
           "chart_stream"     => @chart_stream_builder,
@@ -359,6 +367,33 @@ module Tickrake
         Tickrake::ScheduledJobConfig.new(
           name: @name,
           type: "intraday_publish",
+          provider: nil,
+          interval_seconds: schedule[:interval_seconds],
+          windows: schedule[:windows],
+          run_at: schedule[:run_at],
+          days: schedule[:days],
+          lookback_days: nil,
+          dte_buckets: [],
+          universe: [],
+          tasks: [],
+          task: nil,
+          settings: settings,
+          manual: false
+        )
+      end
+
+      def build_historical_publish_job!(config, schedule)
+        raise Tickrake::Error, "historical_publish job `#{@name}` requires a historical_publish block" if @historical_publish_builder.nil?
+
+        settings = @historical_publish_builder.build!
+        datastore_name = settings["datastore_name"]
+        unless config.datastores.key?(datastore_name)
+          raise Tickrake::Error, "historical_publish job `#{@name}` datastore `#{datastore_name}` is not configured"
+        end
+
+        Tickrake::ScheduledJobConfig.new(
+          name: @name,
+          type: "historical_publish",
           provider: nil,
           interval_seconds: schedule[:interval_seconds],
           windows: schedule[:windows],
