@@ -140,23 +140,12 @@ module Tickrake
       when "compact"
         Tickrake::Maintenance::Candles::Compactor.new(context: context).run
       when "archive"
-        years = last_compact_result&.years_written || []
-        return Tickrake::Maintenance::Candles::CompactResult.new(
+        @runtime.logger.info("maintenance: candle archive step skipped for #{context.symbol} #{context.frequency} (S3 upload disabled)")
+        Tickrake::Maintenance::Candles::ArchiveResult.new(
           success: true, provider_name: context.provider_name,
           symbol: context.symbol, frequency: context.frequency,
-          row_count: 0, years_written: [], errors: []
-        ) if years.empty?
-
-        s3_archive = archive_s3_archive_for_destination(step.destination)
-        return Tickrake::Maintenance::Candles::ArchiveResult.new(
-          success: false, provider_name: context.provider_name,
-          symbol: context.symbol, frequency: context.frequency,
-          artifact_results: [], errors: ["No S3 archive configured for #{step.destination}"]
-        ) unless s3_archive
-
-        Tickrake::Maintenance::Candles::Archiver.new(
-          context: context, s3_archive: s3_archive
-        ).upload(years: years)
+          artifact_results: [], errors: []
+        )
       else
         raise Tickrake::Error, "Unknown maintenance action `#{step.action}`."
       end
@@ -167,12 +156,14 @@ module Tickrake
       when "compact"
         run_compact_step(context: context, delete_sources: step.delete_sources, artifacts: step.artifacts)
       when "archive"
-        run_archive_step(
-          context: context,
-          destination_name: step.destination,
-          artifacts: step.artifacts,
-          retain_local: step.retain_local,
-          row_count: last_compact_result&.row_count
+        @runtime.logger.info("maintenance: option archive step skipped for #{context.option_root} #{context.sample_date} (S3 upload disabled)")
+        Tickrake::Maintenance::OptionSamples::ArchiveResult.new(
+          success: true,
+          provider_name: context.provider_name,
+          option_root: context.option_root,
+          sample_date: context.sample_date,
+          artifact_results: [],
+          errors: []
         )
       else
         raise Tickrake::Error, "Unknown maintenance action `#{step.action}`."

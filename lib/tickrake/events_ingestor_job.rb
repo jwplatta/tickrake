@@ -121,7 +121,7 @@ module Tickrake
           next
         end
 
-        upload_to_s3(path) if @datastore_name
+        # S3 upload disabled
       rescue StandardError => e
         @runtime.logger.error("events_ingestor: failed to write #{provider}/#{symbol}: #{e.class}: #{e.message}")
       end

@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 - Added `universe` support to `stream` job subscriptions (`StreamSubscriptionBuilder`), allowing subscriptions like `level_one`, `order_book`, and `chart_stream` to resolve symbols directly from configured universe files instead of requiring inline symbol lists.
 
 ### Changed
+- Disabled S3 uploads across maintenance jobs, events ingestion, and reconciler, keeping Tickrake focused on local collection and compaction while preserving MinIO intraday publishing.
 - Unified `SqliteRateLimiter` and `PostgresRateLimiter` into a single, model-backed `Tickrake::RateLimiter` using transactional locking.
 - Replaced custom SQL database adapters (`Tickrake::DB::Adapters`) and hand-rolled SQL migration runner with `Tickrake::DB::ConnectionManager` and ActiveRecord's `MigrationContext`.
 - Streamlined `Tickrake::Tracker` to delegate all persistence and querying to ActiveRecord models while maintaining full compatibility with existing public APIs.

@@ -8,22 +8,7 @@ module Tickrake
     end
 
     def run
-      s3_archive = build_s3_archive
-      unless s3_archive
-        @runtime.logger.warn("reconciler: s3_archive is not configured; skipping run")
-        return
-      end
-
-      providers = reconcile_providers
-      if providers.empty?
-        @runtime.logger.warn("reconciler: no providers configured; skipping run")
-        return
-      end
-
-      providers.each do |provider|
-        run_options_pass(provider, s3_archive)
-        run_candles_pass(provider, s3_archive)
-      end
+      @runtime.logger.info("reconciler: S3 manifest reconciliation is disabled; skipping run")
     end
 
     private
