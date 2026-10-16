@@ -63,11 +63,11 @@ RSpec.describe "index data importer and members query" do
         )
       end
 
-      expect(tracker.send(:db).get_first_value("SELECT COUNT(*) FROM tickers")).to eq(5)
-      expect(tracker.send(:db).table_info("market_index_memberships").map { |row| row["name"] }).to include("ticker_id")
-      expect(tracker.send(:db).table_info("market_index_memberships").map { |row| row["name"] }).not_to include("canonical_ticker")
-      expect(tracker.send(:db).table_info("ticker_aliases").map { |row| row["name"] }).to include("ticker_id")
-      expect(tracker.send(:db).table_info("ticker_aliases").map { |row| row["name"] }).not_to include("ticker")
+      expect(tracker.connection.select_value("SELECT COUNT(*) FROM tickers")).to eq(5)
+      expect(tracker.connection.columns("market_index_memberships").map(&:name)).to include("ticker_id")
+      expect(tracker.connection.columns("market_index_memberships").map(&:name)).not_to include("canonical_ticker")
+      expect(tracker.connection.columns("ticker_aliases").map(&:name)).to include("ticker_id")
+      expect(tracker.connection.columns("ticker_aliases").map(&:name)).not_to include("ticker")
       expect(tracker.send(:db).execute("PRAGMA foreign_key_list(ticker_aliases)").map { |row| row["table"] }).to include("tickers")
       expect(tracker.send(:db).execute("PRAGMA foreign_key_list(market_index_memberships)").map { |row| row["table"] }).to contain_exactly("tickers", "market_indexes")
       unique_alias_index = tracker.send(:db).execute("PRAGMA index_list(ticker_aliases)").find do |index|

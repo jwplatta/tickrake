@@ -58,8 +58,8 @@ RSpec.describe Tickrake::Tracker do
       tracker = described_class.new(path)
       database = tracker.send(:db)
 
-      expect(database.get_first_value("PRAGMA journal_mode").to_s.downcase).to eq("wal")
-      expect(database.get_first_value("PRAGMA busy_timeout")).to eq(described_class::SQLITE_BUSY_TIMEOUT_MS)
+      expect(database.select_value("PRAGMA journal_mode").to_s.downcase).to eq("wal")
+      expect(database.select_value("PRAGMA busy_timeout")).to eq(described_class::SQLITE_BUSY_TIMEOUT_MS)
     end
   end
 

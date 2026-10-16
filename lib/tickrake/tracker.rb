@@ -29,10 +29,6 @@ module Tickrake
         Tickrake::DB::Migrator.migrate!(config_or_path)
         nil
       end
-
-      def migrations(_backend = "sqlite")
-        [Tickrake::DB::Migrator]
-      end
     end
 
     attr_reader :config_or_path, :path
@@ -325,21 +321,10 @@ module Tickrake
       ActiveRecord::Base.transaction(&block)
     end
 
-    def db
-      conn = ActiveRecord::Base.connection
-      unless conn.singleton_class.method_defined?(:get_first_value)
-        def conn.get_first_value(sql, _binds = [])
-          select_value(sql)
-        end
-        def conn.get_first_row(sql, _binds = [])
-          select_one(sql)
-        end
-        def conn.table_info(table_name)
-          execute("PRAGMA table_info(#{table_name})")
-        end
-      end
-      conn
+    def connection
+      ActiveRecord::Base.connection
     end
+    alias db connection
 
     private
 
