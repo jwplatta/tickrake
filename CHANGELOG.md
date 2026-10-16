@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added MinIO historical publishing pipeline (`HistoricalPublisher`, `HistoricalManifestWriter`, `HistoricalPublisherJob`, `HistoricalPublisherSchedulerRunner`, `historical_publish` DSL block): scans processed/compacted Parquet datasets (`options`, `candles`, `level_one`, `order_book`, `fundamentals`, `economic_events`) and mirrors the local directory hierarchy in MinIO historical storage.
+- Added database ledger `historical_file_ledger` via ActiveRecord migration `002_create_historical_file_ledger.rb` and model `HistoricalFileLedger` with safe idempotent upserts, tracking uploaded files, row counts, file sizes, SHA256 checksums, and publish timestamps.
+- Added unidirectional JSON audit manifests in MinIO (`manifests/<dataset>.json`) detailing file lists, totals, row counts, and checksums for external discovery.
+- Added `tickrake publish-historical` CLI command supporting `--datastore`, `--dataset`, and `--batch-size` options for manual runs and backfilling.
+- Decoupled staging directories (`pending_metadata_dir` and `pending_events_dir`) by defaulting them to `~/.tickrake/staging/` with automatic fallback to legacy paths in `~/.tickrake/data/` if unmigrated files exist.
+- Added `minio` to `VALID_DATASTORE_TYPES` in `ConfigLoader`.
 - Added standalone `ActiveRecord` (`>= 7.1`) to manage data persistence and migrations across SQLite and PostgreSQL backends.
 - Added ActiveRecord domain models in `Tickrake::Models` (`FetchRun`, `FileMetadata`, `MarketIndex`, `Ticker`, `TickerAlias`, `MarketIndexMembership`, `ApiRateLimit`).
 - Added single canonical ActiveRecord migration (`001_create_tickrake_schema.rb`) for unified, cross-database schema management.
