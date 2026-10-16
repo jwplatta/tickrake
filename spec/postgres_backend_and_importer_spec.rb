@@ -231,7 +231,7 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
     it "consumes tokens and replenishes across requests" do
       Tickrake::Tracker.migrate!(pg_config)
       conn = Tickrake::DB::ConnectionManager.establish_connection(pg_config)
-      limiter = Tickrake::DB::RateLimiter.new(
+      limiter = Tickrake::RateLimiter.new(
         pg_config,
         provider: "schwab",
         capacity: 2,
@@ -358,7 +358,7 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
         )
 
         # 4. Rate limits
-        sqlite_limiter = Tickrake::DB::RateLimiter.new(
+        sqlite_limiter = Tickrake::RateLimiter.new(
           sqlite_path,
           provider: "schwab",
           capacity: 10,
