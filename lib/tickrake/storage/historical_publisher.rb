@@ -15,6 +15,11 @@ module Tickrake
         @config = runtime.config
         @datastore_name = datastore_name || @config.historical_datastore || "minio_historical"
         @datastore_config = @config.datastore(@datastore_name)
+
+        if @datastore_name.to_s.include?("intraday") || @datastore_config.bucket.to_s.include?("intraday")
+          raise Tickrake::Error, "HistoricalPublisher cannot target intraday datastore `#{@datastore_name}` or bucket `#{@datastore_config.bucket}`. Historical and intraday stores must remain strictly separate."
+        end
+
         @store = Storage::S3Archive.new(@config, datastore_config: @datastore_config)
         @manifest_writer = HistoricalManifestWriter.new(@store)
         @data_dir = Tickrake::PathSupport.expand_path(@config.data_dir)

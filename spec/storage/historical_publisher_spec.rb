@@ -104,4 +104,17 @@ RSpec.describe Tickrake::Storage::HistoricalPublisher do
     expect(summary2[:files_scanned]).to eq(1)
     expect(summary2[:files_uploaded]).to eq(0)
   end
+
+  it "refuses to initialize if configured with an intraday datastore or bucket" do
+    intraday_datastore = Tickrake::DatastoreConfig.new(
+      name: "minio_intraday",
+      type: "minio",
+      bucket: "tickrake-intraday"
+    )
+    allow(config).to receive(:datastore).with("minio_intraday").and_return(intraday_datastore)
+
+    expect do
+      described_class.new(runtime: runtime, datastore_name: "minio_intraday")
+    end.to raise_error(Tickrake::Error, /cannot target intraday datastore `minio_intraday` or bucket `tickrake-intraday`/)
+  end
 end
