@@ -53,6 +53,9 @@ module Tickrake
       when "run"
         config = Tickrake::ConfigLoader.load(config_path)
         run_command(argv, config, common_options)
+      when "publish-historical"
+        config = Tickrake::ConfigLoader.load(config_path)
+        publish_historical_command(argv, config, common_options)
       else
         @stderr.puts(usage)
         1
@@ -78,6 +81,38 @@ module Tickrake
                "Tickrake database at #{config.sqlite_path}"
              end
       @stdout.puts("Migrated #{dest}.")
+      0
+    end
+
+    def publish_historical_command(argv, config, common_options)
+      options = { datastore: nil, datasets: nil, batch_size: nil }
+      parser = OptionParser.new do |opts|
+        opts.on("--datastore NAME", "Historical datastore name from config") { |v| options[:datastore] = v }
+        opts.on("--dataset TYPE", "Dataset to publish (options, candles, level_one, order_book, fundamentals, economic_events, or all)") do |v|
+          options[:datasets] = v.split(",").map(&:strip)
+        end
+        opts.on("--batch-size N", Integer, "Maximum number of files to upload") { |v| options[:batch_size] = v }
+      end
+      parser.order!(argv)
+
+      runtime = Tickrake::Runtime.new(
+        config: config,
+        verbose: common_options[:verbose],
+        stdout: @stdout,
+        log_path: Tickrake::PathSupport.named_log_path("historical_publisher"),
+        config_path: common_options[:config_path],
+        context: { job_name: "historical_publisher", job_type: "historical_publish" }
+      )
+
+      publisher = Tickrake::Storage::HistoricalPublisher.new(
+        runtime: runtime,
+        datastore_name: options[:datastore]
+      )
+      summary = publisher.scan_and_publish(
+        dataset_types: options[:datasets],
+        batch_size: options[:batch_size]
+      )
+      @stdout.puts("Historical publish complete: scanned #{summary[:files_scanned]} file(s), uploaded #{summary[:files_uploaded]} file(s), updated datasets: #{summary[:datasets_updated].join(', ')}.")
       0
     end
 
@@ -502,6 +537,7 @@ module Tickrake
           tickrake init [--config path/to/tickrake.yml] [--force]
           tickrake validate-config [--config path/to/tickrake.yml] [--verbose]
           tickrake migrate [--config path/to/tickrake.yml]
+          tickrake publish-historical [--datastore NAME] [--dataset TYPE] [--batch-size N] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --job JOB_NAME [--provider NAME] [--from-config-start] [--start-date YYYY-MM-DD --end-date YYYY-MM-DD] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type options --ticker SYMBOL --expiration-date YYYY-MM-DD [--option-root ROOT] [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type candles --ticker SYMBOL --start-date YYYY-MM-DD --end-date YYYY-MM-DD --frequency FREQ [--provider NAME] [--config path/to/tickrake.yml] [--verbose]

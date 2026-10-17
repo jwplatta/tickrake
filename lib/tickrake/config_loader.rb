@@ -13,7 +13,7 @@ module Tickrake
     VALID_ARCHIVE_DESTINATIONS = %w[s3_archive].freeze
     VALID_ARCHIVE_ARTIFACTS = %w[csv parquet].freeze
     VALID_S3_STORAGE_CLASSES = %w[STANDARD STANDARD_IA GLACIER GLACIER_IR].freeze
-    VALID_DATASTORE_TYPES = %w[s3 s3_compatible].freeze
+    VALID_DATASTORE_TYPES = %w[s3 s3_compatible minio].freeze
 
     def self.load(path)
       new(path).load
@@ -37,8 +37,12 @@ module Tickrake
       data_dir = Tickrake::PathSupport.expand_path(dig(storage, "data_dir", "~/.tickrake/data"))
       candles_dir = Tickrake::PathSupport.expand_path(dig(storage, "candles_dir", File.join(data_dir, "candles")))
       options_dir = Tickrake::PathSupport.expand_path(dig(storage, "options_dir", File.join(data_dir, "options")))
-      pending_metadata_dir = Tickrake::PathSupport.expand_path(dig(storage, "pending_metadata_dir", File.join(data_dir, "pending_metadata")))
-      pending_events_dir = Tickrake::PathSupport.expand_path(dig(storage, "pending_events_dir", File.join(data_dir, "pending_events")))
+      pending_metadata_dir = Tickrake::PathSupport.expand_path(
+        dig(storage, "pending_metadata_dir", Tickrake::PathSupport.default_pending_metadata_dir(data_dir: data_dir))
+      )
+      pending_events_dir = Tickrake::PathSupport.expand_path(
+        dig(storage, "pending_events_dir", Tickrake::PathSupport.default_pending_events_dir(data_dir: data_dir))
+      )
       datastores = load_datastores(data.fetch("datastores", {}))
       universes = load_universes(data.fetch("universes", {}))
       @universes = universes
@@ -57,6 +61,7 @@ module Tickrake
         datastores: datastores,
         pending_metadata_dir: pending_metadata_dir,
         pending_events_dir: pending_events_dir,
+        historical_datastore: storage["historical_datastore"],
         universes: universes,
         data_dir: data_dir,
         candles_dir: candles_dir,

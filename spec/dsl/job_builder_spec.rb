@@ -25,7 +25,13 @@ RSpec.describe Tickrake::DSL::JobBuilder do
   let(:stock_universe)  { instance_double(Tickrake::UniverseConfig, entries: [aapl_entry, spy_entry], symbols: %w[AAPL SPY]) }
   let(:spx_universe)    { instance_double(Tickrake::UniverseConfig, entries: [spxw_entry]) }
 
-  let(:configured_datastores) { { "s3_archive" => double("s3_archive"), "minio_intraday" => double("minio_intraday") } }
+  let(:configured_datastores) do
+    {
+      "s3_archive" => double("s3_archive"),
+      "minio_intraday" => double("minio_intraday"),
+      "minio_historical" => double("minio_historical")
+    }
+  end
 
   let(:config) do
     instance_double(Tickrake::Config).tap do |c|
@@ -650,6 +656,72 @@ RSpec.describe Tickrake::DSL::JobBuilder do
         build_intraday_publish("bad") do
           schedule { every 60.seconds; weekdays from: "08:30", to: "15:30" }
           intraday_publish { datastore :unknown_store }
+        end
+      end.to raise_error(Tickrake::Error, /datastore `unknown_store` is not configured/)
+    end
+  end
+
+  describe "historical_publish job" do
+    def build_historical_publish(name, &block)
+      builder = described_class.new(name)
+      builder.instance_eval(&block)
+      builder.build!(config)
+    end
+
+    it "builds a historical_publish job without requiring a provider" do
+      job = build_historical_publish("historical_publisher") do
+        schedule do
+          every 300.seconds
+        end
+        historical_publish do
+          datastore :minio_historical
+          datasets :all
+          batch_size 50
+        end
+      end
+
+      expect(job.type).to eq("historical_publish")
+      expect(job.provider).to be_nil
+      expect(job.interval_seconds).to eq(300)
+      expect(job.settings.fetch("datastore_name")).to eq("minio_historical")
+      expect(job.settings["datasets"]).to be_nil # :all maps to nil (all datasets)
+      expect(job.settings.fetch("batch_size")).to eq(50)
+    end
+
+    it "supports specific datasets filter in DSL" do
+      job = build_historical_publish("historical_publisher") do
+        historical_publish do
+          datastore :minio_historical
+          datasets :options, :candles
+        end
+      end
+
+      expect(job.settings.fetch("datasets")).to eq(%w[options candles])
+    end
+
+    it "raises when invalid datasets are provided" do
+      expect do
+        build_historical_publish("bad") do
+          historical_publish do
+            datastore :minio_historical
+            datasets :invalid_ds
+          end
+        end
+      end.to raise_error(Tickrake::Error, /Unknown dataset\(s\) in historical_publish: invalid_ds/)
+    end
+
+    it "raises without a datastore" do
+      expect do
+        build_historical_publish("bad") do
+          historical_publish {}
+        end
+      end.to raise_error(Tickrake::Error, /requires datastore/)
+    end
+
+    it "raises when the datastore is not configured" do
+      expect do
+        build_historical_publish("bad") do
+          historical_publish { datastore :unknown_store }
         end
       end.to raise_error(Tickrake::Error, /datastore `unknown_store` is not configured/)
     end
