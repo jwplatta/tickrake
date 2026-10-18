@@ -1,5 +1,7 @@
 # Lakehouse Parquet Specifications & Tractatus Handoff Architecture
 
+> For the raw CSV and NDJSON schemas produced by Tickrake, see [Raw Data Contracts & Staging Specifications](../schemas/raw_data_contracts.md).
+
 ## 1. Architectural Overview & Separation of Concerns
 
 To eliminate duplicate compaction pipelines, schema drift, and discrepancies between local MinIO caches and the AWS S3 lakehouse, the responsibilities between **Tickrake** and **Tractatus** are delineated as follows:
