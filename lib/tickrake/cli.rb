@@ -85,13 +85,17 @@ module Tickrake
     end
 
     def publish_historical_command(argv, config, common_options)
-      options = { datastore: nil, datasets: nil, batch_size: nil }
+      options = { datastore: nil, datasets: nil, batch_size: nil, delete_after_upload: false, retain_days: nil }
       parser = OptionParser.new do |opts|
         opts.on("--datastore NAME", "Historical datastore name from config") { |v| options[:datastore] = v }
         opts.on("--dataset TYPE", "Dataset to publish (options, candles, level_one, order_book, fundamentals, economic_events, or all)") do |v|
           options[:datasets] = v.split(",").map(&:strip)
         end
         opts.on("--batch-size N", Integer, "Maximum number of files to upload") { |v| options[:batch_size] = v }
+        opts.on("--delete-after-upload", "Delete published local files immediately (excluding candles)") { options[:delete_after_upload] = true }
+        opts.on("--retain-days N", Integer, "Retain published local files for N days before pruning (0 deletes immediately; candles excluded)") do |v|
+          options[:retain_days] = v
+        end
       end
       parser.order!(argv)
 
@@ -110,9 +114,11 @@ module Tickrake
       )
       summary = publisher.scan_and_publish(
         dataset_types: options[:datasets],
-        batch_size: options[:batch_size]
+        batch_size: options[:batch_size],
+        delete_after_upload: options[:delete_after_upload],
+        retain_days: options[:retain_days]
       )
-      @stdout.puts("Historical publish complete: scanned #{summary[:files_scanned]} file(s), uploaded #{summary[:files_uploaded]} file(s), updated datasets: #{summary[:datasets_updated].join(', ')}.")
+      @stdout.puts("Historical publish complete: scanned #{summary[:files_scanned]} file(s), uploaded #{summary[:files_uploaded]} file(s), deleted #{summary[:files_deleted]} file(s), updated datasets: #{summary[:datasets_updated].join(', ')}.")
       0
     end
 

@@ -12,6 +12,8 @@ module Tickrake
       datastore_name = settings["datastore_name"]
       datasets = settings["datasets"]
       batch_size = settings["batch_size"]
+      delete_after_upload = settings["delete_after_upload"]
+      retain_days = settings["retain_days"]
 
       publisher = Storage::HistoricalPublisher.new(
         runtime: @runtime,
@@ -19,7 +21,9 @@ module Tickrake
       )
       publisher.scan_and_publish(
         dataset_types: datasets,
-        batch_size: batch_size
+        batch_size: batch_size,
+        delete_after_upload: delete_after_upload,
+        retain_days: retain_days
       )
     end
   end
