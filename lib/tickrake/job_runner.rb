@@ -36,8 +36,6 @@ module Tickrake
         Tickrake::HistoricalPublisherSchedulerRunner.new(runtime, scheduled_job: job).run
       when "events_ingest"
         Tickrake::EventsIngestorRunner.new(runtime, scheduled_job: job).run
-      when "reconciler"
-        Tickrake::ReconcilerRunner.new(runtime, scheduled_job: job).run
       when "fundamentals"
         Tickrake::FundamentalsSchedulerRunner.new(runtime, scheduled_job: job).run
       when "economic_events"
@@ -75,8 +73,6 @@ module Tickrake
         Tickrake::HistoricalPublisherJob.new(runtime, scheduled_job: job).run
       when "events_ingest"
         Tickrake::EventsIngestorJob.new(runtime, scheduled_job: job).run
-      when "reconciler"
-        Tickrake::ReconcilerJob.new(runtime, scheduled_job: job).run
       when "fundamentals"
         Tickrake::FundamentalsJob.new(runtime, scheduled_job: job).run
       when "economic_events"

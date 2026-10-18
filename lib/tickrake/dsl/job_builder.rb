@@ -21,7 +21,6 @@ module Tickrake
         @intraday_publish_builder = nil
         @historical_publish_builder = nil
         @events_ingest_builder = nil
-        @reconcile_builder = nil
         @fundamentals_builder = nil
         @chart_stream_builder = nil
         @economic_events_builder = nil
@@ -103,11 +102,6 @@ module Tickrake
         @events_ingest_builder.instance_eval(&block) if block
       end
 
-      def reconcile(&block)
-        @reconcile_builder = ReconcileBuilder.new
-        @reconcile_builder.instance_eval(&block) if block
-      end
-
       def fundamentals(&block)
         @fundamentals_builder = FundamentalsBuilder.new
         @fundamentals_builder.instance_eval(&block) if block
@@ -130,7 +124,7 @@ module Tickrake
 
       def build!(config)
         inferred_type = infer_type
-        provider_optional = %w[metadata_sync intraday_publish historical_publish events_ingest reconciler economic_events].include?(inferred_type)
+        provider_optional = %w[metadata_sync intraday_publish historical_publish events_ingest economic_events].include?(inferred_type)
         raise Tickrake::Error, "job `#{@name}` requires provider" if @provider.nil? && !provider_optional
         schedule = @schedule_builder&.build! || {}
 
@@ -144,7 +138,6 @@ module Tickrake
         when "intraday_publish"   then build_intraday_publish_job!(config, schedule)
         when "historical_publish" then build_historical_publish_job!(config, schedule)
         when "events_ingest"      then build_events_ingest_job!(config, schedule)
-        when "reconciler"         then build_reconcile_job!(schedule)
         when "fundamentals"       then build_fundamentals_job!(config, schedule)
         when "chart_stream"       then build_chart_stream_job!(schedule)
         when "economic_events"    then build_economic_events_job!(schedule)
@@ -275,7 +268,6 @@ module Tickrake
           "intraday_publish"   => @intraday_publish_builder,
           "historical_publish" => @historical_publish_builder,
           "events_ingest"      => @events_ingest_builder,
-          "reconciler"       => @reconcile_builder,
           "fundamentals"     => @fundamentals_builder,
           "chart_stream"     => @chart_stream_builder,
           "economic_events"  => @economic_events_builder,
@@ -428,27 +420,6 @@ module Tickrake
           tasks: [],
           task: nil,
           settings: settings,
-          manual: false
-        )
-      end
-
-      def build_reconcile_job!(schedule)
-        raise Tickrake::Error, "reconciler job `#{@name}` requires a reconcile block" if @reconcile_builder.nil?
-
-        Tickrake::ScheduledJobConfig.new(
-          name: @name,
-          type: "reconciler",
-          provider: nil,
-          interval_seconds: schedule[:interval_seconds],
-          windows: schedule[:windows],
-          run_at: schedule[:run_at],
-          days: schedule[:days],
-          lookback_days: nil,
-          dte_buckets: [],
-          universe: [],
-          tasks: [],
-          task: nil,
-          settings: @reconcile_builder.build!,
           manual: false
         )
       end

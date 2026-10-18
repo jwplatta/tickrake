@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+- Removed dead AWS S3 cold archival pipeline, AWS Glacier storage classes, S3 manifest writers, and S3 manifest reconciler (`ReconcilerJob`, `ReconcilerRunner`, `DSL::ReconcileBuilder`, `Maintenance::Candles::Archiver`, `Maintenance::Candles::ManifestWriter`, `Maintenance::OptionSamples::ArtifactArchiver`, `Maintenance::OptionSamples::ManifestWriter`, `Maintenance::OptionSamples::LocalArtifactManager`).
+- Removed obsolete S3 manifest guards from `SourceSampleCleaner`, keeping local raw CSV pruning safely managed by compaction validation.
+- Removed dead S3 upload method and datastore option from `EventsIngestorJob` and `EventsIngestBuilder`.
+- Removed `archive` task from `MaintenanceBuilder` and updated `ConfigLoader` to reject legacy `archive` tasks.
+- Removed obsolete scripts `scripts/backfill_manifests.rb` and `scripts/rearchive_candles_to_s3.rb`.
+
 ### Added
 - Added local file retention policy and immediate deletion management to `HistoricalPublisher` (`retain_days`, `delete_after_upload`), supporting automated local cleanup while strictly exempting `candles` files to prevent backfill regressions.
 - Added migration `003_add_local_deleted_at_to_historical_file_ledger.rb` and `HistoricalFileLedger` scopes (`locally_retained`, `eligible_for_retention_cleanup`) and `mark_locally_deleted!` method to track pruned local files while maintaining the complete audit trail.

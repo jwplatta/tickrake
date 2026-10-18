@@ -8,9 +8,8 @@ module Tickrake
     VALID_DAYS = %w[mon tue wed thu fri sat sun].freeze
     VALID_JOB_TYPES = %w[options candles maintenance].freeze
     VALID_IMPORT_TYPES = %w[options].freeze
-    VALID_MAINTENANCE_ACTIONS = %w[compact archive].freeze
+    VALID_MAINTENANCE_ACTIONS = %w[compact].freeze
     VALID_MAINTENANCE_SUBJECTS = %w[option_samples].freeze
-    VALID_ARCHIVE_DESTINATIONS = %w[s3_archive].freeze
     VALID_ARCHIVE_ARTIFACTS = %w[csv parquet].freeze
     VALID_S3_STORAGE_CLASSES = %w[STANDARD STANDARD_IA GLACIER GLACIER_IR].freeze
     VALID_DATASTORE_TYPES = %w[s3 s3_compatible minio].freeze
@@ -548,19 +547,9 @@ module Tickrake
             raise ConfigError, "maintenance job `#{job.name}` compact task artifacts must be csv and/or parquet."
           end
         when "archive"
-          raise ConfigError, "maintenance job `#{job.name}` archive task destination is required." if step.destination.to_s.empty?
-          unless VALID_ARCHIVE_DESTINATIONS.include?(step.destination)
-            raise ConfigError, "maintenance job `#{job.name}` archive task destination `#{step.destination}` is unsupported."
-          end
-          raise ConfigError, "maintenance job `#{job.name}` archive task destination `#{step.destination}` is not configured." if config.archives[step.destination].nil?
-
-          artifacts = step.artifacts.empty? ? %w[parquet] : step.artifacts
-          unless artifacts.all? { |artifact| VALID_ARCHIVE_ARTIFACTS.include?(artifact) }
-            raise ConfigError, "maintenance job `#{job.name}` archive task artifacts must be csv and/or parquet."
-          end
-          unless step.retain_local.keys.all? { |key| VALID_ARCHIVE_ARTIFACTS.include?(key) && boolean?(step.retain_local[key]) }
-            raise ConfigError, "maintenance job `#{job.name}` archive task retain_local keys must be csv/parquet booleans."
-          end
+          raise ConfigError, "maintenance job `#{job.name}` archive task is no longer supported. AWS S3 cold archival has been removed in favor of MinIO historical publishing."
+        else
+          raise ConfigError, "maintenance job `#{job.name}` has unsupported action `#{step.action}`."
         end
       end
     end

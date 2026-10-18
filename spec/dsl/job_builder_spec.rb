@@ -427,24 +427,6 @@ RSpec.describe Tickrake::DSL::JobBuilder do
         end
       end.to raise_error(Tickrake::Error, /requires an events_ingest block/)
     end
-
-    it "raises when the datastore is not configured" do
-      expect do
-        build_events_ingest("bad") do
-          schedule { every 60.seconds; weekdays from: "08:00", to: "17:30" }
-          events_ingest { datastore :unknown_store }
-        end
-      end.to raise_error(Tickrake::Error, /datastore `unknown_store` is not configured/)
-    end
-
-    it "accepts a configured datastore" do
-      job = build_events_ingest("events_ingestor") do
-        schedule { every 60.seconds; weekdays from: "08:00", to: "17:30" }
-        events_ingest { datastore :s3_archive }
-      end
-
-      expect(job.settings.fetch("datastore_name")).to eq("s3_archive")
-    end
   end
 
   describe "maintenance job" do
@@ -455,9 +437,6 @@ RSpec.describe Tickrake::DSL::JobBuilder do
         schedule { at "15:30"; weekdays }
         maintenance do
           compact :option_samples, universe: "spx_symbols", delete_sources: true
-          archive :option_samples, universe: "spx_symbols",
-                  to: :s3_archive, artifacts: %i[csv parquet],
-                  retain: { parquet: true }
         end
       end
     end
@@ -470,21 +449,11 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       expect(job.run_at).to eq([15, 30])
     end
 
-    it "builds two MaintenanceStepConfig tasks" do
-      expect(job.tasks.length).to eq(2)
-      expect(job.tasks.map(&:action)).to eq(%w[compact archive])
-    end
-
-    it "sets correct fields on the compact task" do
-      step = job.tasks.first
-      expect(step.universe).to eq("spx_symbols")
-      expect(step.delete_sources).to be(true)
-    end
-
-    it "sets correct fields on the archive task" do
-      step = job.tasks.last
-      expect(step.destination).to eq("s3_archive")
-      expect(step.retain_local).to eq("csv" => false, "parquet" => true)
+    it "builds a compact MaintenanceStepConfig task" do
+      expect(job.tasks.length).to eq(1)
+      expect(job.tasks.first.action).to eq("compact")
+      expect(job.tasks.first.universe).to eq("spx_symbols")
+      expect(job.tasks.first.delete_sources).to be(true)
     end
 
     it "raises without a maintenance block" do
@@ -495,20 +464,6 @@ RSpec.describe Tickrake::DSL::JobBuilder do
           schedule { at "15:30"; weekdays }
         end
       end.to raise_error(Tickrake::Error, /requires a maintenance block/)
-    end
-
-    it "raises when an archive destination is not in datastores" do
-      expect do
-        build("bad") do
-          provider :schwab
-          type :maintenance
-          schedule { at "15:30"; weekdays }
-          maintenance do
-            archive :option_samples, universe: "spx_symbols",
-                    to: :unknown_store, artifacts: %i[csv parquet]
-          end
-        end
-      end.to raise_error(Tickrake::Error, /archive destination `unknown_store` is not configured/)
     end
   end
 
