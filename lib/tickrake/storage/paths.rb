@@ -30,19 +30,6 @@ module Tickrake
         )
       end
 
-      def option_compacted_sample_path(provider:, root:, sample_date:, format:)
-        extension = format.to_s.downcase
-        raise Tickrake::Error, "Unsupported compacted option format `#{format}`." unless %w[csv parquet].include?(extension)
-
-        File.join(
-          provider_options_dir(provider),
-          sample_date.strftime("%Y"),
-          sample_date.strftime("%m"),
-          sample_date.strftime("%d"),
-          "#{sanitize_symbol(root)}_samples_#{sample_date.iso8601}.#{extension}"
-        )
-      end
-
       def level_one_path(provider:, symbol:, flush_start:, provider_definition: nil)
         File.join(
           level_one_dir(provider, flush_start),
@@ -99,13 +86,6 @@ module Tickrake
           sample_date.strftime("%Y"),
           sample_date.strftime("%m"),
           "#{sample_date.strftime("%d")}.ndjson"
-        )
-      end
-
-      def candle_compacted_path(provider:, symbol:, frequency:, year:)
-        File.join(
-          @config.candles_dir, provider.to_s, frequency.to_s,
-          year.to_s, "#{sanitize_symbol(symbol)}.parquet"
         )
       end
 

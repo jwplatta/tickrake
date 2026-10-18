@@ -141,22 +141,3 @@ schedule:
         start_date: "2020-01-01"
       - symbol: QQQ
         start_date: "2020-01-01"
-  manual_compact_spxw:
-    type: maintenance
-    manual: true
-    provider: schwab
-    tasks:
-      - compact:
-          subject: option_samples
-          option_root: SPXW
-          delete_sources: false
-  postclose_option_maintenance:
-    type: maintenance
-    provider: schwab
-    run_at: "18:05"
-    days: [mon, tue, wed, thu, fri]
-    tasks:
-      - compact:
-          subject: option_samples
-          universe: index_option_roots
-          delete_sources: true

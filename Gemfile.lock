@@ -5,9 +5,7 @@ PATH
       activerecord (>= 7.1)
       aws-sdk-s3 (~> 1)
       csv
-      duckdb
       ib-api (~> 972.5)
-      parquet
       pg (>= 1.5)
       ruby-progressbar (~> 1.13)
       schwab_rb (>= 1.0.4)
@@ -94,8 +92,6 @@ GEM
     diff-lcs (1.6.2)
     dotenv (3.2.0)
     drb (2.2.3)
-    duckdb (1.5.4.0)
-      bigdecimal (>= 3.1.4)
     faraday (2.14.4)
       faraday-net_http (>= 2.0, < 3.5)
       json
@@ -146,12 +142,6 @@ GEM
     openssl (3.3.3)
     ox (2.14.23)
       bigdecimal (>= 3.0)
-    parquet (0.8.0-aarch64-linux)
-      bigdecimal
-    parquet (0.8.0-arm64-darwin)
-      bigdecimal
-    parquet (0.8.0-x86_64-linux)
-      bigdecimal
     pg (1.7.0-aarch64-linux)
     pg (1.7.0-arm64-darwin)
     pg (1.7.0-x86_64-linux)

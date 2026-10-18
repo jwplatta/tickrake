@@ -4,7 +4,7 @@ RSpec.describe Tickrake::CLI do
   let(:config) do
     instance_double(
       Tickrake::Config,
-      jobs: [index_options_job, eod_candles_job, maintenance_job],
+      jobs: [index_options_job, eod_candles_job],
       job: nil,
       sqlite_path: "/tmp/tickrake.sqlite3",
       database: nil,
@@ -51,37 +51,11 @@ RSpec.describe Tickrake::CLI do
       manual: true
     )
   end
-  let(:maintenance_job) do
-    Tickrake::ScheduledJobConfig.new(
-      name: "compact_spxw",
-      type: "maintenance",
-      provider: "schwab",
-      interval_seconds: nil,
-      windows: [],
-      run_at: nil,
-      days: [],
-      lookback_days: nil,
-      dte_buckets: [],
-      universe: [],
-      tasks: [
-        Tickrake::MaintenanceStepConfig.new(
-          action: "compact",
-          subject: "option_samples",
-          option_root: "SPXW",
-          delete_sources: false,
-          artifacts: [],
-          retain_local: {}
-        )
-      ],
-      manual: true
-    )
-  end
 
   before do
     allow(config).to receive(:job).with("index_options").and_return(index_options_job)
     allow(config).to receive(:job).with("eod_candles").and_return(eod_candles_job)
     allow(config).to receive(:job).with("manual_options").and_return(manual_options_job)
-    allow(config).to receive(:job).with("compact_spxw").and_return(maintenance_job)
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
   end
 
@@ -204,65 +178,6 @@ RSpec.describe Tickrake::CLI do
 
     expect(exit_code).to eq(0)
     expect(stdout.string).to include("Completed job eod_candles.")
-  end
-
-  it "runs a configured maintenance job once with an explicit date range" do
-    stdout = StringIO.new
-    stderr = StringIO.new
-    runtime = instance_double(Tickrake::Runtime)
-    progress_reporter = instance_double(Tickrake::ProgressReporter)
-    result = Tickrake::MaintenanceJob::Result.new(
-      processed_dates: [Date.new(2025, 12, 18), Date.new(2025, 12, 19)],
-      step_results: [],
-      artifacts_written: ["/tmp/a.csv", "/tmp/a.parquet", "/tmp/b.csv", "/tmp/b.parquet"]
-    )
-    job = instance_double(Tickrake::MaintenanceJob, run: result)
-
-    allow(Tickrake::Runtime).to receive(:new).with(
-      config: config,
-      provider_name: nil,
-      verbose: false,
-      stdout: stdout,
-      log_path: Tickrake::PathSupport.named_log_path("compact_spxw"),
-      config_path: Tickrake::PathSupport.config_path,
-      context: { job_name: "compact_spxw", job_type: "maintenance", provider: "schwab" }
-    ).and_return(runtime)
-    allow(Tickrake::ProgressReporter).to receive(:build).with(
-      total: 2,
-      title: "Compact",
-      output: stdout
-    ).and_return(progress_reporter)
-    allow(Tickrake::MaintenanceJob).to receive(:new).with(
-      runtime,
-      scheduled_job: maintenance_job,
-      start_date: Date.new(2025, 12, 18),
-      end_date: Date.new(2025, 12, 19),
-      progress_reporter: progress_reporter
-    ).and_return(job)
-
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
-      "run",
-      "--job", "compact_spxw",
-      "--start-date", "2025-12-18",
-      "--end-date", "2025-12-19"
-    ])
-
-    expect(exit_code).to eq(0)
-    expect(stdout.string).to include("Completed job compact_spxw: processed 2 date(s), wrote 4 artifact(s).")
-  end
-
-  it "rejects incomplete maintenance date ranges" do
-    stdout = StringIO.new
-    stderr = StringIO.new
-
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
-      "run",
-      "--job", "compact_spxw",
-      "--start-date", "2025-12-18"
-    ])
-
-    expect(exit_code).to eq(1)
-    expect(stderr.string).to include("Maintenance runs require both --start-date and --end-date.")
   end
 
   it "runs direct candles from explicit ticker arguments" do
@@ -390,8 +305,7 @@ RSpec.describe Tickrake::CLI do
     registry = instance_double(Tickrake::JobRegistry)
     allow(Tickrake::JobRegistry).to receive(:new).and_return(registry)
     allow(registry).to receive(:registered_names).and_return(["orphan_job"])
-    allow(registry).to receive(:statuses).with(%w[compact_spxw eod_candles index_options orphan_job]).and_return([
-      { name: "compact_spxw", state: "stopped" },
+    allow(registry).to receive(:statuses).with(%w[eod_candles index_options orphan_job]).and_return([
       { name: "eod_candles", state: "stopped" },
       { name: "index_options", state: "running", pid: 123, started_at: "2026-04-10T16:00:00Z", log_path: "/tmp/index_options.log" },
       { name: "orphan_job", state: "stale", pid: 321, started_at: "2026-04-10T15:00:00Z" }

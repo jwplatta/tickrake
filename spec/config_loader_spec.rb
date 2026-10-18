@@ -4,7 +4,7 @@ RSpec.describe Tickrake::ConfigLoader do
   it "loads the example config with typed scheduled jobs" do
     config = described_class.load(File.expand_path("../config/tickrake.example.yml", __dir__))
 
-    expect(config.jobs.map(&:name)).to eq(%w[index_options eod_candles spx_min_candles manual_candles manual_compact_spxw postclose_option_maintenance])
+    expect(config.jobs.map(&:name)).to eq(%w[index_options eod_candles spx_min_candles manual_candles])
     expect(config.job("index_options").type).to eq("options")
     expect(config.job("index_options").interval_seconds).to eq(300)
     expect(config.job("index_options").dte_buckets).to include(0, 10, 30)
@@ -25,11 +25,6 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.import_job("spxw_massive_options").paths).to include(/2025-10-01\.csv/)
     expect(config.options_universe.map(&:symbol)).to include("$SPX", "SPY")
     expect(config.job("eod_candles").universe.first.frequencies).to include("day", "30min", "10min", "5min", "1min")
-    expect(config.job("manual_compact_spxw")).to be_manual
-    expect(config.job("manual_compact_spxw").type).to eq("maintenance")
-    expect(config.job("manual_compact_spxw").tasks.length).to eq(1)
-    expect(config.job("manual_compact_spxw").tasks.first.action).to eq("compact")
-    expect(config.job("manual_compact_spxw").tasks.first.option_root).to eq("SPXW")
     expect(config.universe("index_option_roots").option_roots).to eq(%w[SPXW SPY QQQ])
     expect(config.datastores["minio_historical"].bucket).to eq("tickrake-historical")
     expect(config.datastores["minio_historical"].type).to eq("minio")
@@ -360,39 +355,7 @@ RSpec.describe Tickrake::ConfigLoader do
     end
   end
 
-  it "loads manual maintenance jobs with ordered tasks" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "manual-maintenance.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-        universes:
-          index_roots:
-            option_roots: [SPXW, SPY]
-        schedule:
-          compact_spxw:
-            type: maintenance
-            manual: true
-            provider: schwab
-            tasks:
-              - compact:
-                  subject: option_samples
-                  universe: index_roots
-                  delete_sources: true
-      YAML
-
-      config = described_class.load(path)
-
-      expect(config.job("compact_spxw")).to be_manual
-      expect(config.job("compact_spxw").tasks.map(&:action)).to eq(%w[compact])
-      expect(config.job("compact_spxw").tasks.first.universe).to eq("index_roots")
-      expect(config.job("compact_spxw").tasks.first.delete_sources).to be(true)
-    end
-  end
-
-  it "loads named universes from an external yaml file for options, candles, and maintenance jobs" do
+  it "loads named universes from an external yaml file for options and candles jobs" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.yml")
       universe_path = File.join(dir, "universes.yml")
@@ -442,16 +405,6 @@ RSpec.describe Tickrake::ConfigLoader do
             start_date: "2020-01-01"
             frequencies: [day, 1min]
             universe: futures_symbols
-          postclose_option_maintenance:
-            type: maintenance
-            provider: schwab
-            run_at: "18:05"
-            days: [mon]
-            tasks:
-              - compact:
-                  subject: option_samples
-                  universe: trading_symbols
-                  delete_sources: true
       YAML
 
       config = described_class.load(path)
@@ -463,7 +416,6 @@ RSpec.describe Tickrake::ConfigLoader do
       expect(candle_entry.symbol).to eq("/ES")
       expect(candle_entry.start_date).to eq(Date.new(2020, 1, 1))
       expect(candle_entry.frequencies).to eq(%w[day 1min])
-      expect(config.job("postclose_option_maintenance").tasks.first.universe).to eq("trading_symbols")
     end
   end
 

@@ -22,8 +22,6 @@ module Tickrake
         Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: job).run
       when "candles"
         Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: job, from_config_start: from_config_start).run
-      when "maintenance"
-        Tickrake::MaintenanceSchedulerRunner.new(runtime, scheduled_job: job).run
       when "order_book"
         Tickrake::OrderBookRunner.new(runtime, scheduled_job: job).run
       when "level_one"
@@ -61,10 +59,6 @@ module Tickrake
         Tickrake::OptionsJob.new(runtime, scheduled_job: job).run
       when "candles"
         Tickrake::CandlesJob.new(runtime, scheduled_job: job).run
-      when "maintenance"
-        start_date = job.settings["start_date"]
-        end_date = job.settings["end_date"]
-        Tickrake::MaintenanceJob.new(runtime, scheduled_job: job, start_date: start_date, end_date: end_date).run
       when "intraday_publish"
         Tickrake::IntradayPublisherJob.new(runtime, scheduled_job: job).run
       when "staging_publish"

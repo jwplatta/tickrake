@@ -29,8 +29,6 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "schwab_rb", ">= 1.0.4"
   spec.add_dependency "ib-api", "~> 972.5"
-  spec.add_dependency "duckdb"
-  spec.add_dependency "parquet"
   spec.add_dependency "ruby-progressbar", "~> 1.13"
   spec.add_dependency "sqlite3", ">= 1.6"
   spec.add_dependency "pg", ">= 1.5"

@@ -14,7 +14,6 @@ module Tickrake
         @schedule_builder = nil
         @options_builder = nil
         @candles_builder = nil
-        @maintenance_builder = nil
         @order_book_builder = nil
         @level_one_builder = nil
         @metadata_sync_builder = nil
@@ -64,11 +63,6 @@ module Tickrake
       def candles(&block)
         @candles_builder = CandlesBuilder.new
         @candles_builder.instance_eval(&block)
-      end
-
-      def maintenance(&block)
-        @maintenance_builder = MaintenanceBuilder.new
-        @maintenance_builder.instance_eval(&block)
       end
 
       def order_book(&block)
@@ -125,7 +119,6 @@ module Tickrake
         case inferred_type
         when "options"            then build_options_job!(config, schedule)
         when "candles"            then build_candles_job!(config, schedule)
-        when "maintenance"        then build_maintenance_job!(config, schedule)
         when "order_book"         then build_order_book_job!(schedule)
         when "level_one"          then build_level_one_job!(schedule)
         when "metadata_sync"      then build_metadata_sync_job!(schedule)
@@ -215,46 +208,12 @@ module Tickrake
         )
       end
 
-      def build_maintenance_job!(config, schedule)
-        raise Tickrake::Error, "maintenance job `#{@name}` requires a maintenance block" if @maintenance_builder.nil?
-
-        built = @maintenance_builder.build!
-        tasks = built[:tasks]
-        tasks.each do |step|
-          next unless step.action == "archive"
-          unless config.datastores.key?(step.destination)
-            raise Tickrake::Error, "maintenance job `#{@name}` archive destination `#{step.destination}` is not configured"
-          end
-        end
-
-        Tickrake::ScheduledJobConfig.new(
-          name: @name,
-          type: "maintenance",
-          provider: @provider,
-          interval_seconds: schedule[:interval_seconds],
-          windows: schedule[:windows],
-          run_at: schedule[:run_at],
-          days: schedule[:days],
-          lookback_days: nil,
-          dte_buckets: [],
-          universe: [],
-          tasks: tasks,
-          task: nil,
-          settings: {
-            "start_date" => built[:start_date],
-            "end_date" => built[:end_date]
-          }.compact,
-          manual: false
-        )
-      end
-
       def infer_type
         return @type if @type
 
         builders = {
           "options"          => @options_builder,
           "candles"          => @candles_builder,
-          "maintenance"      => @maintenance_builder,
           "order_book"       => @order_book_builder,
           "level_one"        => @level_one_builder,
           "metadata_sync"      => @metadata_sync_builder,

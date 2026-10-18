@@ -47,20 +47,6 @@ module Tickrake
       end.uniq
     end
   end
-  MaintenanceStepConfig = Struct.new(
-    :action,
-    :subject,
-    :provider,
-    :universe,
-    :universes,
-    :tickers,
-    :option_root,
-    :delete_sources,
-    :destination,
-    :artifacts,
-    :retain_local,
-    keyword_init: true
-  )
 
   OrderBookContractsConfig = Struct.new(
     :underlying,
@@ -160,10 +146,6 @@ module Tickrake
 
     def candles?
       type == "candles"
-    end
-
-    def maintenance?
-      type == "maintenance"
     end
 
     def order_book?
