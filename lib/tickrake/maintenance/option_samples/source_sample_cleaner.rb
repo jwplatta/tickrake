@@ -4,23 +4,12 @@ module Tickrake
   module Maintenance
     module OptionSamples
       class SourceSampleCleaner
-        def initialize(context:, manifest_writer: nil, s3_archive: nil)
+        def initialize(context:)
           @context = context
-          @manifest_writer = manifest_writer
-          @s3_archive = s3_archive
         end
 
         def run(source_paths:, dry_run: false)
           return build_result(source_paths: source_paths, deleted_source_paths: [], errors: []) if dry_run
-
-          if @manifest_writer
-            guard_manifest!(
-              dataset_type: "options",
-              provider: @context.provider_name,
-              root: @context.option_root,
-              sample_date: @context.sample_date
-            )
-          end
 
           deleted_source_paths = []
           errors = []
@@ -38,35 +27,6 @@ module Tickrake
         end
 
         private
-
-        def guard_manifest!(dataset_type:, provider:, root:, sample_date:)
-          unless @manifest_writer.manifest_exists?(dataset_type: dataset_type, provider: provider, root: root, sample_date: sample_date)
-            raise RuntimeError, "Cannot delete source files: manifest does not exist for #{dataset_type}/#{provider}/#{root} #{sample_date}"
-          end
-
-          manifest = @manifest_writer.read(dataset_type: dataset_type, provider: provider, root: root, sample_date: sample_date)
-
-          artifacts = manifest["artifacts"]
-          raise RuntimeError, "Cannot delete source files: manifest has no artifacts for #{provider}/#{root} #{sample_date}" if artifacts.nil? || artifacts.empty?
-
-          artifacts.each do |format, artifact|
-            uri = artifact["uri"]
-            key = uri_to_key(uri)
-            unless @s3_archive.object_exists?(key)
-              raise RuntimeError, "Cannot delete source files: artifact #{format} not accessible at #{uri} for #{provider}/#{root} #{sample_date}"
-            end
-
-            row_count = artifact["row_count"]
-            unless row_count && row_count > 0
-              raise RuntimeError, "Cannot delete source files: artifact #{format} has invalid row_count=#{row_count.inspect} for #{provider}/#{root} #{sample_date}"
-            end
-          end
-        end
-
-        def uri_to_key(uri)
-          # Strip s3://bucket/ prefix to get the S3 key
-          uri.sub(%r{\As3://[^/]+/}, "")
-        end
 
         def build_result(source_paths:, deleted_source_paths:, errors:)
           SourceCleanupResult.new(

@@ -51,44 +51,6 @@ module Tickrake
           success
         end
       end
-
-      ArchiveResult = Struct.new(
-        :success,
-        :provider_name,
-        :option_root,
-        :sample_date,
-        :artifact_results,
-        :errors,
-        keyword_init: true
-      ) do
-        def successful?
-          success
-        end
-
-        def archived_paths
-          artifact_results.map { |result| result.fetch(:path) }
-        end
-
-        def remote_uris
-          artifact_results.each_with_object({}) do |result, memo|
-            memo[result.fetch(:path)] = result.fetch(:remote_uri)
-          end
-        end
-      end
-
-      RetentionResult = Struct.new(
-        :success,
-        :provider_name,
-        :option_root,
-        :sample_date,
-        :retained_local,
-        :errors,
-        keyword_init: true
-      ) do
-        def successful?
-          success
-        end
-      end
     end
   end
 end

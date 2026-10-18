@@ -74,28 +74,11 @@ RSpec.describe "option sample maintenance" do
       validation = Tickrake::Maintenance::OptionSamples::Validator.new(context: context).run
       expect(validation.safe_to_delete).to eq(true)
 
-      archive = Tickrake::Maintenance::OptionSamples::ArtifactArchiver.new(
-        context: context,
-        archive_services: { "s3_archive" => archive_service }
-      ).upload(destination_name: "s3_archive", artifacts: %w[parquet])
-      expect(archive).to be_successful
-      expect(archive.artifact_results.map { |r| r[:artifact] }).to eq(%w[parquet])
-      expect(archive.remote_uris.values).to all(include("s3://tickrake/"))
-      expect(archive.remote_uris.size).to eq(1)
-
       source_cleanup = Tickrake::Maintenance::OptionSamples::SourceSampleCleaner.new(context: context).run(
         source_paths: validation.source_paths
       )
       expect(source_cleanup).to be_successful
       expect(source_cleanup.deleted_source_paths).to match_array(fixture[:raw_files])
-
-      retention = Tickrake::Maintenance::OptionSamples::LocalArtifactManager.new(context: context).apply(
-        remote_uris: archive.remote_uris,
-        retain_local: { "csv" => false, "parquet" => true },
-        artifacts: %w[parquet]
-      )
-      expect(retention).to be_successful
-      expect(retention.retained_local).to eq("parquet" => true)
     end
   end
 
@@ -242,22 +225,6 @@ RSpec.describe "option sample maintenance" do
     )
   end
 
-  def archive_task
-    Tickrake::MaintenanceStepConfig.new(
-      action: "archive",
-      subject: "option_samples",
-      provider: "schwab",
-      universe: nil,
-      universes: [],
-      tickers: [],
-      option_root: "SPXW",
-      delete_sources: false,
-      destination: "s3_archive",
-      artifacts: %w[parquet],
-      retain_local: { "parquet" => true }
-    )
-  end
-
   def stub_archive_service
     archive_service = instance_double(Tickrake::Storage::S3Archive)
     allow(archive_service).to receive(:upload) do |path|
@@ -269,31 +236,6 @@ RSpec.describe "option sample maintenance" do
       Tickrake::Storage::S3Archive::RemoteObject.new(bucket: "tickrake-dev", key: key, size: File.size(path))
     end
     archive_service
-  end
-
-
-  it "skips archive when compact finds no raw snapshots" do
-    Dir.mktmpdir do |dir|
-      config = build_config(dir, with_archive: true)
-      Tickrake::Tracker.migrate!(config.sqlite_path)
-      tracker = Tickrake::Tracker.new(config.sqlite_path)
-      archive_service = stub_archive_service
-
-      job = build_maintenance_job(config, tracker, tasks: [compact_task(delete_sources: true), archive_task])
-
-      allow_any_instance_of(Tickrake::Maintenance::OptionSamples::ArtifactArchiver).to receive(:archive_service_for)
-        .and_return(archive_service)
-
-      # No raw snapshots exist for this date — compact will be skipped
-      result = job.run(now: Time.utc(2026, 8, 29, 21, 0, 0))
-
-      expect(result).to be_successful
-      expect(result.artifacts_written).to eq([])
-      expect(result.step_results.count).to eq(1)
-      expect(result.step_results.first.action).to eq("compact")
-      expect(result.step_results.first.success).to eq(true)
-      expect(archive_service).not_to have_received(:upload)
-    end
   end
 
   describe Tickrake::Maintenance::OptionSamples::SourceSampleCleaner do
@@ -308,9 +250,7 @@ RSpec.describe "option sample maintenance" do
       )
     end
 
-    let(:manifest_args) { { dataset_type: "options", provider: "schwab", root: "SPXW", sample_date: Date.new(2026, 9, 13) } }
-
-    it "raises without deleting files when manifest does not exist" do
+    it "deletes source snapshot files on disk" do
       Dir.mktmpdir do |dir|
         config = build_config(dir)
         context = build_context(config)
@@ -318,70 +258,7 @@ RSpec.describe "option sample maintenance" do
         source_file = File.join(dir, "snapshot.csv")
         File.write(source_file, "data")
 
-        manifest_writer = instance_double(Tickrake::Maintenance::OptionSamples::ManifestWriter)
-        allow(manifest_writer).to receive(:manifest_exists?).with(**manifest_args).and_return(false)
-
-        cleaner = described_class.new(context: context, manifest_writer: manifest_writer, s3_archive: nil)
-        result = cleaner.run(source_paths: [source_file])
-
-        expect(result.success).to eq(false)
-        expect(result.deleted_source_paths).to be_empty
-        expect(File.exist?(source_file)).to eq(true)
-      end
-    end
-
-    it "raises without deleting files when an artifact is not accessible in S3" do
-      Dir.mktmpdir do |dir|
-        config = build_config(dir)
-        context = build_context(config)
-
-        source_file = File.join(dir, "snapshot.csv")
-        File.write(source_file, "data")
-
-        manifest_data = {
-          "artifacts" => {
-            "csv" => { "uri" => "s3://tickrake/options/schwab/SPXW_samples_2026-09-13.csv", "row_count" => 10 }
-          }
-        }
-
-        manifest_writer = instance_double(Tickrake::Maintenance::OptionSamples::ManifestWriter)
-        allow(manifest_writer).to receive(:manifest_exists?).with(**manifest_args).and_return(true)
-        allow(manifest_writer).to receive(:read).with(**manifest_args).and_return(manifest_data)
-
-        s3_archive = instance_double(Tickrake::Storage::S3Archive)
-        allow(s3_archive).to receive(:object_exists?).with("options/schwab/SPXW_samples_2026-09-13.csv").and_return(false)
-
-        cleaner = described_class.new(context: context, manifest_writer: manifest_writer, s3_archive: s3_archive)
-        result = cleaner.run(source_paths: [source_file])
-
-        expect(result.success).to eq(false)
-        expect(result.deleted_source_paths).to be_empty
-        expect(File.exist?(source_file)).to eq(true)
-      end
-    end
-
-    it "deletes source files when manifest exists with only parquet and artifact is accessible with valid row_count" do
-      Dir.mktmpdir do |dir|
-        config = build_config(dir)
-        context = build_context(config)
-
-        source_file = File.join(dir, "snapshot.csv")
-        File.write(source_file, "data")
-
-        manifest_data = {
-          "artifacts" => {
-            "parquet" => { "uri" => "s3://tickrake/options/schwab/SPXW_samples_2026-09-13.parquet", "row_count" => 10 }
-          }
-        }
-
-        manifest_writer = instance_double(Tickrake::Maintenance::OptionSamples::ManifestWriter)
-        allow(manifest_writer).to receive(:manifest_exists?).with(**manifest_args).and_return(true)
-        allow(manifest_writer).to receive(:read).with(**manifest_args).and_return(manifest_data)
-
-        s3_archive = instance_double(Tickrake::Storage::S3Archive)
-        allow(s3_archive).to receive(:object_exists?).and_return(true)
-
-        cleaner = described_class.new(context: context, manifest_writer: manifest_writer, s3_archive: s3_archive)
+        cleaner = described_class.new(context: context)
         result = cleaner.run(source_paths: [source_file])
 
         expect(result.success).to eq(true)
@@ -390,7 +267,7 @@ RSpec.describe "option sample maintenance" do
       end
     end
 
-    it "deletes source files when manifest exists and all artifacts are accessible with valid row_counts" do
+    it "supports dry_run without deleting files" do
       Dir.mktmpdir do |dir|
         config = build_config(dir)
         context = build_context(config)
@@ -398,26 +275,12 @@ RSpec.describe "option sample maintenance" do
         source_file = File.join(dir, "snapshot.csv")
         File.write(source_file, "data")
 
-        manifest_data = {
-          "artifacts" => {
-            "csv"     => { "uri" => "s3://tickrake/options/schwab/SPXW_samples_2026-09-13.csv",     "row_count" => 10 },
-            "parquet" => { "uri" => "s3://tickrake/options/schwab/SPXW_samples_2026-09-13.parquet", "row_count" => 10 }
-          }
-        }
-
-        manifest_writer = instance_double(Tickrake::Maintenance::OptionSamples::ManifestWriter)
-        allow(manifest_writer).to receive(:manifest_exists?).with(**manifest_args).and_return(true)
-        allow(manifest_writer).to receive(:read).with(**manifest_args).and_return(manifest_data)
-
-        s3_archive = instance_double(Tickrake::Storage::S3Archive)
-        allow(s3_archive).to receive(:object_exists?).and_return(true)
-
-        cleaner = described_class.new(context: context, manifest_writer: manifest_writer, s3_archive: s3_archive)
-        result = cleaner.run(source_paths: [source_file])
+        cleaner = described_class.new(context: context)
+        result = cleaner.run(source_paths: [source_file], dry_run: true)
 
         expect(result.success).to eq(true)
-        expect(result.deleted_source_paths).to eq([source_file])
-        expect(File.exist?(source_file)).to eq(false)
+        expect(result.deleted_source_paths).to be_empty
+        expect(File.exist?(source_file)).to eq(true)
       end
     end
   end

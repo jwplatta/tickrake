@@ -31,9 +31,8 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.job("manual_compact_spxw").tasks.first.action).to eq("compact")
     expect(config.job("manual_compact_spxw").tasks.first.option_root).to eq("SPXW")
     expect(config.universe("index_option_roots").option_roots).to eq(%w[SPXW SPY QQQ])
-    expect(config.s3_archive.bucket).to eq("tickrake")
-    expect(config.s3_archive.region).to eq("us-east-1")
-    expect(config.s3_archive.storage_class).to eq("GLACIER_IR")
+    expect(config.datastores["minio_historical"].bucket).to eq("tickrake-historical")
+    expect(config.datastores["minio_historical"].type).to eq("minio")
   end
 
   it "loads datastores.s3_archive with defaults" do
@@ -382,25 +381,14 @@ RSpec.describe Tickrake::ConfigLoader do
                   subject: option_samples
                   universe: index_roots
                   delete_sources: true
-              - archive:
-                  subject: option_samples
-                  option_root: SPXW
-                  destination: s3_archive
-                  artifacts: [csv]
-                  retain_local:
-                    csv: false
-        datastores:
-          s3_archive:
-            type: s3
-            bucket: tickrake
       YAML
 
       config = described_class.load(path)
 
       expect(config.job("compact_spxw")).to be_manual
-      expect(config.job("compact_spxw").tasks.map(&:action)).to eq(%w[compact archive])
+      expect(config.job("compact_spxw").tasks.map(&:action)).to eq(%w[compact])
       expect(config.job("compact_spxw").tasks.first.universe).to eq("index_roots")
-      expect(config.job("compact_spxw").tasks.last.retain_local).to eq("csv" => false)
+      expect(config.job("compact_spxw").tasks.first.delete_sources).to be(true)
     end
   end
 
@@ -464,12 +452,6 @@ RSpec.describe Tickrake::ConfigLoader do
                   subject: option_samples
                   universe: trading_symbols
                   delete_sources: true
-              - archive:
-                  subject: option_samples
-                  universe: trading_symbols
-                  destination: s3_archive
-                  retain_local:
-                    csv: false
       YAML
 
       config = described_class.load(path)

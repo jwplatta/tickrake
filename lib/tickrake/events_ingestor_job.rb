@@ -8,7 +8,6 @@ module Tickrake
       @settings = scheduled_job.settings
       @batch_size = @settings.fetch("batch_size", 10)
       @stale_age_seconds = @settings.fetch("stale_age_seconds", 1800)
-      @datastore_name = @settings["datastore_name"]
 
       @pending_events_dir = runtime.config.pending_events_dir
       @storage_paths = Tickrake::Storage::Paths.new(runtime.config)
@@ -121,17 +120,9 @@ module Tickrake
           next
         end
 
-        # S3 upload disabled
       rescue StandardError => e
         @runtime.logger.error("events_ingestor: failed to write #{provider}/#{symbol}: #{e.class}: #{e.message}")
       end
-    end
-
-    def upload_to_s3(local_path)
-      datastore = @runtime.config.datastore(@datastore_name)
-      Tickrake::Storage::S3Archive.new(@runtime.config, archive_config: datastore).upload(local_path)
-    rescue StandardError => e
-      @runtime.logger.error("events_ingestor: S3 upload failed for #{local_path}: #{e.message}")
     end
   end
 end

@@ -28,47 +28,12 @@ RSpec.describe Tickrake::DSL::MaintenanceBuilder do
     end
   end
 
-  describe "#archive" do
-    it "adds an archive MaintenanceStepConfig" do
-      builder.archive(:option_samples, universe: "spx_symbols",
-                      to: :s3_archive, artifacts: %i[csv parquet],
-                      retain: { parquet: true })
-      tasks = builder.build![:tasks]
-      expect(tasks.length).to eq(1)
-      step = tasks.first
-      expect(step.action).to eq("archive")
-      expect(step.subject).to eq("option_samples")
-      expect(step.destination).to eq("s3_archive")
-      expect(step.artifacts).to eq(%w[csv parquet])
-      expect(step.retain_local).to eq("csv" => false, "parquet" => true)
-      expect(step.delete_sources).to be(false)
-    end
-
-    it "defaults all retain_local values to false when retain is empty" do
-      builder.archive(:option_samples, universe: "spx_symbols",
-                      to: :s3_archive, artifacts: %i[csv parquet])
-      step = builder.build![:tasks].first
-      expect(step.retain_local).to eq("csv" => false, "parquet" => false)
-    end
-
-    it "supports universes: array" do
-      builder.archive(:option_samples,
-                      universes: %w[stock_option_symbols etf_option_symbols],
-                      to: :s3_archive, artifacts: %i[csv parquet],
-                      retain: { parquet: true })
-      step = builder.build![:tasks].first
-      expect(step.universe).to be_nil
-      expect(step.universes).to eq(%w[stock_option_symbols etf_option_symbols])
-    end
-  end
-
   describe "#build!" do
     it "accumulates multiple tasks in order" do
       builder.compact(:option_samples, universe: "spx_symbols", delete_sources: true)
-      builder.archive(:option_samples, universe: "spx_symbols",
-                      to: :s3_archive, artifacts: %i[csv parquet])
+      builder.compact(:option_samples, universe: "spy_symbols", delete_sources: false)
       tasks = builder.build![:tasks]
-      expect(tasks.map(&:action)).to eq(%w[compact archive])
+      expect(tasks.map(&:universe)).to eq(%w[spx_symbols spy_symbols])
     end
 
     it "returns an empty array with no tasks" do

@@ -139,13 +139,6 @@ module Tickrake
       case step.action
       when "compact"
         Tickrake::Maintenance::Candles::Compactor.new(context: context).run
-      when "archive"
-        @runtime.logger.info("maintenance: candle archive step skipped for #{context.symbol} #{context.frequency} (S3 upload disabled)")
-        Tickrake::Maintenance::Candles::ArchiveResult.new(
-          success: true, provider_name: context.provider_name,
-          symbol: context.symbol, frequency: context.frequency,
-          artifact_results: [], errors: []
-        )
       else
         raise Tickrake::Error, "Unknown maintenance action `#{step.action}`."
       end
@@ -155,16 +148,6 @@ module Tickrake
       case step.action
       when "compact"
         run_compact_step(context: context, delete_sources: step.delete_sources, artifacts: step.artifacts)
-      when "archive"
-        @runtime.logger.info("maintenance: option archive step skipped for #{context.option_root} #{context.sample_date} (S3 upload disabled)")
-        Tickrake::Maintenance::OptionSamples::ArchiveResult.new(
-          success: true,
-          provider_name: context.provider_name,
-          option_root: context.option_root,
-          sample_date: context.sample_date,
-          artifact_results: [],
-          errors: []
-        )
       else
         raise Tickrake::Error, "Unknown maintenance action `#{step.action}`."
       end
@@ -201,30 +184,6 @@ module Tickrake
       compact
     end
 
-    def run_archive_step(context:, destination_name:, artifacts:, retain_local:, row_count: nil)
-      s3_archive = archive_s3_archive(context, destination_name)
-      manifest_writer = s3_archive ? Tickrake::Maintenance::OptionSamples::ManifestWriter.new(s3_archive: s3_archive) : nil
-
-      archive = Tickrake::Maintenance::OptionSamples::ArtifactArchiver.new(
-        context: context,
-        manifest_writer: manifest_writer
-      ).upload(
-        destination_name: destination_name,
-        artifacts: artifacts,
-        row_count: row_count
-      )
-      return archive unless archive.successful?
-
-      retention = Tickrake::Maintenance::OptionSamples::LocalArtifactManager.new(context: context).apply(
-        remote_uris: archive.remote_uris,
-        retain_local: step_retain_local(retain_local),
-        artifacts: artifacts
-      )
-      return retention if !retention.successful?
-
-      archive
-    end
-
     def step_artifacts(result)
       if result.respond_to?(:artifacts_written)
         result.artifacts_written
@@ -237,10 +196,6 @@ module Tickrake
 
     def step_errors(result)
       result.respond_to?(:errors) ? result.errors : []
-    end
-
-    def step_retain_local(retain_local)
-      retain_local || {}
     end
 
     def selected_dates(now)
@@ -304,13 +259,6 @@ module Tickrake
       end
     end
 
-    def archive_s3_archive_for_destination(destination_name)
-      archive_config = @runtime.config.archives[destination_name]
-      return nil unless archive_config
-
-      Tickrake::Storage::S3Archive.new(@runtime.config, archive_config: archive_config)
-    end
-
     def maintenance_targets(steps = nil)
       steps ||= Array(@scheduled_job.tasks)
       @maintenance_targets ||= steps.flat_map do |step|
@@ -325,13 +273,6 @@ module Tickrake
 
     def step_matches_target?(step, provider_name:, option_root:)
       provider_name_for(step) == provider_name && option_roots_for(step).include?(option_root)
-    end
-
-    def archive_s3_archive(context, destination_name)
-      archive_config = context.config.archives[destination_name]
-      return nil unless archive_config
-
-      Tickrake::Storage::S3Archive.new(context.config, archive_config: archive_config)
     end
   end
 end
