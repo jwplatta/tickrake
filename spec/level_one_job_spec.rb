@@ -96,7 +96,10 @@ RSpec.describe Tickrake::LevelOneJob do
         "symbol"   => "/ES",
         "service"  => "LEVELONE_FUTURES",
         "bid"      => 4500.0,
-        "ask"      => 4501.0
+        "ask"      => 4501.0,
+        "received_at" => match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
+        "quote_time"  => match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
+        "trade_time"  => match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
       ))
     end
 

@@ -178,7 +178,7 @@ RSpec.describe Tickrake::StreamJob do
       job.close
 
       # Check generated file in pending_events_dir
-      files = Dir.glob(File.join(pending_events_dir, "futures_l1_*.ndjson"))
+      files = Dir.glob(File.join(pending_events_dir, "futures_l1*.ndjson"))
       expect(files.size).to eq(1)
 
       lines = File.readlines(files.first)
@@ -186,6 +186,9 @@ RSpec.describe Tickrake::StreamJob do
       parsed = JSON.parse(lines.first)
       expect(parsed["symbol"]).to eq("/ES")
       expect(parsed["bid"]).to eq(4500.0)
+      expect(parsed["received_at"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+      expect(parsed["quote_time"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+      expect(parsed["trade_time"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
     end
   end
 

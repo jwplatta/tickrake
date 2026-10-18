@@ -19,14 +19,14 @@ s3://tickrake-staging/
 ├── level_one/
 │   └── <provider>/                          # e.g. schwab
 │       └── <YYYY>/<MM>/<DD>/
-│           └── <symbol>_<timestamp>.ndjson  # Direct streaming raw event logs
-│               # e.g. SPY_20261018_143000Z.ndjson
+│           └── <symbol>.ndjson              # Consolidated streaming raw event logs per day
+│               # e.g. SPY.ndjson
 │
 ├── order_book/
 │   └── <provider>/                          # e.g. schwab
 │       └── <YYYY>/<MM>/<DD>/
-│           └── <symbol>_<timestamp>.ndjson  # Direct streaming L2 depth event logs
-│               # e.g. SPY_20261018_143000Z.ndjson
+│           └── <symbol>.ndjson              # Consolidated streaming L2 depth event logs per day
+│               # e.g. SPY.ndjson
 │
 └── candles/
     └── <provider>/                          # e.g. schwab, ibkr
@@ -45,7 +45,7 @@ s3://tickrake-staging/
    - **`order_book`**: 5-day retention (L2 depth files are large).
    - **`candles`**: 30-day retention.
 3. **Direct-to-Folder Streaming (Eliminating `pending_events/`)**:
-   Streaming jobs write rotated `.ndjson` files directly to `data/level_one/...` and `data/order_book/...`. Staging directories (`pending_events/`) and intermediate Tickrake Parquet writers are removed.
+   Streaming jobs write consolidated `<symbol>.ndjson` files directly into `data/level_one/...` and `data/order_book/...` per symbol/day. Staging directories (`pending_events/`) and intermediate Tickrake Parquet writers are removed.
 
 ---
 
@@ -105,6 +105,7 @@ Option chain samples are emitted as point-in-time CSV snapshot files per expirat
 ## 3. Level One Stream Contract (`level_one/*.ndjson`)
 
 Emitted as newline-delimited JSON (`.ndjson`). Each line is a single JSON object representing a quote or trade event.
+- **Filename**: `<symbol>.ndjson` under `data/level_one/<provider>/<YYYY>/<MM>/<DD>/`.
 
 ### JSON Fields:
 ```json
@@ -113,9 +114,9 @@ Emitted as newline-delimited JSON (`.ndjson`). Each line is a single JSON object
   "provider": "schwab",
   "symbol": "SPY",
   "service": "LEVELONE_EQUITIES",
-  "received_at": 1729261800123,
-  "quote_time_ms": 1729261800115,
-  "trade_time_ms": 1729261799890,
+  "received_at": "2026-10-18T14:30:00Z",
+  "quote_time": "2026-10-18T14:30:00Z",
+  "trade_time": "2026-10-18T14:29:59Z",
   "bid": 585.12,
   "ask": 585.14,
   "last": 585.13,
@@ -132,9 +133,9 @@ Emitted as newline-delimited JSON (`.ndjson`). Each line is a single JSON object
 - `provider` (`string`): Adapter name (e.g. `"schwab"`).
 - `symbol` (`string`): Ticker symbol (`"SPY"`, `"^ES"`).
 - `service` (`string`): Upstream service name (e.g. `"LEVELONE_EQUITIES"`, `"LEVELONE_FUTURES"`).
-- `received_at` (`int64`): Local collector receipt timestamp in **UTC epoch milliseconds**. This is the authoritative point-in-time timestamp.
-- `quote_time_ms` (`int64 | null`): Exchange/broker quote timestamp in UTC epoch milliseconds.
-- `trade_time_ms` (`int64 | null`): Exchange/broker last trade timestamp in UTC epoch milliseconds. Null if event is a quote update without a trade.
+- `received_at` (`TIMESTAMPTZ` / `string`): Local collector receipt timestamp in **UTC ISO 8601** (`YYYY-MM-DDTHH:MM:SSZ`).
+- `quote_time` (`TIMESTAMPTZ` / `string | null`): Exchange/broker quote timestamp in **UTC ISO 8601** (`YYYY-MM-DDTHH:MM:SSZ`).
+- `trade_time` (`TIMESTAMPTZ` / `string | null`): Exchange/broker last trade timestamp in **UTC ISO 8601** (`YYYY-MM-DDTHH:MM:SSZ`). Null if event is a quote update without a trade.
 - `bid`, `ask`, `last`, `mark` (`float64 | null`): Market prices.
 - `bid_size`, `ask_size`, `volume` (`int64 | null`): Market quantities and cumulative day volume.
 - `extra_json` (`string | null`): Serialized JSON string containing raw upstream service attributes (e.g. Schwab field numbers 6–51: high/low, close, 52-week, P/E, exchange IDs). Tractatus unpacks this during normalization.
@@ -144,6 +145,7 @@ Emitted as newline-delimited JSON (`.ndjson`). Each line is a single JSON object
 ## 4. Order Book L2 Stream Contract (`order_book/*.ndjson`)
 
 Emitted as newline-delimited JSON (`.ndjson`). Each line represents a market depth (Level 2) book update.
+- **Filename**: `<symbol>.ndjson` under `data/order_book/<provider>/<YYYY>/<MM>/<DD>/`.
 
 ### JSON Fields:
 ```json
@@ -152,16 +154,20 @@ Emitted as newline-delimited JSON (`.ndjson`). Each line represents a market dep
   "provider": "schwab",
   "symbol": "SPY",
   "service": "TOTAL_VIEW",
-  "received_at": 1729261800123,
-  "book_time_ms": 1729261800110,
+  "received_at": "2026-10-18T14:30:00Z",
+  "book_time": "2026-10-18T14:30:00Z",
   "bids_json": "[{\"0\":585.12,\"1\":100,\"2\":5,\"3\":[{\"0\":\"ARCA\",\"1\":50,\"2\":1}]}]",
   "asks_json": "[{\"0\":585.14,\"1\":150,\"2\":8,\"3\":[{\"0\":\"NSDQ\",\"1\":100,\"2\":2}]}]"
 }
 ```
 
 ### Field Definitions:
-- `received_at` (`int64`): Local collector receipt timestamp in **UTC epoch milliseconds**.
-- `book_time_ms` (`int64`): Exchange market snapshot timestamp in UTC epoch milliseconds.
+- `job_type` (`string`): Always `"order_book"`.
+- `provider` (`string`): Adapter name (e.g. `"schwab"`).
+- `symbol` (`string`): Ticker symbol (`"SPY"`).
+- `service` (`string`): Upstream service name (e.g. `"TOTAL_VIEW"`).
+- `received_at` (`TIMESTAMPTZ` / `string`): Local collector receipt timestamp in **UTC ISO 8601** (`YYYY-MM-DDTHH:MM:SSZ`).
+- `book_time` (`TIMESTAMPTZ` / `string | null`): Exchange market snapshot timestamp in **UTC ISO 8601** (`YYYY-MM-DDTHH:MM:SSZ`).
 - `bids_json` / `asks_json` (`string`): Serialized JSON array of price level objects with Schwab/exchange depth encoding:
   - `"0"`: Price (`float64`)
   - `"1"`: Aggregate aggregate volume/size at price level (`int64`)
