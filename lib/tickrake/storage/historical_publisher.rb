@@ -20,12 +20,14 @@ module Tickrake
         @data_dir = Tickrake::PathSupport.expand_path(@config.data_dir)
       end
 
-      def scan_and_publish(dataset_types: nil, batch_size: nil)
+      def scan_and_publish(dataset_types: nil, batch_size: nil, delete_after_upload: false, retain_days: nil)
         target_datasets = normalize_datasets(dataset_types)
-        @runtime.logger.info("historical_publisher: starting scan for datasets: #{target_datasets.join(', ')}")
+        immediate_delete = delete_after_upload || (!retain_days.nil? && retain_days <= 0)
+        @runtime.logger.info("historical_publisher: starting scan for datasets: #{target_datasets.join(', ')} (immediate_delete=#{immediate_delete}, retain_days=#{retain_days})")
 
         files_scanned = 0
         files_uploaded = 0
+        files_deleted = 0
         manifest_entries_by_dataset = Hash.new { |h, k| h[k] = [] }
 
         target_datasets.each do |dataset_type|
@@ -37,11 +39,12 @@ module Tickrake
             files_scanned += 1
             break if batch_size && files_uploaded >= batch_size
 
-            result = process_file(dataset_type, file_path)
+            result, deleted = process_file(dataset_type, file_path, immediate_delete: immediate_delete)
             if result
               files_uploaded += 1
               manifest_entries_by_dataset[dataset_type] << result
             end
+            files_deleted += 1 if deleted
           end
         end
 
@@ -53,16 +56,22 @@ module Tickrake
           @runtime.logger.info("historical_publisher: updated manifest for #{dataset_type} with #{entries.size} file(s)")
         end
 
+        # Run retention cleanup for eligible files if retain_days is configured and > 0
+        if retain_days && retain_days > 0
+          files_deleted += sweep_retention_cleanup(retain_days)
+        end
+
         summary = {
           files_scanned: files_scanned,
           files_uploaded: files_uploaded,
+          files_deleted: files_deleted,
           datasets_updated: manifest_entries_by_dataset.keys
         }
         @runtime.logger.info("historical_publisher: finished scan. #{summary.inspect}")
         summary
       end
 
-      def process_file(dataset_type, file_path)
+      def process_file(dataset_type, file_path, immediate_delete: false)
         file_size = File.size(file_path)
         checksum = Digest::SHA256.file(file_path).hexdigest
         remote_key = relative_key_for(file_path)
@@ -70,7 +79,7 @@ module Tickrake
         # Check ledger
         existing = Models::HistoricalFileLedger.find_by(remote_key: remote_key)
         if existing && existing.checksum == checksum && existing.file_size == file_size
-          return nil # Up to date, skip upload
+          return [nil, false] # Up to date, skip upload
         end
 
         # Extract attributes from path
@@ -82,7 +91,7 @@ module Tickrake
         remote_uri = "s3://#{uploaded_obj.bucket}/#{uploaded_obj.key}"
 
         now = Time.now.utc.iso8601
-        Models::HistoricalFileLedger.record_publication!(
+        ledger_record = Models::HistoricalFileLedger.record_publication!(
           dataset_type: dataset_type,
           provider: meta[:provider],
           symbol: meta[:symbol],
@@ -100,7 +109,19 @@ module Tickrake
 
         @runtime.logger.info("historical_publisher: published #{file_path} -> #{remote_uri} (#{row_count} rows)")
 
-        {
+        deleted = false
+        if immediate_delete && dataset_type != "candles"
+          begin
+            File.unlink(file_path) if File.exist?(file_path)
+            ledger_record&.mark_locally_deleted!(Time.now.utc.iso8601)
+            deleted = true
+            @runtime.logger.info("historical_publisher: deleted local file immediately: #{file_path}")
+          rescue StandardError => e
+            @runtime.logger.warn("historical_publisher: failed to delete local file #{file_path}: #{e.message}")
+          end
+        end
+
+        entry = {
           "key" => remote_key,
           "uri" => remote_uri,
           "file_size" => file_size,
@@ -108,6 +129,28 @@ module Tickrake
           "checksum" => checksum,
           "published_at" => now
         }
+
+        [entry, deleted]
+      end
+
+      def sweep_retention_cleanup(retain_days)
+        cutoff = (Time.now.utc - (retain_days * 86_400)).iso8601
+        eligible = Models::HistoricalFileLedger.eligible_for_retention_cleanup(cutoff)
+        deleted_count = 0
+
+        eligible.find_each do |record|
+          path = record.local_path
+          begin
+            File.unlink(path) if File.exist?(path)
+            record.mark_locally_deleted!(Time.now.utc.iso8601)
+            deleted_count += 1
+            @runtime.logger.info("historical_publisher: retention sweep deleted: #{path}")
+          rescue StandardError => e
+            @runtime.logger.warn("historical_publisher: failed to delete #{path} during retention sweep: #{e.message}")
+          end
+        end
+
+        deleted_count
       end
 
       def extract_metadata(dataset_type, file_path)

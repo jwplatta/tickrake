@@ -9,6 +9,8 @@ module Tickrake
         @datastore_name = nil
         @datasets = nil
         @batch_size = nil
+        @delete_after_upload = false
+        @retain_days = nil
       end
 
       def datastore(name)
@@ -24,6 +26,14 @@ module Tickrake
         @batch_size = Integer(n)
       end
 
+      def delete_after_upload(val = true)
+        @delete_after_upload = !!val
+      end
+
+      def retain_days(n)
+        @retain_days = Integer(n)
+      end
+
       def build!
         raise Tickrake::Error, "historical_publish block requires datastore" if @datastore_name.nil?
 
@@ -35,7 +45,9 @@ module Tickrake
         {
           "datastore_name" => @datastore_name,
           "datasets" => @datasets,
-          "batch_size" => @batch_size
+          "batch_size" => @batch_size,
+          "delete_after_upload" => @delete_after_upload,
+          "retain_days" => @retain_days
         }.compact
       end
     end

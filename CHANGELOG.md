@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added local file retention policy and immediate deletion management to `HistoricalPublisher` (`retain_days`, `delete_after_upload`), supporting automated local cleanup while strictly exempting `candles` files to prevent backfill regressions.
+- Added migration `003_add_local_deleted_at_to_historical_file_ledger.rb` and `HistoricalFileLedger` scopes (`locally_retained`, `eligible_for_retention_cleanup`) and `mark_locally_deleted!` method to track pruned local files while maintaining the complete audit trail.
+- Added `--delete-after-upload` and `--retain-days` flags to `tickrake publish-historical` CLI command and DSL `historical_publish` block, unifying `retain_days: 0` with immediate post-upload deletion.
 - Added MinIO historical publishing pipeline (`HistoricalPublisher`, `HistoricalManifestWriter`, `HistoricalPublisherJob`, `HistoricalPublisherSchedulerRunner`, `historical_publish` DSL block): scans processed/compacted Parquet datasets (`options`, `candles`, `level_one`, `order_book`, `fundamentals`, `economic_events`) and mirrors the local directory hierarchy in MinIO historical storage.
 - Added database ledger `historical_file_ledger` via ActiveRecord migration `002_create_historical_file_ledger.rb` and model `HistoricalFileLedger` with safe idempotent upserts, tracking uploaded files, row counts, file sizes, SHA256 checksums, and publish timestamps.
 - Added unidirectional JSON audit manifests in MinIO (`manifests/<dataset>.json`) detailing file lists, totals, row counts, and checksums for external discovery.

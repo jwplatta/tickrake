@@ -104,4 +104,97 @@ RSpec.describe Tickrake::Storage::HistoricalPublisher do
     expect(summary2[:files_scanned]).to eq(1)
     expect(summary2[:files_uploaded]).to eq(0)
   end
+
+  it "never deletes candles files even if delete_after_upload or retain_days is set" do
+    candle_dir = File.join(data_dir, "candles", "ibkr", "5min", "2025")
+    FileUtils.mkdir_p(candle_dir)
+    parquet_file = File.join(candle_dir, "SPX.parquet")
+    File.write(parquet_file, "PAR1mockparquetcontent")
+
+    store = publisher.instance_variable_get(:@store)
+    allow(store).to receive(:object_exists?).and_return(false)
+    allow(store).to receive(:upload_file) do |path, key:|
+      Tickrake::Storage::S3Archive::RemoteObject.new(bucket: "tickrake-historical", key: key, size: File.size(path))
+    end
+    allow(store).to receive(:upload_content).and_return(
+      Tickrake::Storage::S3Archive::RemoteObject.new(bucket: "tickrake-historical", key: "k", size: 10)
+    )
+    allow(publisher).to receive(:count_rows).and_return(10)
+
+    summary = publisher.scan_and_publish(delete_after_upload: true)
+    expect(summary[:files_uploaded]).to eq(1)
+    expect(summary[:files_deleted]).to eq(0)
+    expect(File.exist?(parquet_file)).to be(true)
+
+    ledger_entry = Tickrake::Models::HistoricalFileLedger.find_by(remote_key: "candles/ibkr/5min/2025/SPX.parquet")
+    expect(ledger_entry.local_deleted_at).to be_nil
+  end
+
+  it "deletes non-candle files immediately when delete_after_upload: true or retain_days: 0" do
+    opt_dir = File.join(data_dir, "options", "massive", "2025", "03", "03")
+    FileUtils.mkdir_p(opt_dir)
+    file1 = File.join(opt_dir, "SPXW_samples_2025-03-03.parquet")
+    File.write(file1, "PAR1mockoptionscontent")
+
+    store = publisher.instance_variable_get(:@store)
+    allow(store).to receive(:object_exists?).and_return(false)
+    allow(store).to receive(:upload_file) do |path, key:|
+      Tickrake::Storage::S3Archive::RemoteObject.new(bucket: "tickrake-historical", key: key, size: File.size(path))
+    end
+    allow(store).to receive(:upload_content).and_return(
+      Tickrake::Storage::S3Archive::RemoteObject.new(bucket: "tickrake-historical", key: "k", size: 10)
+    )
+    allow(publisher).to receive(:count_rows).and_return(20)
+
+    summary = publisher.scan_and_publish(retain_days: 0)
+    expect(summary[:files_uploaded]).to eq(1)
+    expect(summary[:files_deleted]).to eq(1)
+    expect(File.exist?(file1)).to be(false)
+
+    ledger_entry = Tickrake::Models::HistoricalFileLedger.find_by(remote_key: "options/massive/2025/03/03/SPXW_samples_2025-03-03.parquet")
+    expect(ledger_entry.local_deleted_at).not_to be_nil
+  end
+
+  it "prunes files older than retain_days during retention sweep while preserving candles" do
+    opt_dir = File.join(data_dir, "options", "massive", "2025", "03", "01")
+    FileUtils.mkdir_p(opt_dir)
+    file_old = File.join(opt_dir, "SPXW_samples_2025-03-01.parquet")
+    File.write(file_old, "PAR1oldcontent")
+
+    candle_dir = File.join(data_dir, "candles", "ibkr", "5min", "2025")
+    FileUtils.mkdir_p(candle_dir)
+    candle_file = File.join(candle_dir, "SPX.parquet")
+    File.write(candle_file, "PAR1candlecontent")
+
+    store = publisher.instance_variable_get(:@store)
+    allow(store).to receive(:object_exists?).and_return(false)
+    allow(store).to receive(:upload_file) do |path, key:|
+      Tickrake::Storage::S3Archive::RemoteObject.new(bucket: "tickrake-historical", key: key, size: File.size(path))
+    end
+    allow(store).to receive(:upload_content).and_return(
+      Tickrake::Storage::S3Archive::RemoteObject.new(bucket: "tickrake-historical", key: "k", size: 10)
+    )
+    allow(publisher).to receive(:count_rows).and_return(15)
+
+    # First publish without deleting (retain_days: 10)
+    publisher.scan_and_publish(retain_days: 10)
+    expect(File.exist?(file_old)).to be(true)
+    expect(File.exist?(candle_file)).to be(true)
+
+    # Artificially age published_at to 15 days ago in the database
+    old_time = (Time.now.utc - (15 * 86_400)).iso8601
+    Tickrake::Models::HistoricalFileLedger.where(dataset_type: %w[options candles]).update_all(published_at: old_time)
+
+    # Run sweep with retain_days: 10
+    summary = publisher.scan_and_publish(retain_days: 10)
+    expect(summary[:files_deleted]).to eq(1)
+    expect(File.exist?(file_old)).to be(false)
+    expect(File.exist?(candle_file)).to be(true)
+
+    old_record = Tickrake::Models::HistoricalFileLedger.find_by(remote_key: "options/massive/2025/03/01/SPXW_samples_2025-03-01.parquet")
+    expect(old_record.local_deleted_at).not_to be_nil
+
+    candle_record = Tickrake::Models::HistoricalFileLedger.find_by(remote_key: "candles/ibkr/5min/2025/SPX.parquet")
+    expect(candle_record.local_deleted_at).to be_nil
+  end
 end

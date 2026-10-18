@@ -699,6 +699,19 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       expect(job.settings.fetch("datasets")).to eq(%w[options candles])
     end
 
+    it "supports delete_after_upload and retain_days options" do
+      job = build_historical_publish("historical_publisher") do
+        historical_publish do
+          datastore :minio_historical
+          delete_after_upload true
+          retain_days 14
+        end
+      end
+
+      expect(job.settings.fetch("delete_after_upload")).to be(true)
+      expect(job.settings.fetch("retain_days")).to eq(14)
+    end
+
     it "raises when invalid datasets are provided" do
       expect do
         build_historical_publish("bad") do
