@@ -1,7 +1,12 @@
 # frozen_string_literal: true
 
-require_relative "fetchers/fred_client"
-require_relative "fetchers/bls_calendar"
-require_relative "fetchers/fred_economic_calendar"
-require_relative "fetchers/fomc_calendar"
-require_relative "fetchers/alpha_vantage_earnings"
+require_relative "jobs/clients/fred_client"
+require_relative "jobs/clients/bls_calendar"
+require_relative "jobs/clients/fred_economic_calendar"
+require_relative "jobs/clients/fomc_calendar"
+require_relative "jobs/clients/alpha_vantage_earnings"
+
+module Tickrake
+  # Backward-compatible alias for existing callers
+  Fetchers = Jobs::Clients
+end

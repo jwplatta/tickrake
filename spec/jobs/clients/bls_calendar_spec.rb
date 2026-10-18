@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe Tickrake::Fetchers::BlsCalendar do
+RSpec.describe Tickrake::Jobs::Clients::BlsCalendar do
   subject(:calendar) { described_class.new }
 
   let(:ics_body) { <<~ICS }
