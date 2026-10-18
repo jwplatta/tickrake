@@ -2,7 +2,7 @@
 
 RSpec.describe "schedulers" do
   let(:config) do
-    Tickrake::ConfigLoader.load(File.expand_path("../config/tickrake.example.yml", __dir__))
+    Tickrake::ConfigLoader.load(File.expand_path("../../config/tickrake.example.yml", __dir__))
   end
   let(:tracker) { instance_double(Tickrake::Tracker) }
   let(:client_factory) { instance_double(Tickrake::ClientFactory) }
