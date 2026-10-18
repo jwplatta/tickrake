@@ -26,10 +26,10 @@ RSpec.describe Tickrake::EconomicEventsJob do
     dbl
   end
 
-  let(:bls_row)      { { event_datetime: "2026-10-14T12:30:00Z", event_name: "CPI",               category: "economic", source: "bls",           actual: nil, estimate: nil, previous: nil, unit: nil, symbol: nil, company_name: nil, time_of_day: nil, release_id: nil, series_id: nil, fetched_at: "2026-09-20T00:00:00Z" } }
-  let(:fred_row)     { { event_datetime: "2026-09-25T12:30:00Z", event_name: "GDP",               category: "economic", source: "fred",          actual: nil, estimate: nil, previous: nil, unit: nil, symbol: nil, company_name: nil, time_of_day: nil, release_id: 53,  series_id: "GDP", fetched_at: "2026-09-20T00:00:00Z" } }
-  let(:fomc_row)     { { event_datetime: "2026-09-17T18:00:00Z", event_name: "FOMC Rate Decision", category: "fomc",     source: "fred",          actual: 5.25, estimate: nil, previous: nil, unit: "percent", symbol: nil, company_name: nil, time_of_day: nil, release_id: 21, series_id: "DFEDTARU", fetched_at: "2026-09-20T00:00:00Z" } }
-  let(:earnings_row) { { event_datetime: "2026-10-15T00:00:00Z", event_name: "Earnings",          category: "earnings", source: "alpha_vantage", actual: nil, estimate: 1.52, previous: nil, unit: "USD", symbol: "AAPL", company_name: "Apple Inc", time_of_day: "post-market", release_id: nil, series_id: nil, fetched_at: "2026-09-20T00:00:00Z" } }
+  let(:bls_row)      { { event_datetime: "2026-10-14T12:30:00Z", event_name: "CPI",               category: "economic", source: "bls",           actual: nil, estimate: nil, previous: nil, unit: nil, symbol: nil, company_name: nil, time_of_day: nil, release_id: nil, series_id: nil, sampled_at: "2026-09-20T00:00:00Z" } }
+  let(:fred_row)     { { event_datetime: "2026-09-25T12:30:00Z", event_name: "GDP",               category: "economic", source: "fred",          actual: nil, estimate: nil, previous: nil, unit: nil, symbol: nil, company_name: nil, time_of_day: nil, release_id: 53,  series_id: "GDP", sampled_at: "2026-09-20T00:00:00Z" } }
+  let(:fomc_row)     { { event_datetime: "2026-09-17T18:00:00Z", event_name: "FOMC Rate Decision", category: "fomc",     source: "fred",          actual: 5.25, estimate: nil, previous: nil, unit: "percent", symbol: nil, company_name: nil, time_of_day: nil, release_id: 21, series_id: "DFEDTARU", sampled_at: "2026-09-20T00:00:00Z" } }
+  let(:earnings_row) { { event_datetime: "2026-10-15T00:00:00Z", event_name: "Earnings",          category: "earnings", source: "alpha_vantage", actual: nil, estimate: 1.52, previous: nil, unit: "USD", symbol: "AAPL", company_name: "Apple Inc", time_of_day: "post-market", release_id: nil, series_id: nil, sampled_at: "2026-09-20T00:00:00Z" } }
 
   before do
     stub_fetcher(Tickrake::Fetchers::BlsCalendar,           [bls_row])

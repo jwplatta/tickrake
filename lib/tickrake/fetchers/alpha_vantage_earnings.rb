@@ -15,9 +15,9 @@ module Tickrake
       end
 
       def fetch(from_date:, to_date:, horizon: "3month")
-        fetched_at = Time.now.utc.iso8601
+        sampled_at = Time.now.utc.iso8601
         csv_body = download_csv(horizon)
-        parse_csv(csv_body, from_date, to_date, fetched_at)
+        parse_csv(csv_body, from_date, to_date, sampled_at)
       end
 
       private
@@ -35,7 +35,7 @@ module Tickrake
         response.body.encode("UTF-8", invalid: :replace, undef: :replace)
       end
 
-      def parse_csv(body, from_date, to_date, fetched_at)
+      def parse_csv(body, from_date, to_date, sampled_at)
         rows = []
         CSV.parse(body, headers: true) do |row|
           report_date_str = row["reportDate"]
@@ -65,7 +65,7 @@ module Tickrake
             time_of_day: row["reportTime"]&.strip,
             release_id: nil,
             series_id: nil,
-            fetched_at: fetched_at
+            sampled_at: sampled_at
           }
         end
         rows

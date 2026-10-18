@@ -431,35 +431,32 @@ RSpec.describe Tickrake::CLI do
     expect(stderr.string).to include("invalid option: options")
   end
 
-  it "executes publish-historical command" do
+  it "executes publish-staging command" do
     stdout = StringIO.new
     stderr = StringIO.new
 
     allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
     allow(config).to receive(:provider_definition).with("schwab").and_return(double("schwab_provider"))
-    publisher = instance_double(Tickrake::Storage::HistoricalPublisher)
-    allow(Tickrake::Storage::HistoricalPublisher).to receive(:new).and_return(publisher)
+    publisher = instance_double(Tickrake::Storage::StagingPublisher)
+    allow(Tickrake::Storage::StagingPublisher).to receive(:new).and_return(publisher)
     allow(publisher).to receive(:scan_and_publish).with(
       dataset_types: ["options"],
       batch_size: 10,
-      delete_after_upload: true,
-      retain_days: 7
+      delete_after_upload: false
     ).and_return(
       files_scanned: 5,
       files_uploaded: 2,
-      files_deleted: 2,
-      datasets_updated: ["options"]
+      files_deleted: 0
     )
 
     exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
-      "publish-historical",
+      "publish-staging",
       "--dataset", "options",
       "--batch-size", "10",
-      "--delete-after-upload",
-      "--retain-days", "7"
+      "--no-delete"
     ])
 
     expect(exit_code).to eq(0)
-    expect(stdout.string).to include("Historical publish complete: scanned 5 file(s), uploaded 2 file(s), deleted 2 file(s), updated datasets: options.")
+    expect(stdout.string).to include("Staging publish complete: scanned 5 file(s), uploaded 2 file(s), deleted 0 file(s).")
   end
 end

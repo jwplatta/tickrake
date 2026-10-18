@@ -17,7 +17,7 @@ module Tickrake
       end
 
       def fetch(from_date:, to_date:)
-        fetched_at = Time.now.utc.iso8601
+        sampled_at = Time.now.utc.iso8601
         dates = fetch_meeting_dates(from_date, to_date)
         return [] if dates.empty?
 
@@ -38,7 +38,7 @@ module Tickrake
             time_of_day: nil,
             release_id: FOMC_RELEASE_ID,
             series_id: RATE_SERIES_UPPER,
-            fetched_at: fetched_at
+            sampled_at: sampled_at
           }
         end
       end

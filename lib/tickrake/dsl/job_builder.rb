@@ -19,7 +19,7 @@ module Tickrake
         @level_one_builder = nil
         @metadata_sync_builder = nil
         @intraday_publish_builder = nil
-        @historical_publish_builder = nil
+        @staging_publish_builder = nil
         @fundamentals_builder = nil
         @chart_stream_builder = nil
         @economic_events_builder = nil
@@ -91,9 +91,9 @@ module Tickrake
         @intraday_publish_builder.instance_eval(&block) if block
       end
 
-      def historical_publish(&block)
-        @historical_publish_builder = HistoricalPublishBuilder.new
-        @historical_publish_builder.instance_eval(&block) if block
+      def staging_publish(&block)
+        @staging_publish_builder = StagingPublishBuilder.new
+        @staging_publish_builder.instance_eval(&block) if block
       end
 
       def fundamentals(&block)
@@ -118,7 +118,7 @@ module Tickrake
 
       def build!(config)
         inferred_type = infer_type
-        provider_optional = %w[metadata_sync intraday_publish historical_publish economic_events].include?(inferred_type)
+        provider_optional = %w[metadata_sync intraday_publish staging_publish economic_events].include?(inferred_type)
         raise Tickrake::Error, "job `#{@name}` requires provider" if @provider.nil? && !provider_optional
         schedule = @schedule_builder&.build! || {}
 
@@ -130,7 +130,7 @@ module Tickrake
         when "level_one"          then build_level_one_job!(schedule)
         when "metadata_sync"      then build_metadata_sync_job!(schedule)
         when "intraday_publish"   then build_intraday_publish_job!(config, schedule)
-        when "historical_publish" then build_historical_publish_job!(config, schedule)
+        when "staging_publish"    then build_staging_publish_job!(config, schedule)
         when "fundamentals"       then build_fundamentals_job!(config, schedule)
         when "chart_stream"       then build_chart_stream_job!(schedule)
         when "economic_events"    then build_economic_events_job!(schedule)
@@ -259,7 +259,7 @@ module Tickrake
           "level_one"        => @level_one_builder,
           "metadata_sync"      => @metadata_sync_builder,
           "intraday_publish"   => @intraday_publish_builder,
-          "historical_publish" => @historical_publish_builder,
+          "staging_publish"    => @staging_publish_builder,
           "fundamentals"     => @fundamentals_builder,
           "chart_stream"     => @chart_stream_builder,
           "economic_events"  => @economic_events_builder,
@@ -366,18 +366,18 @@ module Tickrake
         )
       end
 
-      def build_historical_publish_job!(config, schedule)
-        raise Tickrake::Error, "historical_publish job `#{@name}` requires a historical_publish block" if @historical_publish_builder.nil?
+      def build_staging_publish_job!(config, schedule)
+        raise Tickrake::Error, "staging_publish job `#{@name}` requires a staging_publish block" if @staging_publish_builder.nil?
 
-        settings = @historical_publish_builder.build!
+        settings = @staging_publish_builder.build!
         datastore_name = settings["datastore_name"]
         unless config.datastores.key?(datastore_name)
-          raise Tickrake::Error, "historical_publish job `#{@name}` datastore `#{datastore_name}` is not configured"
+          raise Tickrake::Error, "staging_publish job `#{@name}` datastore `#{datastore_name}` is not configured"
         end
 
         Tickrake::ScheduledJobConfig.new(
           name: @name,
-          type: "historical_publish",
+          type: "staging_publish",
           provider: nil,
           interval_seconds: schedule[:interval_seconds],
           windows: schedule[:windows],

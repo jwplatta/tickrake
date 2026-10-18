@@ -44,10 +44,9 @@ module Tickrake
       end
 
       def level_one_path(provider:, symbol:, flush_start:, provider_definition: nil)
-        timestamp_str = flush_start.utc.strftime("%H%M%S")
         File.join(
           level_one_dir(provider, flush_start),
-          "#{sanitize_symbol(symbol, provider_definition: provider_definition)}_#{timestamp_str}Z.parquet"
+          "#{sanitize_symbol(symbol, provider_definition: provider_definition)}.ndjson"
         )
       end
 
@@ -63,10 +62,9 @@ module Tickrake
       end
 
       def order_book_path(provider:, symbol:, flush_start:, provider_definition: nil)
-        timestamp_str = flush_start.utc.strftime("%H%M%S")
         File.join(
           order_book_dir(provider, flush_start),
-          "#{sanitize_symbol(symbol, provider_definition: provider_definition)}_#{timestamp_str}Z.parquet"
+          "#{sanitize_symbol(symbol, provider_definition: provider_definition)}.ndjson"
         )
       end
 

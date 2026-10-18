@@ -217,28 +217,78 @@ Daily equity fundamental metrics emitted as newline-delimited JSON (`.ndjson`), 
 - **Filename**: `<DD>.ndjson` under `data/fundamentals/<provider>/<YYYY>/<MM>/`.
   - e.g. `fundamentals/schwab/2026/09/20.ndjson`
 
-### JSON Sample Record:
-```json
-{
-  "symbol": "AAPL",
-  "sample_date": "2026-09-20",
-  "asset_type": "EQUITY",
-  "exchange": "NASDAQ",
-  "description": "Apple Inc",
-  "cusip": "037833100",
-  "pe_ratio": 30.5,
-  "peg_ratio": 2.1,
-  "pb_ratio": 45.2,
-  "market_cap": 3400000000000.0,
-  "dividend_amount": 1.0,
-  "dividend_yield": 0.5,
-  "close_price": 195.5,
-  "last_price": 196.0,
-  "total_volume": 42000000,
-  "is_hard_to_borrow": false,
-  "is_shortable": true
-}
-```
+### Field Definitions (Exact Keys Emitted):
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `symbol` | `string` | Ticker symbol (e.g. `"AAPL"`) |
+| `sample_date` | `string` | Date of snapshot collection (`YYYY-MM-DD`) |
+| `asset_type` | `string \| null` | Upstream asset classification (e.g. `"EQUITY"`) |
+| `exchange` | `string \| null` | Listing exchange (e.g. `"NASDAQ"`) |
+| `description` | `string \| null` | Company / instrument description |
+| `cusip` | `string \| null` | 9-character CUSIP identifier |
+| `pe_ratio` | `float64 \| null` | Price to Earnings ratio |
+| `peg_ratio` | `float64 \| null` | Price/Earnings to Growth ratio |
+| `pb_ratio` | `float64 \| null` | Price to Book ratio |
+| `pr_ratio` | `float64 \| null` | Price to Revenue / Sales ratio |
+| `pcf_ratio` | `float64 \| null` | Price to Cash Flow ratio |
+| `gross_margin_ttm` | `float64 \| null` | Trailing 12 months gross margin percentage |
+| `gross_margin_mrq` | `float64 \| null` | Most recent quarter gross margin percentage |
+| `net_profit_margin_ttm` | `float64 \| null` | Trailing 12 months net profit margin |
+| `net_profit_margin_mrq` | `float64 \| null` | Most recent quarter net profit margin |
+| `operating_margin_ttm` | `float64 \| null` | Trailing 12 months operating margin |
+| `operating_margin_mrq` | `float64 \| null` | Most recent quarter operating margin |
+| `return_on_equity` | `float64 \| null` | Return on Equity (ROE) |
+| `return_on_assets` | `float64 \| null` | Return on Assets (ROA) |
+| `return_on_investment` | `float64 \| null` | Return on Investment (ROI) |
+| `quick_ratio` | `float64 \| null` | Acid-test / quick ratio |
+| `current_ratio` | `float64 \| null` | Current assets to current liabilities ratio |
+| `interest_coverage` | `float64 \| null` | Times interest earned |
+| `total_debt_to_capital` | `float64 \| null` | Total debt / total capital |
+| `lt_debt_to_equity` | `float64 \| null` | Long-term debt to equity ratio |
+| `total_debt_to_equity` | `float64 \| null` | Total debt to equity ratio |
+| `eps_ttm` | `float64 \| null` | Trailing 12 months Earnings Per Share |
+| `eps_change_percent_ttm` | `float64 \| null` | EPS percent change TTM |
+| `eps_change` | `float64 \| null` | Dollar EPS change |
+| `eps_change_year` | `float64 \| null` | 1-year EPS change |
+| `eps` | `float64 \| null` | Latest EPS figure |
+| `rev_change_year` | `float64 \| null` | 1-year revenue change percentage |
+| `rev_change_ttm` | `float64 \| null` | Trailing 12 months revenue change |
+| `rev_change_in` | `float64 \| null` | Intermediate revenue change |
+| `shares_outstanding` | `float64 \| null` | Total common shares outstanding |
+| `market_cap_float` | `float64 \| null` | Floating shares market capitalization |
+| `market_cap` | `float64 \| null` | Total market capitalization |
+| `book_value_per_share` | `float64 \| null` | Book value per common share |
+| `short_int_to_float` | `float64 \| null` | Short interest as percentage of float |
+| `short_int_day_to_cover` | `float64 \| null` | Days to cover short interest |
+| `fund_leverage_factor` | `float64 \| null` | Fund leverage factor multiplier (for leveraged ETFs) |
+| `is_hard_to_borrow` | `boolean \| null` | Broker HTB borrow indicator |
+| `is_shortable` | `boolean \| null` | Short locate availability flag |
+| `htb_quantity` | `int64 \| null` | Available HTB shares available to borrow |
+| `htb_rate` | `float64 \| null` | Annualized borrow fee rate percentage |
+| `dividend_amount` | `float64 \| null` | Regular dividend payment dollar amount |
+| `dividend_yield` | `float64 \| null` | Annualized dividend yield percentage |
+| `dividend_date` | `string \| null` | Prior dividend date |
+| `dividend_pay_date` | `string \| null` | Prior dividend payment date |
+| `dividend_pay_amount` | `float64 \| null` | Prior payment dollar amount |
+| `declaration_date` | `string \| null` | Dividend declaration announcement date |
+| `next_div_ex_date` | `string \| null` | Next upcoming ex-dividend date |
+| `next_div_pay_date` | `string \| null` | Next upcoming dividend payout date |
+| `div_growth_rate_3year` | `float64 \| null` | 3-year compound annual dividend growth rate |
+| `dividend_freq` | `int64 \| null` | Annual distribution frequency (e.g. `4` for quarterly) |
+| `beta` | `float64 \| null` | Systematic risk sensitivity coefficient |
+| `high_52` | `float64 \| null` | 52-week high market price |
+| `low_52` | `float64 \| null` | 52-week low market price |
+| `close_price` | `float64 \| null` | Prior day session closing price |
+| `last_price` | `float64 \| null` | Most recent trade price |
+| `net_change` | `float64 \| null` | Session net dollar price change |
+| `net_percent_change` | `float64 \| null` | Session net percent change |
+| `total_volume` | `int64 \| null` | Cumulative day trading volume |
+| `avg_10_days_volume` | `float64 \| null` | Average daily volume over 10 trading days |
+| `avg_1_day_volume` | `float64 \| null` | Prior 1-day volume |
+| `avg_3_month_volume` | `float64 \| null` | Average daily volume over 3 months |
+| `avg_1_year_volume` | `float64 \| null` | Average daily volume over 1 year |
+| `last_earnings_date` | `string \| null` | Date of last reported company earnings (`YYYY-MM-DDTHH:MM:SSZ`) |
+| `sampled_at` | `TIMESTAMPTZ` / `string` | Local collector scrape timestamp in UTC ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`) |
 
 ---
 
@@ -250,24 +300,23 @@ Scheduled macro releases, central bank decisions, and earnings events emitted as
   - e.g. `economic_events/fred/fomc/2026/09/17.ndjson`
   - e.g. `economic_events/alpha_vantage/earnings/2026/10/15.ndjson`
 
-### JSON Sample Record:
-```json
-{
-  "event_datetime": "2026-10-14T12:30:00Z",
-  "event_name": "CPI",
-  "category": "economic",
-  "source": "bls",
-  "actual": 3.2,
-  "estimate": 3.1,
-  "previous": 3.0,
-  "unit": "percent",
-  "symbol": null,
-  "company_name": null,
-  "time_of_day": null,
-  "release_id": null,
-  "series_id": null
-}
-```
+### Field Definitions (Exact Keys Emitted):
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `event_datetime` | `TIMESTAMPTZ` / `string` | Scheduled release / announcement time in UTC ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`) |
+| `event_name` | `string` | Name of event / economic release (e.g. `"CPI"`, `"GDP"`, `"FOMC Rate Decision"`, `"Earnings"`) |
+| `category` | `string` | Category grouping: `"economic"`, `"fomc"`, `"earnings"` |
+| `source` | `string` | Feed source provider: `"bls"`, `"fred"`, `"alpha_vantage"` |
+| `actual` | `float64 \| null` | Released actual reported value (null if pending future announcement) |
+| `estimate` | `float64 \| null` | Consensus / market median forecast estimate |
+| `previous` | `float64 \| null` | Prior period reported value |
+| `unit` | `string \| null` | Measurement unit (e.g. `"percent"`, `"USD"`, `"Index"`) |
+| `symbol` | `string \| null` | Equity ticker symbol for company events (e.g. `"AAPL"` for earnings, null for macro) |
+| `company_name` | `string \| null` | Full corporate entity name for earnings events |
+| `time_of_day` | `string \| null` | Session timing for earnings releases (e.g. `"pre-market"`, `"post-market"`, null for macro) |
+| `release_id` | `int64 \| null` | Upstream provider release identifier (e.g. FRED release ID `53`) |
+| `series_id` | `string \| null` | Upstream series code (e.g. FRED series `"GDP"` or `"DFEDTARU"`) |
+| `sampled_at` | `TIMESTAMPTZ` / `string` | Local collector scrape timestamp in UTC ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`) |
 
 ---
 

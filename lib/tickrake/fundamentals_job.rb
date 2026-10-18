@@ -54,7 +54,7 @@ module Tickrake
     def fetch_all(symbols, sample_date, now)
       instrument_data = fetch_instruments(symbols)
       quote_supplements = fetch_quote_supplements(symbols)
-      fetched_at = Time.now.utc.iso8601
+      sampled_at = Time.now.utc.iso8601
 
       symbols.filter_map do |symbol|
         inst = instrument_data[symbol]
@@ -63,7 +63,7 @@ module Tickrake
         fundamental = inst[:fundamental] || {}
         supplement = quote_supplements[symbol] || {}
 
-        build_row(symbol, inst, fundamental, supplement, sample_date, fetched_at)
+        build_row(symbol, inst, fundamental, supplement, sample_date, sampled_at)
       end
     end
 
@@ -126,7 +126,7 @@ module Tickrake
       result
     end
 
-    def build_row(symbol, inst, fundamental, supplement, sample_date, fetched_at)
+    def build_row(symbol, inst, fundamental, supplement, sample_date, sampled_at)
       {
         symbol: symbol,
         sample_date: sample_date.iso8601,
@@ -196,7 +196,7 @@ module Tickrake
         avg_3_month_volume: fundamental[:avg3MonthVolume],
         avg_1_year_volume: supplement[:avg_1_year_volume] || fundamental[:avg1YearVolume],
         last_earnings_date: supplement[:last_earnings_date],
-        fetched_at: fetched_at
+        sampled_at: sampled_at
       }
     end
 

@@ -23,11 +23,11 @@ module Tickrake
       end
 
       def fetch(from_date:, to_date:)
-        fetched_at = Time.now.utc.iso8601
+        sampled_at = Time.now.utc.iso8601
         rows = []
 
         RELEASES.each do |event_name, meta|
-          rows.concat(fetch_for_release(event_name, meta, from_date, to_date, fetched_at))
+          rows.concat(fetch_for_release(event_name, meta, from_date, to_date, sampled_at))
         end
 
         rows
@@ -35,7 +35,7 @@ module Tickrake
 
       private
 
-      def fetch_for_release(event_name, meta, from_date, to_date, fetched_at)
+      def fetch_for_release(event_name, meta, from_date, to_date, sampled_at)
         data = @client.get("/release/dates", {
           release_id: meta[:id],
           realtime_start: from_date.iso8601,
@@ -63,7 +63,7 @@ module Tickrake
             time_of_day: nil,
             release_id: meta[:id],
             series_id: meta[:series],
-            fetched_at: fetched_at
+            sampled_at: sampled_at
           }
         end
       rescue StandardError => e

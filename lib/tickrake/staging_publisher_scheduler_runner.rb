@@ -1,14 +1,14 @@
 # frozen_string_literal: true
 
 module Tickrake
-  class HistoricalPublisherSchedulerRunner
+  class StagingPublisherSchedulerRunner
     include ScheduledRunnerSupport
 
     def initialize(runtime, scheduled_job:, sleeper: Kernel)
       @runtime = runtime
       @scheduled_job = scheduled_job
       @sleeper = sleeper
-      @job = HistoricalPublisherJob.new(runtime, scheduled_job: scheduled_job)
+      @job = StagingPublisherJob.new(runtime, scheduled_job: scheduled_job)
       @last_run_at = nil
       @shutdown_requested = false
       initialize_scheduled_runner_support
@@ -17,7 +17,7 @@ module Tickrake
     def run
       Tickrake::Lockfile.new("tickrake-#{@scheduled_job.name}").synchronize do
         install_signal_handlers
-        @runtime.logger.info({ msg: "Starting historical_publisher scheduler job #{@scheduled_job.name}.", event: "runner_start", pid: Process.pid })
+        @runtime.logger.info({ msg: "Starting staging_publisher scheduler job #{@scheduled_job.name}.", event: "runner_start", pid: Process.pid })
         @runtime.with_timezone do
           until @shutdown_requested
             now = Time.now
@@ -27,7 +27,7 @@ module Tickrake
             interruptible_sleep(sleep_seconds(now))
           end
         end
-        @runtime.logger.info({ msg: "Stopped historical_publisher scheduler job #{@scheduled_job.name}.", event: "runner_stop", reason: @shutdown_reason || "clean_exit" })
+        @runtime.logger.info({ msg: "Stopped staging_publisher scheduler job #{@scheduled_job.name}.", event: "runner_stop", reason: @shutdown_reason || "clean_exit" })
       end
     ensure
       Tickrake::JobRegistry.new.delete(@scheduled_job.name)
@@ -55,7 +55,7 @@ module Tickrake
     private
 
     def scheduler_log_prefix
-      "Historical publisher scheduler"
+      "Staging publisher scheduler"
     end
   end
 end
