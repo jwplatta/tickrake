@@ -29,7 +29,7 @@ RSpec.describe Tickrake::DSL::JobBuilder do
     {
       "s3_archive" => double("s3_archive"),
       "minio_intraday" => double("minio_intraday"),
-      "minio_historical" => double("minio_historical")
+      "minio_staging" => double("minio_staging")
     }
   end
 
@@ -387,48 +387,6 @@ RSpec.describe Tickrake::DSL::JobBuilder do
     end
   end
 
-  describe "events_ingest job" do
-    def build_events_ingest(name, &block)
-      builder = described_class.new(name)
-      builder.instance_eval(&block)
-      builder.build!(config)
-    end
-
-    it "builds an events_ingest job without requiring a provider" do
-      job = build_events_ingest("events_ingestor") do
-        schedule do
-          every 60.seconds
-          weekdays from: "08:00", to: "17:30"
-        end
-        events_ingest { batch_size 20 }
-      end
-
-      expect(job.type).to eq("events_ingest")
-      expect(job.provider).to be_nil
-      expect(job.interval_seconds).to eq(60)
-      expect(job.settings.fetch("batch_size")).to eq(20)
-    end
-
-    it "defaults batch_size to 10 and stale_age_seconds to 1800" do
-      job = build_events_ingest("events_ingestor") do
-        schedule { every 60.seconds; weekdays from: "08:00", to: "17:30" }
-        events_ingest {}
-      end
-
-      expect(job.settings.fetch("batch_size")).to eq(10)
-      expect(job.settings.fetch("stale_age_seconds")).to eq(1800)
-    end
-
-    it "raises without an events_ingest block" do
-      expect do
-        build_events_ingest("bad") do
-          schedule { every 60.seconds; weekdays from: "08:00", to: "17:30" }
-          type :events_ingest
-        end
-      end.to raise_error(Tickrake::Error, /requires an events_ingest block/)
-    end
-  end
-
   describe "maintenance job" do
     subject(:job) do
       build("test_maintenance") do
@@ -616,37 +574,38 @@ RSpec.describe Tickrake::DSL::JobBuilder do
     end
   end
 
-  describe "historical_publish job" do
-    def build_historical_publish(name, &block)
+  describe "staging_publish job" do
+    def build_staging_publish(name, &block)
       builder = described_class.new(name)
       builder.instance_eval(&block)
       builder.build!(config)
     end
 
-    it "builds a historical_publish job without requiring a provider" do
-      job = build_historical_publish("historical_publisher") do
+    it "builds a staging_publish job without requiring a provider" do
+      job = build_staging_publish("staging_publisher") do
         schedule do
           every 300.seconds
         end
-        historical_publish do
-          datastore :minio_historical
+        staging_publish do
+          datastore :minio_staging
           datasets :all
           batch_size 50
         end
       end
 
-      expect(job.type).to eq("historical_publish")
+      expect(job.type).to eq("staging_publish")
       expect(job.provider).to be_nil
       expect(job.interval_seconds).to eq(300)
-      expect(job.settings.fetch("datastore_name")).to eq("minio_historical")
+      expect(job.settings.fetch("datastore_name")).to eq("minio_staging")
       expect(job.settings["datasets"]).to be_nil # :all maps to nil (all datasets)
       expect(job.settings.fetch("batch_size")).to eq(50)
+      expect(job.settings.fetch("delete_after_upload")).to be(true)
     end
 
     it "supports specific datasets filter in DSL" do
-      job = build_historical_publish("historical_publisher") do
-        historical_publish do
-          datastore :minio_historical
+      job = build_staging_publish("staging_publisher") do
+        staging_publish do
+          datastore :minio_staging
           datasets :options, :candles
         end
       end
@@ -654,42 +613,40 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       expect(job.settings.fetch("datasets")).to eq(%w[options candles])
     end
 
-    it "supports delete_after_upload and retain_days options" do
-      job = build_historical_publish("historical_publisher") do
-        historical_publish do
-          datastore :minio_historical
-          delete_after_upload true
-          retain_days 14
+    it "supports delete_after_upload option" do
+      job = build_staging_publish("staging_publisher") do
+        staging_publish do
+          datastore :minio_staging
+          delete_after_upload false
         end
       end
 
-      expect(job.settings.fetch("delete_after_upload")).to be(true)
-      expect(job.settings.fetch("retain_days")).to eq(14)
+      expect(job.settings.fetch("delete_after_upload")).to be(false)
     end
 
     it "raises when invalid datasets are provided" do
       expect do
-        build_historical_publish("bad") do
-          historical_publish do
-            datastore :minio_historical
+        build_staging_publish("bad") do
+          staging_publish do
+            datastore :minio_staging
             datasets :invalid_ds
           end
         end
-      end.to raise_error(Tickrake::Error, /Unknown dataset\(s\) in historical_publish: invalid_ds/)
+      end.to raise_error(Tickrake::Error, /Unknown dataset\(s\) in staging_publish: invalid_ds/)
     end
 
     it "raises without a datastore" do
       expect do
-        build_historical_publish("bad") do
-          historical_publish {}
+        build_staging_publish("bad") do
+          staging_publish {}
         end
       end.to raise_error(Tickrake::Error, /requires datastore/)
     end
 
     it "raises when the datastore is not configured" do
       expect do
-        build_historical_publish("bad") do
-          historical_publish { datastore :unknown_store }
+        build_staging_publish("bad") do
+          staging_publish { datastore :unknown_store }
         end
       end.to raise_error(Tickrake::Error, /datastore `unknown_store` is not configured/)
     end

@@ -13,8 +13,8 @@ module Tickrake
 
       def fetch(from_date:, to_date:)
         body = download_ics
-        fetched_at = Time.now.utc.iso8601
-        parse_ics(body, from_date, to_date, fetched_at)
+        sampled_at = Time.now.utc.iso8601
+        parse_ics(body, from_date, to_date, sampled_at)
       end
 
       private
@@ -29,7 +29,7 @@ module Tickrake
         response.body
       end
 
-      def parse_ics(body, from_date, to_date, fetched_at)
+      def parse_ics(body, from_date, to_date, sampled_at)
         events = []
         current = nil
 
@@ -54,7 +54,7 @@ module Tickrake
                   time_of_day: nil,
                   release_id: nil,
                   series_id: nil,
-                  fetched_at: fetched_at
+                  sampled_at: sampled_at
                 )
               end
             end

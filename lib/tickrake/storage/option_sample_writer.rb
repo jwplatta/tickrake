@@ -44,6 +44,7 @@ module Tickrake
         expiration_type
         multiplier
         non_standard
+        sampled_at
       ].freeze
 
       def initialize(csv_writer: Tickrake::Storage::CsvWriter.new)
@@ -99,7 +100,8 @@ module Tickrake
           row.exercise_type,
           row.expiration_type,
           row.multiplier,
-          row.non_standard
+          row.non_standard,
+          row.respond_to?(:sampled_at) ? row.sampled_at : nil
         ]
       end
     end

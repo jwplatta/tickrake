@@ -26,10 +26,10 @@ RSpec.describe Tickrake::EconomicEventsJob do
     dbl
   end
 
-  let(:bls_row)      { { event_datetime: "2026-10-14T12:30:00Z", event_name: "CPI",               category: "economic", source: "bls",           actual: nil, estimate: nil, previous: nil, unit: nil, symbol: nil, company_name: nil, time_of_day: nil, release_id: nil, series_id: nil, fetched_at: "2026-09-20T00:00:00Z" } }
-  let(:fred_row)     { { event_datetime: "2026-09-25T12:30:00Z", event_name: "GDP",               category: "economic", source: "fred",          actual: nil, estimate: nil, previous: nil, unit: nil, symbol: nil, company_name: nil, time_of_day: nil, release_id: 53,  series_id: "GDP", fetched_at: "2026-09-20T00:00:00Z" } }
-  let(:fomc_row)     { { event_datetime: "2026-09-17T18:00:00Z", event_name: "FOMC Rate Decision", category: "fomc",     source: "fred",          actual: 5.25, estimate: nil, previous: nil, unit: "percent", symbol: nil, company_name: nil, time_of_day: nil, release_id: 21, series_id: "DFEDTARU", fetched_at: "2026-09-20T00:00:00Z" } }
-  let(:earnings_row) { { event_datetime: "2026-10-15T00:00:00Z", event_name: "Earnings",          category: "earnings", source: "alpha_vantage", actual: nil, estimate: 1.52, previous: nil, unit: "USD", symbol: "AAPL", company_name: "Apple Inc", time_of_day: "post-market", release_id: nil, series_id: nil, fetched_at: "2026-09-20T00:00:00Z" } }
+  let(:bls_row)      { { event_datetime: "2026-10-14T12:30:00Z", event_name: "CPI",               category: "economic", source: "bls",           actual: nil, estimate: nil, previous: nil, unit: nil, symbol: nil, company_name: nil, time_of_day: nil, release_id: nil, series_id: nil, sampled_at: "2026-09-20T00:00:00Z" } }
+  let(:fred_row)     { { event_datetime: "2026-09-25T12:30:00Z", event_name: "GDP",               category: "economic", source: "fred",          actual: nil, estimate: nil, previous: nil, unit: nil, symbol: nil, company_name: nil, time_of_day: nil, release_id: 53,  series_id: "GDP", sampled_at: "2026-09-20T00:00:00Z" } }
+  let(:fomc_row)     { { event_datetime: "2026-09-17T18:00:00Z", event_name: "FOMC Rate Decision", category: "fomc",     source: "fred",          actual: 5.25, estimate: nil, previous: nil, unit: "percent", symbol: nil, company_name: nil, time_of_day: nil, release_id: 21, series_id: "DFEDTARU", sampled_at: "2026-09-20T00:00:00Z" } }
+  let(:earnings_row) { { event_datetime: "2026-10-15T00:00:00Z", event_name: "Earnings",          category: "earnings", source: "alpha_vantage", actual: nil, estimate: 1.52, previous: nil, unit: "USD", symbol: "AAPL", company_name: "Apple Inc", time_of_day: "post-market", release_id: nil, series_id: nil, sampled_at: "2026-09-20T00:00:00Z" } }
 
   before do
     stub_fetcher(Tickrake::Fetchers::BlsCalendar,           [bls_row])
@@ -39,17 +39,17 @@ RSpec.describe Tickrake::EconomicEventsJob do
   end
 
   describe "#run" do
-    it "writes parquet files for each source/category/date" do
+    it "writes ndjson files for each source/category/date" do
       logged = []
       allow(logger).to receive(:info) { |payload| logged << payload }
 
       job.run(now: Time.utc(2026, 9, 20))
-      expect(File).to exist(File.join(tmpdir, "economic_events/bls/economic/2026/10/14.parquet"))
-      expect(File).to exist(File.join(tmpdir, "economic_events/fred/economic/2026/09/25.parquet"))
-      expect(File).to exist(File.join(tmpdir, "economic_events/fred/fomc/2026/09/17.parquet"))
-      expect(File).to exist(File.join(tmpdir, "economic_events/alpha_vantage/earnings/2026/10/15.parquet"))
+      expect(File).to exist(File.join(tmpdir, "economic_events/bls/economic/2026/10/14.ndjson"))
+      expect(File).to exist(File.join(tmpdir, "economic_events/fred/economic/2026/09/25.ndjson"))
+      expect(File).to exist(File.join(tmpdir, "economic_events/fred/fomc/2026/09/17.ndjson"))
+      expect(File).to exist(File.join(tmpdir, "economic_events/alpha_vantage/earnings/2026/10/15.ndjson"))
 
-      written_events = logged.select { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+      written_events = logged.select { |l| l.is_a?(Hash) && l[:event] == "file_written" }
       expect(written_events.size).to eq(4)
       written_events.each do |evt|
         expect(evt[:data_type]).to eq("economic_events")
@@ -62,7 +62,7 @@ RSpec.describe Tickrake::EconomicEventsJob do
       # Second run overwriting files
       logged.clear
       job.run(now: Time.utc(2026, 9, 20))
-      rewritten_events = logged.select { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+      rewritten_events = logged.select { |l| l.is_a?(Hash) && l[:event] == "file_written" }
       expect(rewritten_events.size).to eq(4)
       rewritten_events.each do |evt|
         expect(evt[:storage_byte_delta]).to eq(0)
@@ -81,7 +81,7 @@ RSpec.describe Tickrake::EconomicEventsJob do
         end
       )
       job.run(now: Time.utc(2026, 9, 20))
-      expect(File).to exist(File.join(tmpdir, "economic_events/fred/economic/2026/09/25.parquet"))
+      expect(File).to exist(File.join(tmpdir, "economic_events/fred/economic/2026/09/25.ndjson"))
       expect(logger).to have_received(:error).at_least(:once)
     end
 
@@ -90,7 +90,7 @@ RSpec.describe Tickrake::EconomicEventsJob do
         "lookback_days" => 7, "lookahead_days" => 14, "categories" => %w[economic fomc]
       )
       job.run(now: Time.utc(2026, 9, 20))
-      expect(File).not_to exist(File.join(tmpdir, "economic_events/alpha_vantage/earnings/2026/10/15.parquet"))
+      expect(File).not_to exist(File.join(tmpdir, "economic_events/alpha_vantage/earnings/2026/10/15.ndjson"))
     end
   end
 end

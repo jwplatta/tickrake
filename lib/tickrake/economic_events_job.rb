@@ -104,12 +104,20 @@ module Tickrake
       grouped.each do |event_date, date_rows|
         path = storage_paths.economic_events_path(source: source, category: category, event_date: event_date)
         prior_byte_count = File.exist?(path) ? File.size(path) : 0
-        writer.write(path, rows: date_rows)
+        FileUtils.mkdir_p(File.dirname(path))
+        tmp_path = "#{path}.tmp"
+        File.open(tmp_path, "w") do |f|
+          date_rows.each do |row|
+            f.puts(JSON.generate(row))
+          end
+        end
+        File.rename(tmp_path, path)
+
         byte_count = File.size(path)
         storage_byte_delta = byte_count - prior_byte_count
         @runtime.logger.info({
           msg: "economic_events_written",
-          event: "parquet_written",
+          event: "file_written",
           data_type: "economic_events",
           source: source,
           category: category,
@@ -129,10 +137,6 @@ module Tickrake
 
     def storage_paths
       @storage_paths ||= Storage::Paths.new(@runtime.config)
-    end
-
-    def writer
-      @writer ||= Storage::EconomicEventsParquetWriter.new
     end
   end
 end

@@ -88,26 +88,29 @@ module Tickrake
     end
 
     # Order book events carry two timestamps:
-    # - received_at: local collector receipt time (ms since epoch UTC). Safest cutoff for
+    # - received_at: local collector receipt time (UTC ISO 8601). Safest cutoff for
     #   "what data did I have by time T?".
-    # - book_time_ms: market snapshot timestamp (ms since epoch UTC) from the broker/exchange feed.
+    # - book_time: market snapshot timestamp (UTC ISO 8601) from the broker/exchange feed.
     def handle_event(event, service:)
-      received_at = (Time.now.to_f * 1000).to_i
+      received_at = Time.now.utc.iso8601
       entries = Array(event["content"] || event[:content] || [event])
 
       entries.each do |entry|
         symbol = entry["key"] || entry[:key]
         next unless symbol
 
+        book_time_raw = entry["1"] || entry[:book_time]
+        book_time = book_time_raw ? Time.at(book_time_raw.to_i / 1000.0).utc.iso8601 : nil
+
         @events_writer.write(
-          "job_type"     => "order_book",
-          "provider"     => @provider,
-          "symbol"       => symbol.to_s,
-          "service"      => service,
-          "received_at"  => received_at,
-          "book_time_ms" => (entry["1"] || entry[:book_time])&.to_i,
-          "bids_json"    => extract_json(entry["2"] || entry[:bids]),
-          "asks_json"    => extract_json(entry["3"] || entry[:asks])
+          "job_type"    => "order_book",
+          "provider"    => @provider,
+          "symbol"      => symbol.to_s,
+          "service"     => service,
+          "received_at" => received_at,
+          "book_time"   => book_time,
+          "bids_json"   => extract_json(entry["2"] || entry[:bids]),
+          "asks_json"   => extract_json(entry["3"] || entry[:asks])
         )
       end
     end

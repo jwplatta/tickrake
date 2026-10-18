@@ -60,7 +60,7 @@ module Tickrake
         datastores: datastores,
         pending_metadata_dir: pending_metadata_dir,
         pending_events_dir: pending_events_dir,
-        historical_datastore: storage["historical_datastore"],
+        staging_datastore: storage["staging_datastore"],
         universes: universes,
         data_dir: data_dir,
         candles_dir: candles_dir,

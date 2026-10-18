@@ -182,8 +182,8 @@ module Tickrake
       type == "intraday_publish"
     end
 
-    def historical_publish?
-      type == "historical_publish"
+    def staging_publish?
+      type == "staging_publish"
     end
 
     def interval_schedule?
@@ -208,7 +208,7 @@ module Tickrake
     attr_reader :timezone, :sqlite_path, :database, :providers, :default_provider_name, :data_dir, :candles_dir, :options_dir, :max_workers,
                 :retry_count, :retry_delay_seconds, :option_fetch_timeout_seconds, :candle_fetch_timeout_seconds, :jobs, :import_jobs,
                 :option_root_tickers, :option_snapshot_filename_timezone, :datastores, :universes, :pending_metadata_dir,
-                :pending_events_dir, :historical_datastore
+                :pending_events_dir, :staging_datastore
 
     def initialize(
       timezone:,
@@ -221,7 +221,7 @@ module Tickrake
       datastores: {},
       pending_metadata_dir: nil,
       pending_events_dir: nil,
-      historical_datastore: nil,
+      staging_datastore: nil,
       universes: {},
       data_dir:,
       candles_dir: nil,
@@ -242,7 +242,7 @@ module Tickrake
       @option_root_tickers = option_root_tickers
       @option_snapshot_filename_timezone = option_snapshot_filename_timezone
       @datastores = datastores
-      @historical_datastore = historical_datastore
+      @staging_datastore = staging_datastore
       @data_dir = data_dir
       @pending_metadata_dir = pending_metadata_dir || Tickrake::PathSupport.default_pending_metadata_dir(data_dir: @data_dir)
       @pending_events_dir = pending_events_dir || Tickrake::PathSupport.default_pending_events_dir(data_dir: @data_dir)
@@ -344,7 +344,7 @@ module Tickrake
         explicit_providers = Array(job.tasks).filter_map(&:provider)
         fallback_provider = provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)
         (explicit_providers + [fallback_provider]).compact.uniq
-      when "metadata_sync", "intraday_publish", "historical_publish", "events_ingest"
+      when "metadata_sync", "intraday_publish", "staging_publish"
         []
       else
         [provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)].compact.uniq

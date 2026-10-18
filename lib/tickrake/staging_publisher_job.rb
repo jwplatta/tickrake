@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Tickrake
-  class HistoricalPublisherJob
+  class StagingPublisherJob
     def initialize(runtime, scheduled_job:)
       @runtime = runtime
       @scheduled_job = scheduled_job
@@ -12,18 +12,16 @@ module Tickrake
       datastore_name = settings["datastore_name"]
       datasets = settings["datasets"]
       batch_size = settings["batch_size"]
-      delete_after_upload = settings["delete_after_upload"]
-      retain_days = settings["retain_days"]
+      delete_after_upload = settings.fetch("delete_after_upload", true)
 
-      publisher = Storage::HistoricalPublisher.new(
+      publisher = Storage::StagingPublisher.new(
         runtime: @runtime,
         datastore_name: datastore_name
       )
       publisher.scan_and_publish(
         dataset_types: datasets,
         batch_size: batch_size,
-        delete_after_upload: delete_after_upload,
-        retain_days: retain_days
+        delete_after_upload: delete_after_upload
       )
     end
   end

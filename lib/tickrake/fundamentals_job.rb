@@ -21,7 +21,7 @@ module Tickrake
       started_at = Time.now
       begin
         rows = fetch_all(symbols, sample_date, now)
-        path = write_parquet(rows, sample_date)
+        path = write_ndjson(rows, sample_date)
         elapsed_ms = ((Time.now - started_at) * 1000).round
         @runtime.logger.info({
           msg: "scrape_end", event: "scrape_end", data_type: "fundamentals",
@@ -54,7 +54,7 @@ module Tickrake
     def fetch_all(symbols, sample_date, now)
       instrument_data = fetch_instruments(symbols)
       quote_supplements = fetch_quote_supplements(symbols)
-      fetched_at = Time.now.utc.iso8601
+      sampled_at = Time.now.utc.iso8601
 
       symbols.filter_map do |symbol|
         inst = instrument_data[symbol]
@@ -63,7 +63,7 @@ module Tickrake
         fundamental = inst[:fundamental] || {}
         supplement = quote_supplements[symbol] || {}
 
-        build_row(symbol, inst, fundamental, supplement, sample_date, fetched_at)
+        build_row(symbol, inst, fundamental, supplement, sample_date, sampled_at)
       end
     end
 
@@ -126,7 +126,7 @@ module Tickrake
       result
     end
 
-    def build_row(symbol, inst, fundamental, supplement, sample_date, fetched_at)
+    def build_row(symbol, inst, fundamental, supplement, sample_date, sampled_at)
       {
         symbol: symbol,
         sample_date: sample_date.iso8601,
@@ -196,20 +196,28 @@ module Tickrake
         avg_3_month_volume: fundamental[:avg3MonthVolume],
         avg_1_year_volume: supplement[:avg_1_year_volume] || fundamental[:avg1YearVolume],
         last_earnings_date: supplement[:last_earnings_date],
-        fetched_at: fetched_at
+        sampled_at: sampled_at
       }
     end
 
-    def write_parquet(rows, sample_date)
+    def write_ndjson(rows, sample_date)
       provider_name = @scheduled_job&.provider || "schwab"
       path = storage_paths.fundamentals_path(provider: provider_name, sample_date: sample_date)
       prior_byte_count = File.exist?(path) ? File.size(path) : 0
-      parquet_writer.write(path, rows: rows)
+      FileUtils.mkdir_p(File.dirname(path))
+      tmp_path = "#{path}.tmp"
+      File.open(tmp_path, "w") do |f|
+        rows.each do |row|
+          f.puts(JSON.generate(row))
+        end
+      end
+      File.rename(tmp_path, path)
+
       byte_count = File.size(path)
       storage_byte_delta = byte_count - prior_byte_count
       @runtime.logger.info({
-        msg: "parquet_written",
-        event: "parquet_written",
+        msg: "file_written",
+        event: "file_written",
         data_type: "fundamentals",
         provider: provider_name,
         market_date: sample_date.iso8601,
@@ -279,10 +287,6 @@ module Tickrake
 
     def storage_paths
       @storage_paths ||= Storage::Paths.new(@runtime.config)
-    end
-
-    def parquet_writer
-      @parquet_writer ||= Storage::FundamentalsParquetWriter.new
     end
 
     def client

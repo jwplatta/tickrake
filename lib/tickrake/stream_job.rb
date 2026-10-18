@@ -197,7 +197,7 @@ module Tickrake
     end
 
     def handle_event(event, service_str:, subscription:)
-      received_at = (Time.now.to_f * 1000).to_i
+      received_at = Time.now.utc.iso8601
       @last_event_mu.synchronize { @last_event_at = Time.now }
 
       case subscription.kind
@@ -211,12 +211,12 @@ module Tickrake
     end
 
     # Each Level One event carries up to three distinct timestamps:
-    # - received_at: local collector receipt time (ms since epoch UTC). Safest cutoff for
+    # - received_at: local collector receipt time (UTC ISO 8601). Safest cutoff for
     #   "what data did I have by time T?".
-    # - quote_time_ms: timestamp attached to the quote information (bid/ask). Note: small
+    # - quote_time: timestamp attached to the quote information (bid/ask). Note: small
     #   timing reversals relative to received_at can occur due to independent clocks/stages;
-    #   do not assume received_at - quote_time_ms is a precise network latency measurement.
-    # - trade_time_ms: timestamp attached to the last-trade info. Nil indicates absent trade info
+    #   do not assume received_at - quote_time is a precise network latency measurement.
+    # - trade_time: timestamp attached to the last-trade info. Nil indicates absent trade info
     #   in that message, not that the symbol never traded.
     def handle_level_one_event(event, service_str:, subscription:, received_at:)
       writer = get_or_create_writer(subscription)
@@ -232,21 +232,21 @@ module Tickrake
                 fields[:bid_size].nil? && fields[:ask_size].nil?
 
         writer.write(
-          "job_type"      => "level_one",
-          "provider"      => @provider,
-          "symbol"        => symbol.to_s,
-          "service"       => service_str,
-          "received_at"   => received_at,
-          "quote_time_ms" => fields[:quote_time_ms],
-          "trade_time_ms" => fields[:trade_time_ms],
-          "bid"           => fields[:bid],
-          "ask"           => fields[:ask],
-          "last"          => fields[:last],
-          "bid_size"      => fields[:bid_size],
-          "ask_size"      => fields[:ask_size],
-          "volume"        => fields[:volume],
-          "mark"          => fields[:mark],
-          "extra_json"    => fields[:extra_json]
+          "job_type"   => "level_one",
+          "provider"   => @provider,
+          "symbol"     => symbol.to_s,
+          "service"    => service_str,
+          "received_at"=> received_at,
+          "quote_time" => fields[:quote_time],
+          "trade_time" => fields[:trade_time],
+          "bid"        => fields[:bid],
+          "ask"        => fields[:ask],
+          "last"       => fields[:last],
+          "bid_size"   => fields[:bid_size],
+          "ask_size"   => fields[:ask_size],
+          "volume"     => fields[:volume],
+          "mark"       => fields[:mark],
+          "extra_json" => fields[:extra_json]
         )
       end
     end
@@ -261,8 +261,10 @@ module Tickrake
       bid_size  = entry[common[:bid_size]]&.to_i
       ask_size  = entry[common[:ask_size]]&.to_i
       volume    = entry[common[:volume]]&.to_i
-      quote_time_ms = indices[:quote_time] ? entry[indices[:quote_time]]&.to_i : nil
-      trade_time_ms = indices[:trade_time] ? entry[indices[:trade_time]]&.to_i : nil
+      quote_time_raw = indices[:quote_time] ? entry[indices[:quote_time]] : nil
+      quote_time = quote_time_raw ? Time.at(quote_time_raw.to_i / 1000.0).utc.iso8601 : nil
+      trade_time_raw = indices[:trade_time] ? entry[indices[:trade_time]] : nil
+      trade_time = trade_time_raw ? Time.at(trade_time_raw.to_i / 1000.0).utc.iso8601 : nil
       mark          = indices[:mark]        ? entry[indices[:mark]]&.to_f        : nil
 
       extracted_keys = (common.values + indices.values + ["key"]).uniq
@@ -272,7 +274,7 @@ module Tickrake
       {
         bid: bid, ask: ask, last: last,
         bid_size: bid_size, ask_size: ask_size, volume: volume,
-        quote_time_ms: quote_time_ms, trade_time_ms: trade_time_ms,
+        quote_time: quote_time, trade_time: trade_time,
         mark: mark, extra_json: extra_json
       }
     end
@@ -285,15 +287,18 @@ module Tickrake
         symbol = entry["key"] || entry[:key]
         next unless symbol
 
+        book_time_raw = entry["1"] || entry[:book_time]
+        book_time = book_time_raw ? Time.at(book_time_raw.to_i / 1000.0).utc.iso8601 : nil
+
         writer.write(
-          "job_type"     => "order_book",
-          "provider"     => @provider,
-          "symbol"       => symbol.to_s,
-          "service"      => service_str,
-          "received_at"  => received_at,
-          "book_time_ms" => (entry["1"] || entry[:book_time])&.to_i,
-          "bids_json"    => extract_json(entry["2"] || entry[:bids]),
-          "asks_json"    => extract_json(entry["3"] || entry[:asks])
+          "job_type"    => "order_book",
+          "provider"    => @provider,
+          "symbol"      => symbol.to_s,
+          "service"     => service_str,
+          "received_at" => received_at,
+          "book_time"   => book_time,
+          "bids_json"   => extract_json(entry["2"] || entry[:bids]),
+          "asks_json"   => extract_json(entry["3"] || entry[:asks])
         )
       end
     end
