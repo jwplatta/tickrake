@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe Tickrake::Fetchers::AlphaVantageEarnings do
+RSpec.describe Tickrake::Jobs::Clients::AlphaVantageEarnings do
   before { stub_const("ENV", ENV.to_h.merge("ALPHA_VANTAGE_API_KEY" => "testkey")) }
 
   subject(:fetcher) { described_class.new }

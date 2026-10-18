@@ -2,8 +2,8 @@
 
 require "spec_helper"
 
-RSpec.describe Tickrake::Fetchers::FomcCalendar do
-  let(:client) { instance_double(Tickrake::Fetchers::FredClient) }
+RSpec.describe Tickrake::Jobs::Clients::FomcCalendar do
+  let(:client) { instance_double(Tickrake::Jobs::Clients::FredClient) }
   subject(:calendar) { described_class.new(client: client) }
 
   let(:from_date) { Date.new(2026, 9, 1) }
