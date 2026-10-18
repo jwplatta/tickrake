@@ -310,4 +310,43 @@ RSpec.describe "duckdb option compaction parity" do
       end.to raise_error(Tickrake::Error, /Option snapshot SPXW_exp2026-10-14_2026-10-14_13-25-00\.csv contains duplicate headers: strike/)
     end
   end
+
+  it "writes parquet with ZSTD compression and sorted by expiration_date, sampled_at, strike" do
+    Dir.mktmpdir do |dir|
+      config = build_config(dir)
+      raw_files = write_raw_fixture(config)
+      parquet_path = File.join(dir, "sorted.parquet")
+
+      context = Tickrake::Maintenance::OptionSamples::Context.new(
+        config: config,
+        tracker: nil,
+        provider_name: "schwab",
+        option_root: "SPXW",
+        sample_date: Date.new(2027, 7, 1),
+        logger: Logger.new(nil)
+      )
+
+      Tickrake::Storage::DuckdbOptionCompactedWriter.new.write(
+        raw_files: raw_files,
+        parquet_path: parquet_path,
+        sampled_at_resolver: context.dataset.method(:sampled_at_for_path)
+      )
+
+      DuckDB::Database.open do |db|
+        db.connect do |con|
+          # Check compression codec
+          compressions = con.query("SELECT DISTINCT compression FROM parquet_metadata('#{parquet_path}')").map(&:first)
+          expect(compressions).to include("ZSTD")
+
+          # Check physical row order directly from read_parquet without ORDER BY
+          rows = con.query("SELECT expiration_date, sampled_at, strike, contract_type, symbol FROM read_parquet('#{parquet_path}')").to_a
+          # raw_a: exp 2027-07-01, CALL, strike 2800.0, SPXW1
+          # raw_b: exp 2027-07-02, PUT, strike 2805.0, SPXW2
+          expect(rows[0][0].iso8601).to eq("2027-07-01")
+          expect(rows[1][0].iso8601).to eq("2027-07-02")
+        end
+      end
+    end
+  end
 end
+

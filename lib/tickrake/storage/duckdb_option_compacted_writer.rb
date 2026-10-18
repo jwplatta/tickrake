@@ -73,15 +73,27 @@ module Tickrake
       end
 
       def export(con, path, format)
-        select_list = format == "csv" ? csv_select_list : parquet_select_list
-
-        con.query(<<~SQL)
-          COPY (
-            SELECT #{select_list}
-            FROM compacted_option_samples
-            ORDER BY sampled_at, expiration_date, contract_type, strike, symbol
-          ) TO #{sql_string(path)} (FORMAT #{format.upcase})
-        SQL
+        if format == "parquet"
+          con.query(<<~SQL)
+            COPY (
+              SELECT #{parquet_select_list}
+              FROM compacted_option_samples
+              ORDER BY expiration_date, sampled_at, strike, contract_type, symbol
+            ) TO #{sql_string(path)} (
+              FORMAT PARQUET,
+              CODEC 'ZSTD',
+              ROW_GROUP_SIZE 50000
+            )
+          SQL
+        else
+          con.query(<<~SQL)
+            COPY (
+              SELECT #{csv_select_list}
+              FROM compacted_option_samples
+              ORDER BY sampled_at, expiration_date, contract_type, strike, symbol
+            ) TO #{sql_string(path)} (FORMAT CSV)
+          SQL
+        end
       end
 
       def csv_select_list

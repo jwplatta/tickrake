@@ -4,7 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Removed
+### Changed
+- Updated `DuckdbOptionCompactedWriter` to sort option sample Parquet files by `expiration_date, sampled_at, strike, contract_type, symbol` to optimize Parquet row-group pruning for expiration filters and preserve chain snapshot locality for backtesting.
+- Updated option sample Parquet compaction to use `ZSTD` compression (matching Apache Iceberg standards) and `ROW_GROUP_SIZE 50000`.
+
+### Added
+- Added standalone migration script `scripts/rewrite_options_parquet.rb` to re-encode and re-sort existing option sample Parquet files in-place with atomic verification.
+
 - Removed dead AWS S3 cold archival pipeline, AWS Glacier storage classes, S3 manifest writers, and S3 manifest reconciler (`ReconcilerJob`, `ReconcilerRunner`, `DSL::ReconcileBuilder`, `Maintenance::Candles::Archiver`, `Maintenance::Candles::ManifestWriter`, `Maintenance::OptionSamples::ArtifactArchiver`, `Maintenance::OptionSamples::ManifestWriter`, `Maintenance::OptionSamples::LocalArtifactManager`).
 - Removed obsolete S3 manifest guards from `SourceSampleCleaner`, keeping local raw CSV pruning safely managed by compaction validation.
 - Removed dead S3 upload method and datastore option from `EventsIngestorJob` and `EventsIngestBuilder`.
