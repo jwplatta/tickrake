@@ -344,7 +344,7 @@ module Tickrake
         explicit_providers = Array(job.tasks).filter_map(&:provider)
         fallback_provider = provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)
         (explicit_providers + [fallback_provider]).compact.uniq
-      when "metadata_sync", "intraday_publish", "historical_publish", "events_ingest"
+      when "metadata_sync", "intraday_publish", "historical_publish"
         []
       else
         [provider_name_for_entry_with_override(override_name, nil, scheduled_job: job)].compact.uniq

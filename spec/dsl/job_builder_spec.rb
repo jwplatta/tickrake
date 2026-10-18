@@ -387,48 +387,6 @@ RSpec.describe Tickrake::DSL::JobBuilder do
     end
   end
 
-  describe "events_ingest job" do
-    def build_events_ingest(name, &block)
-      builder = described_class.new(name)
-      builder.instance_eval(&block)
-      builder.build!(config)
-    end
-
-    it "builds an events_ingest job without requiring a provider" do
-      job = build_events_ingest("events_ingestor") do
-        schedule do
-          every 60.seconds
-          weekdays from: "08:00", to: "17:30"
-        end
-        events_ingest { batch_size 20 }
-      end
-
-      expect(job.type).to eq("events_ingest")
-      expect(job.provider).to be_nil
-      expect(job.interval_seconds).to eq(60)
-      expect(job.settings.fetch("batch_size")).to eq(20)
-    end
-
-    it "defaults batch_size to 10 and stale_age_seconds to 1800" do
-      job = build_events_ingest("events_ingestor") do
-        schedule { every 60.seconds; weekdays from: "08:00", to: "17:30" }
-        events_ingest {}
-      end
-
-      expect(job.settings.fetch("batch_size")).to eq(10)
-      expect(job.settings.fetch("stale_age_seconds")).to eq(1800)
-    end
-
-    it "raises without an events_ingest block" do
-      expect do
-        build_events_ingest("bad") do
-          schedule { every 60.seconds; weekdays from: "08:00", to: "17:30" }
-          type :events_ingest
-        end
-      end.to raise_error(Tickrake::Error, /requires an events_ingest block/)
-    end
-  end
-
   describe "maintenance job" do
     subject(:job) do
       build("test_maintenance") do

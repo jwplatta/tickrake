@@ -34,8 +34,6 @@ module Tickrake
         Tickrake::IntradayPublisherSchedulerRunner.new(runtime, scheduled_job: job).run
       when "historical_publish"
         Tickrake::HistoricalPublisherSchedulerRunner.new(runtime, scheduled_job: job).run
-      when "events_ingest"
-        Tickrake::EventsIngestorRunner.new(runtime, scheduled_job: job).run
       when "fundamentals"
         Tickrake::FundamentalsSchedulerRunner.new(runtime, scheduled_job: job).run
       when "economic_events"
@@ -71,8 +69,6 @@ module Tickrake
         Tickrake::IntradayPublisherJob.new(runtime, scheduled_job: job).run
       when "historical_publish"
         Tickrake::HistoricalPublisherJob.new(runtime, scheduled_job: job).run
-      when "events_ingest"
-        Tickrake::EventsIngestorJob.new(runtime, scheduled_job: job).run
       when "fundamentals"
         Tickrake::FundamentalsJob.new(runtime, scheduled_job: job).run
       when "economic_events"

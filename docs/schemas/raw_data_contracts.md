@@ -55,7 +55,7 @@ Option chain samples are emitted as point-in-time CSV snapshot files per expirat
 - **Filename**: `<root>_exp<YYYY-MM-DD>_<sample_date>_<sample_time>.csv`
 - **CSV Encoding**: UTF-8 with header row.
 
-### CSV Columns (40 Headers in Exact Order):
+### CSV Columns (41 Headers in Exact Order):
 | Index | Column Name | Type | Description |
 | :--- | :--- | :--- | :--- |
 | 1 | `contract_type` | `VARCHAR` | `"CALL"` or `"PUT"` |
@@ -98,6 +98,7 @@ Option chain samples are emitted as point-in-time CSV snapshot files per expirat
 | 38 | `expiration_type` | `VARCHAR` | Expiration frequency (`"REGULAR"`, `"WEEKLY"`) |
 | 39 | `multiplier` | `BIGINT` | Contract unit multiplier (typically `100`) |
 | 40 | `non_standard` | `BOOLEAN` | Boolean flag (`true`/`false`) for non-standard deliverables |
+| 41 | `sampled_at` | `TIMESTAMPTZ` | Ingestion sample collection timestamp (`YYYY-MM-DDTHH:MM:SSZ`) |
 
 ---
 
