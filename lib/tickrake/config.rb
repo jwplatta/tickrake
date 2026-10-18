@@ -222,7 +222,6 @@ module Tickrake
       pending_metadata_dir: nil,
       pending_events_dir: nil,
       staging_datastore: nil,
-      historical_datastore: nil,
       universes: {},
       data_dir:,
       candles_dir: nil,
@@ -243,7 +242,7 @@ module Tickrake
       @option_root_tickers = option_root_tickers
       @option_snapshot_filename_timezone = option_snapshot_filename_timezone
       @datastores = datastores
-      @staging_datastore = staging_datastore || historical_datastore
+      @staging_datastore = staging_datastore
       @data_dir = data_dir
       @pending_metadata_dir = pending_metadata_dir || Tickrake::PathSupport.default_pending_metadata_dir(data_dir: @data_dir)
       @pending_events_dir = pending_events_dir || Tickrake::PathSupport.default_pending_events_dir(data_dir: @data_dir)
