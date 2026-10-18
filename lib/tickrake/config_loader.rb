@@ -6,11 +6,8 @@ module Tickrake
   class ConfigLoader
     VALID_ADAPTERS = %w[schwab ibkr massive].freeze
     VALID_DAYS = %w[mon tue wed thu fri sat sun].freeze
-    VALID_JOB_TYPES = %w[options candles maintenance].freeze
+    VALID_JOB_TYPES = %w[options candles].freeze
     VALID_IMPORT_TYPES = %w[options].freeze
-    VALID_MAINTENANCE_ACTIONS = %w[compact].freeze
-    VALID_MAINTENANCE_SUBJECTS = %w[option_samples].freeze
-    VALID_ARCHIVE_ARTIFACTS = %w[csv parquet].freeze
     VALID_S3_STORAGE_CLASSES = %w[STANDARD STANDARD_IA GLACIER GLACIER_IR].freeze
     VALID_DATASTORE_TYPES = %w[s3 s3_compatible minio].freeze
 
@@ -104,9 +101,6 @@ module Tickrake
           raise ConfigError, "candle lookback_days must be non-negative for `#{job.name}`." if job.lookback_days.to_i.negative?
           validate_candle_schedule!(job)
           job.universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
-        elsif job.maintenance?
-          validate_maintenance_schedule!(job)
-          validate_maintenance_tasks!(config, job)
         end
       end
 
@@ -390,8 +384,6 @@ module Tickrake
         build_options_job(name, raw_job)
       when "candles"
         build_candles_job(name, raw_job)
-      when "maintenance"
-        build_maintenance_job(name, raw_job)
       end
     end
 
@@ -441,56 +433,6 @@ module Tickrake
       )
     end
 
-    def build_maintenance_job(name, raw_job)
-      manual = manual_job?(raw_job)
-      validate_no_schedule_fields!(name, raw_job, %w[interval_seconds windows run_at days]) if manual
-      uses_interval_schedule = raw_job.key?("interval_seconds") || raw_job.key?("windows")
-      uses_daily_schedule = raw_job.key?("run_at") || raw_job.key?("days")
-      raise ConfigError, "maintenance job `#{name}` must use tasks: and no longer supports task:/settings:." if raw_job.key?("task") || raw_job.key?("settings")
-
-      ScheduledJobConfig.new(
-        name: name.to_s,
-        type: "maintenance",
-        provider: raw_job["provider"],
-        interval_seconds: uses_interval_schedule ? Integer(raw_job.fetch("interval_seconds")) : nil,
-        windows: uses_interval_schedule ? load_scheduler_windows(raw_job.fetch("windows")) : [],
-        run_at: uses_daily_schedule ? normalize_clock(raw_job.fetch("run_at")) : nil,
-        days: uses_daily_schedule ? normalize_days(raw_job.fetch("days")) : [],
-        lookback_days: nil,
-        dte_buckets: [],
-        universe: [],
-        tasks: Array(raw_job.fetch("tasks")).map { |row| load_maintenance_step(name, row) },
-        task: nil,
-        settings: {},
-        manual: manual
-      )
-    end
-
-    def load_maintenance_step(job_name, raw_step)
-      raise ConfigError, "maintenance job `#{job_name}` task entry must be a mapping." unless raw_step.is_a?(Hash)
-      raise ConfigError, "maintenance job `#{job_name}` task entry must define exactly one action." unless raw_step.keys.length == 1
-
-      action = raw_step.keys.first.to_s
-      raise ConfigError, "Unknown maintenance action `#{action}` for `#{job_name}`." unless VALID_MAINTENANCE_ACTIONS.include?(action)
-
-      settings = stringify_keys(raw_step.fetch(action))
-      raise ConfigError, "maintenance job `#{job_name}` action `#{action}` settings must be a mapping." unless settings.is_a?(Hash)
-
-      MaintenanceStepConfig.new(
-        action: action,
-        subject: settings.fetch("subject", "").to_s,
-        provider: settings["provider"]&.to_s,
-        universe: settings["universe"]&.to_s,
-        universes: Array(settings["universes"]).map(&:to_s),
-        tickers: Array(settings["tickers"]),
-        option_root: settings["option_root"]&.to_s,
-        delete_sources: settings.fetch("delete_sources", false),
-        destination: settings["destination"]&.to_s,
-        artifacts: Array(settings["artifacts"]).map(&:to_s),
-        retain_local: stringify_keys(settings["retain_local"])
-      )
-    end
-
     def validate_candle_schedule!(job)
       return if job.manual?
 
@@ -511,59 +453,6 @@ module Tickrake
 
     def manual_job?(raw_job)
       raw_job.fetch("manual", false) == true
-    end
-
-    def validate_maintenance_schedule!(job)
-      return if job.manual?
-
-      if job.interval_schedule? && job.daily_schedule?
-        raise ConfigError, "maintenance job `#{job.name}` must use either interval_seconds/windows or run_at/days, not both."
-      end
-      if !job.interval_schedule? && !job.daily_schedule?
-        raise ConfigError, "maintenance job `#{job.name}` must define either interval_seconds/windows or run_at/days."
-      end
-      if job.interval_schedule?
-        raise ConfigError, "maintenance job `#{job.name}` interval must be positive." if job.interval_seconds.to_i <= 0
-        raise ConfigError, "At least one maintenance job window is required for `#{job.name}`." if job.windows.empty?
-      end
-      if job.daily_schedule?
-        raise ConfigError, "At least one maintenance job day is required for `#{job.name}`." if job.days.empty?
-      end
-    end
-
-    def validate_maintenance_tasks!(config, job)
-      raise ConfigError, "maintenance job `#{job.name}` requires at least one task." if Array(job.tasks).empty?
-
-      Array(job.tasks).each do |step|
-        raise ConfigError, "maintenance job `#{job.name}` requires a valid subject." unless VALID_MAINTENANCE_SUBJECTS.include?(step.subject)
-        config.provider_definition(step.provider) if step.provider
-        validate_maintenance_target!(config, job, step)
-
-        case step.action
-        when "compact"
-          raise ConfigError, "maintenance job `#{job.name}` compact task delete_sources must be boolean." unless boolean?(step.delete_sources)
-          artifacts = step.artifacts.empty? ? %w[parquet] : step.artifacts
-          unless artifacts.all? { |artifact| VALID_ARCHIVE_ARTIFACTS.include?(artifact) }
-            raise ConfigError, "maintenance job `#{job.name}` compact task artifacts must be csv and/or parquet."
-          end
-        when "archive"
-          raise ConfigError, "maintenance job `#{job.name}` archive task is no longer supported. AWS S3 cold archival has been removed in favor of MinIO historical publishing."
-        else
-          raise ConfigError, "maintenance job `#{job.name}` has unsupported action `#{step.action}`."
-        end
-      end
-    end
-
-    def validate_maintenance_target!(config, job, step)
-      has_universe = !step.universe.to_s.empty?
-      has_universes = !Array(step.universes).empty?
-      has_tickers = !Array(step.tickers).empty?
-      has_option_root = !step.option_root.to_s.empty?
-      raise ConfigError, "maintenance job `#{job.name}` task `#{step.action}` requires universe, universes, tickers, or option_root." unless has_universe || has_universes || has_tickers || has_option_root
-      raise ConfigError, "maintenance job `#{job.name}` task `#{step.action}` cannot combine option_root with universe/universes/tickers." if has_option_root && (has_universe || has_universes || has_tickers)
-
-      config.universe(step.universe) if has_universe
-      Array(step.universes).each { |name| config.universe(name) }
     end
 
     def validate_no_schedule_fields!(name, raw_job, fields)

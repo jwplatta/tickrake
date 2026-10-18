@@ -387,44 +387,6 @@ RSpec.describe Tickrake::DSL::JobBuilder do
     end
   end
 
-  describe "maintenance job" do
-    subject(:job) do
-      build("test_maintenance") do
-        provider :schwab
-        type :maintenance
-        schedule { at "15:30"; weekdays }
-        maintenance do
-          compact :option_samples, universe: "spx_symbols", delete_sources: true
-        end
-      end
-    end
-
-    it "builds a ScheduledJobConfig with type maintenance" do
-      expect(job.type).to eq("maintenance")
-    end
-
-    it "sets run_at from the schedule" do
-      expect(job.run_at).to eq([15, 30])
-    end
-
-    it "builds a compact MaintenanceStepConfig task" do
-      expect(job.tasks.length).to eq(1)
-      expect(job.tasks.first.action).to eq("compact")
-      expect(job.tasks.first.universe).to eq("spx_symbols")
-      expect(job.tasks.first.delete_sources).to be(true)
-    end
-
-    it "raises without a maintenance block" do
-      expect do
-        build("bad") do
-          provider :schwab
-          type :maintenance
-          schedule { at "15:30"; weekdays }
-        end
-      end.to raise_error(Tickrake::Error, /requires a maintenance block/)
-    end
-  end
-
   describe "metadata_sync job" do
     def build_metadata_sync(name, &block)
       builder = described_class.new(name)

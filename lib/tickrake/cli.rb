@@ -216,26 +216,6 @@ module Tickrake
           scheduled_job: job
         ).run
         @stdout.puts("Completed job #{job.name}.")
-      when "maintenance"
-        progress_reporter = Tickrake::ProgressReporter.build(
-          total: maintenance_progress_total(start_date: start_date, end_date: end_date),
-          title: "Compact",
-          output: @stdout
-        )
-        result = Tickrake::MaintenanceJob.new(
-          runtime,
-          scheduled_job: job,
-          start_date: start_date,
-          end_date: end_date,
-          progress_reporter: progress_reporter
-        ).run
-        unless result.successful?
-          raise Tickrake::Error, "Maintenance job #{job.name} finished with #{result.failure_count} failed step(s). Check the job log for details."
-        end
-        @stdout.puts(
-          "Completed job #{job.name}: processed #{result.processed_dates.length} date(s), "\
-          "wrote #{result.artifacts_written.length} artifact(s)."
-        )
       else
         raise Tickrake::Error, "Unknown job type `#{job.type}`."
       end
@@ -368,19 +348,6 @@ module Tickrake
         raise Tickrake::Error, "--from-config-start is only valid for candles jobs."
       end
 
-      if job.maintenance?
-        direct_args = [options[:ticker], options[:expiration_date], options[:option_root], options[:frequency]]
-        raise Tickrake::Error, "Direct run arguments cannot be combined with --job." if direct_args.any?
-        raise Tickrake::Error, "--from-config-start is only valid for candles jobs." if options[:from_config_start]
-        if options[:start_date].nil? ^ options[:end_date].nil?
-          raise Tickrake::Error, "Maintenance runs require both --start-date and --end-date."
-        end
-        if options[:start_date] && options[:end_date] && options[:end_date] < options[:start_date]
-          raise Tickrake::Error, "--end-date must be on or after --start-date."
-        end
-        return
-      end
-
       direct_args = [options[:ticker], options[:expiration_date], options[:option_root], options[:start_date], options[:end_date], options[:frequency]]
       raise Tickrake::Error, "Direct run arguments cannot be combined with --job." if direct_args.any?
     end
@@ -418,12 +385,6 @@ module Tickrake
         need_extended_hours_data: false,
         need_previous_close: false
       )]
-    end
-
-    def maintenance_progress_total(start_date:, end_date:)
-      return 1 if start_date.nil? && end_date.nil?
-
-      ((end_date - start_date).to_i + 1)
     end
 
     def status_command(argv, config)
