@@ -2,7 +2,7 @@
 
 RSpec.describe Tickrake::SchedulerSupervisor do
   let(:config) do
-    Tickrake::ConfigLoader.load(File.expand_path("../config/tickrake.example.yml", __dir__))
+    Tickrake::ConfigLoader.load(File.expand_path("../../config/tickrake.example.yml", __dir__))
   end
   let(:job) { config.job("index_options") }
   let(:logger) do

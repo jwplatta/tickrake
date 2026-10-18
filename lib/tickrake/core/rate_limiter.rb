@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require_relative "db/connection_manager"
-require_relative "models/api_rate_limit"
+require_relative "../db/connection_manager"
+require_relative "../models/api_rate_limit"
 
 module Tickrake
   class RateLimiter

@@ -24,15 +24,15 @@ end
 # Core Foundation & Configuration
 require_relative "tickrake/version"
 require_relative "tickrake/errors"
-require_relative "tickrake/path_support"
-require_relative "tickrake/logger_factory"
-require_relative "tickrake/log_retention"
-require_relative "tickrake/lockfile"
-require_relative "tickrake/progress_reporter"
+require_relative "tickrake/core/path_support"
+require_relative "tickrake/core/logger_factory"
+require_relative "tickrake/core/log_retention"
+require_relative "tickrake/core/lockfile"
+require_relative "tickrake/core/progress_reporter"
 require_relative "tickrake/database_config"
 require_relative "tickrake/config"
 require_relative "tickrake/config_loader"
-require_relative "tickrake/scheduled_run_result"
+require_relative "tickrake/core/scheduled_run_result"
 
 # Data Structures & Models
 require_relative "tickrake/data/bar"
@@ -51,7 +51,7 @@ require_relative "tickrake/models/historical_file_ledger"
 require_relative "tickrake/db/connection_manager"
 require_relative "tickrake/db/migrator"
 require_relative "tickrake/tracker"
-require_relative "tickrake/rate_limiter"
+require_relative "tickrake/core/rate_limiter"
 
 # Storage & Persistence
 require_relative "tickrake/events_writer"
@@ -85,16 +85,17 @@ require_relative "tickrake/providers/base"
 require_relative "tickrake/providers/schwab"
 require_relative "tickrake/providers/ibkr"
 require_relative "tickrake/provider_factory"
-require_relative "tickrake/client_factory"
+require_relative "tickrake/core/client_factory"
 
 # Runtime & Process Supervision
-require_relative "tickrake/runtime"
-require_relative "tickrake/job_registry"
-require_relative "tickrake/job_runner"
-require_relative "tickrake/background_process"
-require_relative "tickrake/foreground_process"
-require_relative "tickrake/scheduler_supervisor"
-require_relative "tickrake/scheduled_runner_support"
+require_relative "tickrake/core/runtime"
+require_relative "tickrake/core/job_registry"
+require_relative "tickrake/core/job_runner"
+require_relative "tickrake/core/job_control"
+require_relative "tickrake/core/background_process"
+require_relative "tickrake/core/foreground_process"
+require_relative "tickrake/core/scheduler_supervisor"
+require_relative "tickrake/core/scheduled_runner_support"
 
 # Streaming Jobs & Components
 require_relative "tickrake/streaming/stream_config"
@@ -125,7 +126,6 @@ require_relative "tickrake/fetchers"
 require_relative "tickrake/jobs/economic_events_job"
 require_relative "tickrake/jobs/economic_events_scheduler_runner"
 
-# CLI & Job Control / DSL
+# CLI & DSL
 require_relative "tickrake/cli"
-require_relative "tickrake/job_control"
 require_relative "tickrake/dsl"
