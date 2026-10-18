@@ -32,10 +32,10 @@ RSpec.describe Tickrake::EconomicEventsJob do
   let(:earnings_row) { { event_datetime: "2026-10-15T00:00:00Z", event_name: "Earnings",          category: "earnings", source: "alpha_vantage", actual: nil, estimate: 1.52, previous: nil, unit: "USD", symbol: "AAPL", company_name: "Apple Inc", time_of_day: "post-market", release_id: nil, series_id: nil, sampled_at: "2026-09-20T00:00:00Z" } }
 
   before do
-    stub_fetcher(Tickrake::Fetchers::BlsCalendar,           [bls_row])
-    stub_fetcher(Tickrake::Fetchers::FredEconomicCalendar,  [fred_row])
-    stub_fetcher(Tickrake::Fetchers::FomcCalendar,          [fomc_row])
-    stub_fetcher(Tickrake::Fetchers::AlphaVantageEarnings,  [earnings_row])
+    stub_fetcher(Tickrake::Jobs::Clients::BlsCalendar,           [bls_row])
+    stub_fetcher(Tickrake::Jobs::Clients::FredEconomicCalendar,  [fred_row])
+    stub_fetcher(Tickrake::Jobs::Clients::FomcCalendar,          [fomc_row])
+    stub_fetcher(Tickrake::Jobs::Clients::AlphaVantageEarnings,  [earnings_row])
   end
 
   describe "#run" do
@@ -75,8 +75,8 @@ RSpec.describe Tickrake::EconomicEventsJob do
     end
 
     it "continues writing other sources when one fetcher raises" do
-      allow(Tickrake::Fetchers::BlsCalendar).to receive(:new).and_return(
-        instance_double(Tickrake::Fetchers::BlsCalendar, fetch: nil).tap do |d|
+      allow(Tickrake::Jobs::Clients::BlsCalendar).to receive(:new).and_return(
+        instance_double(Tickrake::Jobs::Clients::BlsCalendar, fetch: nil).tap do |d|
           allow(d).to receive(:fetch).and_raise(Tickrake::Error, "network error")
         end
       )

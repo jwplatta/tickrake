@@ -59,7 +59,7 @@ module Tickrake
     end
 
     def run_bls(from_date, to_date, now)
-      rows = Fetchers::BlsCalendar.new.fetch(from_date: from_date, to_date: to_date)
+      rows = Jobs::Clients::BlsCalendar.new.fetch(from_date: from_date, to_date: to_date)
       write_events(rows, source: "bls", category: "economic", now: now)
       rows.length
     rescue StandardError => e
@@ -68,7 +68,7 @@ module Tickrake
     end
 
     def run_fred(from_date, to_date, now)
-      rows = Fetchers::FredEconomicCalendar.new(logger: @runtime.logger).fetch(from_date: from_date, to_date: to_date)
+      rows = Jobs::Clients::FredEconomicCalendar.new(logger: @runtime.logger).fetch(from_date: from_date, to_date: to_date)
       write_events(rows, source: "fred", category: "economic", now: now)
       rows.length
     rescue StandardError => e
@@ -77,7 +77,7 @@ module Tickrake
     end
 
     def run_fomc(from_date, to_date, now)
-      rows = Fetchers::FomcCalendar.new(logger: @runtime.logger).fetch(from_date: from_date, to_date: to_date)
+      rows = Jobs::Clients::FomcCalendar.new(logger: @runtime.logger).fetch(from_date: from_date, to_date: to_date)
       write_events(rows, source: "fred", category: "fomc", now: now)
       rows.length
     rescue StandardError => e
@@ -86,7 +86,7 @@ module Tickrake
     end
 
     def run_earnings(from_date, to_date, now)
-      rows = Fetchers::AlphaVantageEarnings.new.fetch(from_date: from_date, to_date: to_date)
+      rows = Jobs::Clients::AlphaVantageEarnings.new.fetch(from_date: from_date, to_date: to_date)
       write_events(rows, source: "alpha_vantage", category: "earnings", now: now)
       rows.length
     rescue StandardError => e
