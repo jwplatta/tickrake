@@ -65,14 +65,14 @@ RSpec.describe Tickrake::FundamentalsJob do
       allow(client).to receive(:get_quotes).and_return({})
     end
 
-    it "writes parquet file and emits parquet_written with byte_count and storage_byte_delta" do
+    it "writes ndjson file and emits file_written with byte_count and storage_byte_delta" do
       logged = []
       allow(logger).to receive(:info) { |payload| logged << payload }
 
       result = job.run(now: Time.utc(2026, 9, 20, 12, 0, 0))
       expect(result.successful?).to be(true)
 
-      event = logged.find { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+      event = logged.find { |l| l.is_a?(Hash) && l[:event] == "file_written" }
       expect(event).not_to be_nil
       expect(event[:data_type]).to eq("fundamentals")
       expect(event[:provider]).to eq("schwab")
@@ -86,12 +86,12 @@ RSpec.describe Tickrake::FundamentalsJob do
       # Running again on same day produces 0 delta
       logged.clear
       job.run(now: Time.utc(2026, 9, 20, 12, 0, 0))
-      second_event = logged.find { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+      second_event = logged.find { |l| l.is_a?(Hash) && l[:event] == "file_written" }
       expect(second_event).not_to be_nil
       expect(second_event[:storage_byte_delta]).to eq(0)
     end
 
-    it "captures expanded fundamental, dividend, borrow, and quote fields in the generated parquet file" do
+    it "captures expanded fundamental, dividend, borrow, and quote fields in the generated ndjson file" do
       inst_payload = {
         instruments: [
           {
@@ -147,10 +147,10 @@ RSpec.describe Tickrake::FundamentalsJob do
       result = job.run(now: Time.utc(2026, 9, 20, 12, 0, 0))
       expect(result.successful?).to be(true)
 
-      expected_path = File.join(tmpdir, "fundamentals", "schwab", "2026", "09", "20.parquet")
+      expected_path = File.join(tmpdir, "fundamentals", "schwab", "2026", "09", "20.ndjson")
       expect(File.exist?(expected_path)).to be(true)
 
-      rows = Parquet.each_row(expected_path).to_a
+      rows = File.readlines(expected_path).map { |line| JSON.parse(line) }
       expect(rows.length).to eq(1)
       row = rows.first
 
@@ -185,14 +185,14 @@ RSpec.describe Tickrake::FundamentalsJob do
       expect(sidecar_content["file_metadata"]["row_count"]).to eq(1)
     end
 
-    it "does not emit parquet_written event if parquet writing fails" do
+    it "does not emit file_written event if writing fails" do
       logged = []
       allow(logger).to receive(:info) { |payload| logged << payload }
-      allow_any_instance_of(Tickrake::Storage::FundamentalsParquetWriter).to receive(:write).and_raise(IOError, "write error")
+      allow(job).to receive(:write_ndjson).and_raise(IOError, "write error")
 
       result = job.run(now: Time.utc(2026, 9, 20, 12, 0, 0))
       expect(result.successful?).to be(false)
-      expect(logged.select { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }).to be_empty
+      expect(logged.select { |l| l.is_a?(Hash) && l[:event] == "file_written" }).to be_empty
     end
   end
 end

@@ -44,7 +44,6 @@ module Tickrake
       :multiplier,
       :non_standard,
       :source,
-      :fetched_at,
       :sampled_at,
       keyword_init: true
     )

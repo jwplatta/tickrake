@@ -28,11 +28,24 @@ s3://tickrake-staging/
 │           └── <symbol>.ndjson              # Consolidated streaming L2 depth event logs per day
 │               # e.g. SPY.ndjson
 │
-└── candles/
-    └── <provider>/                          # e.g. schwab, ibkr
-        └── <frequency>/                     # e.g. 1min, 5min, 1d
-            └── <symbol>.csv
-                # e.g. SPY.csv, QQQ.csv
+├── candles/
+│   └── <provider>/                          # e.g. schwab, ibkr
+│       └── <frequency>/                     # e.g. 1min, 5min, 1d
+│           └── <symbol>.csv
+│               # e.g. SPY.csv, QQQ.csv
+│
+├── fundamentals/
+│   └── <provider>/                          # e.g. schwab
+│       └── <YYYY>/<MM>/
+│           └── <DD>.ndjson                  # Daily corporate fundamentals & metrics
+│               # e.g. 20.ndjson
+│
+└── economic_events/
+    └── <source>/                            # e.g. bls, fred, alpha_vantage
+        └── <category>/                      # e.g. economic, fomc, earnings
+            └── <YYYY>/<MM>/
+                └── <DD>.ndjson              # Scheduled macro & earnings events
+                    # e.g. 14.ndjson
 ```
 
 ### Staging Lifecycle & Retention Policy
@@ -44,6 +57,8 @@ s3://tickrake-staging/
    - **`level_one`**: 7-day retention.
    - **`order_book`**: 5-day retention (L2 depth files are large).
    - **`candles`**: 30-day retention.
+   - **`fundamentals`**: 30-day retention.
+   - **`economic_events`**: 30-day retention.
 3. **Direct-to-Folder Streaming (Eliminating `pending_events/`)**:
    Streaming jobs write consolidated `<symbol>.ndjson` files directly into `data/level_one/...` and `data/order_book/...` per symbol/day. Staging directories (`pending_events/`) and intermediate Tickrake Parquet writers are removed.
 
@@ -196,7 +211,67 @@ Underlying bar candles emitted as standard CSV files:
 
 ---
 
-## 6. Structured Logging Specification for Ingestion & Dashboarding
+## 6. Fundamentals Raw Contract (`fundamentals/*.ndjson`)
+
+Daily equity fundamental metrics emitted as newline-delimited JSON (`.ndjson`), one line per symbol:
+- **Filename**: `<DD>.ndjson` under `data/fundamentals/<provider>/<YYYY>/<MM>/`.
+  - e.g. `fundamentals/schwab/2026/09/20.ndjson`
+
+### JSON Sample Record:
+```json
+{
+  "symbol": "AAPL",
+  "sample_date": "2026-09-20",
+  "asset_type": "EQUITY",
+  "exchange": "NASDAQ",
+  "description": "Apple Inc",
+  "cusip": "037833100",
+  "pe_ratio": 30.5,
+  "peg_ratio": 2.1,
+  "pb_ratio": 45.2,
+  "market_cap": 3400000000000.0,
+  "dividend_amount": 1.0,
+  "dividend_yield": 0.5,
+  "close_price": 195.5,
+  "last_price": 196.0,
+  "total_volume": 42000000,
+  "is_hard_to_borrow": false,
+  "is_shortable": true
+}
+```
+
+---
+
+## 7. Economic Events Raw Contract (`economic_events/*.ndjson`)
+
+Scheduled macro releases, central bank decisions, and earnings events emitted as newline-delimited JSON (`.ndjson`):
+- **Filename**: `<DD>.ndjson` under `data/economic_events/<source>/<category>/<YYYY>/<MM>/`.
+  - e.g. `economic_events/bls/economic/2026/10/14.ndjson`
+  - e.g. `economic_events/fred/fomc/2026/09/17.ndjson`
+  - e.g. `economic_events/alpha_vantage/earnings/2026/10/15.ndjson`
+
+### JSON Sample Record:
+```json
+{
+  "event_datetime": "2026-10-14T12:30:00Z",
+  "event_name": "CPI",
+  "category": "economic",
+  "source": "bls",
+  "actual": 3.2,
+  "estimate": 3.1,
+  "previous": 3.0,
+  "unit": "percent",
+  "symbol": null,
+  "company_name": null,
+  "time_of_day": null,
+  "release_id": null,
+  "series_id": null
+}
+```
+
+---
+
+## 8. Structured Logging Specification for Ingestion & Dashboarding
 
 Every raw file sync or upload to the staging bucket emits structured JSON logs at `INFO` level to simplify observability, alerting, and log aggregators (e.g. Vector, Loki, Datadog):
 

@@ -304,7 +304,6 @@ module Tickrake
           multiplier: option.respond_to?(:multiplier) ? option.multiplier : nil,
           non_standard: option.respond_to?(:non_standard) ? option.non_standard : nil,
           source: provider_name,
-          fetched_at: batch_time,
           sampled_at: batch_time.iso8601
         )
       end

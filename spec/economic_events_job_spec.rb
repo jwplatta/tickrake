@@ -39,17 +39,17 @@ RSpec.describe Tickrake::EconomicEventsJob do
   end
 
   describe "#run" do
-    it "writes parquet files for each source/category/date" do
+    it "writes ndjson files for each source/category/date" do
       logged = []
       allow(logger).to receive(:info) { |payload| logged << payload }
 
       job.run(now: Time.utc(2026, 9, 20))
-      expect(File).to exist(File.join(tmpdir, "economic_events/bls/economic/2026/10/14.parquet"))
-      expect(File).to exist(File.join(tmpdir, "economic_events/fred/economic/2026/09/25.parquet"))
-      expect(File).to exist(File.join(tmpdir, "economic_events/fred/fomc/2026/09/17.parquet"))
-      expect(File).to exist(File.join(tmpdir, "economic_events/alpha_vantage/earnings/2026/10/15.parquet"))
+      expect(File).to exist(File.join(tmpdir, "economic_events/bls/economic/2026/10/14.ndjson"))
+      expect(File).to exist(File.join(tmpdir, "economic_events/fred/economic/2026/09/25.ndjson"))
+      expect(File).to exist(File.join(tmpdir, "economic_events/fred/fomc/2026/09/17.ndjson"))
+      expect(File).to exist(File.join(tmpdir, "economic_events/alpha_vantage/earnings/2026/10/15.ndjson"))
 
-      written_events = logged.select { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+      written_events = logged.select { |l| l.is_a?(Hash) && l[:event] == "file_written" }
       expect(written_events.size).to eq(4)
       written_events.each do |evt|
         expect(evt[:data_type]).to eq("economic_events")
@@ -62,7 +62,7 @@ RSpec.describe Tickrake::EconomicEventsJob do
       # Second run overwriting files
       logged.clear
       job.run(now: Time.utc(2026, 9, 20))
-      rewritten_events = logged.select { |l| l.is_a?(Hash) && l[:event] == "parquet_written" }
+      rewritten_events = logged.select { |l| l.is_a?(Hash) && l[:event] == "file_written" }
       expect(rewritten_events.size).to eq(4)
       rewritten_events.each do |evt|
         expect(evt[:storage_byte_delta]).to eq(0)
@@ -81,7 +81,7 @@ RSpec.describe Tickrake::EconomicEventsJob do
         end
       )
       job.run(now: Time.utc(2026, 9, 20))
-      expect(File).to exist(File.join(tmpdir, "economic_events/fred/economic/2026/09/25.parquet"))
+      expect(File).to exist(File.join(tmpdir, "economic_events/fred/economic/2026/09/25.ndjson"))
       expect(logger).to have_received(:error).at_least(:once)
     end
 
@@ -90,7 +90,7 @@ RSpec.describe Tickrake::EconomicEventsJob do
         "lookback_days" => 7, "lookahead_days" => 14, "categories" => %w[economic fomc]
       )
       job.run(now: Time.utc(2026, 9, 20))
-      expect(File).not_to exist(File.join(tmpdir, "economic_events/alpha_vantage/earnings/2026/10/15.parquet"))
+      expect(File).not_to exist(File.join(tmpdir, "economic_events/alpha_vantage/earnings/2026/10/15.ndjson"))
     end
   end
 end

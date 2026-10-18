@@ -119,6 +119,6 @@ RSpec.describe Tickrake::Storage::Paths do
       event_date: Date.new(2026, 10, 14)
     )
 
-    expect(path).to eq("/tmp/data/economic_events/bls/economic/2026/10/14.parquet")
+    expect(path).to eq("/tmp/data/economic_events/bls/economic/2026/10/14.ndjson")
   end
 end

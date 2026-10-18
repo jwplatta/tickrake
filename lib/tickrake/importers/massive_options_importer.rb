@@ -121,7 +121,6 @@ module Tickrake
           total_volume: row["volume"],
           transactions: row["transactions"],
           source: @provider_name,
-          fetched_at: sample_time,
           sampled_at: sample_time.iso8601
         )
       end

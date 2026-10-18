@@ -89,7 +89,7 @@ module Tickrake
           category.to_s,
           event_date.strftime("%Y"),
           event_date.strftime("%m"),
-          "#{event_date.strftime("%d")}.parquet"
+          "#{event_date.strftime("%d")}.ndjson"
         )
       end
 
@@ -100,7 +100,7 @@ module Tickrake
           provider.to_s,
           sample_date.strftime("%Y"),
           sample_date.strftime("%m"),
-          "#{sample_date.strftime("%d")}.parquet"
+          "#{sample_date.strftime("%d")}.ndjson"
         )
       end
 
