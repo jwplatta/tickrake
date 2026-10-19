@@ -36,9 +36,9 @@ require_relative "tickrake/core/symbol_normalizer"
 require_relative "tickrake/core/frequency_normalizer"
 require_relative "tickrake/core/scheduled_run_result"
 
-# Data Structures & Models
-require_relative "tickrake/data/bar"
-require_relative "tickrake/data/option_sample_row"
+# Models & Data Structures
+require_relative "tickrake/models/bar"
+require_relative "tickrake/models/option_sample_row"
 require_relative "tickrake/models/base"
 require_relative "tickrake/models/fetch_run"
 require_relative "tickrake/models/file_metadata"
@@ -68,9 +68,7 @@ require_relative "tickrake/storage/options_scanner"
 require_relative "tickrake/storage/s3_archive"
 require_relative "tickrake/storage/staging_publisher"
 
-# Index & Importers
-require_relative "tickrake/index/atomic_json_writer"
-require_relative "tickrake/index_data/importer"
+# Importers
 require_relative "tickrake/importers/massive_option_symbol"
 require_relative "tickrake/importers/massive_options_importer"
 
