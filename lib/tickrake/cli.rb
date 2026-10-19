@@ -325,7 +325,7 @@ module Tickrake
           options[:end_date] = Date.iso8601(value)
         end
         opts.on("--frequency FREQ", "Fetch a single candle frequency") do |value|
-          options[:frequency] = Tickrake::Query::FrequencyNormalizer.new.normalize(value)
+          options[:frequency] = Tickrake::Core::FrequencyNormalizer.new.normalize(value)
         end
         opts.on("--scheduler", "Internal: run the configured scheduler loop") { options[:scheduler] = true }
         opts.on("--supervisor", "Internal: supervise and restart the configured scheduler loop") { options[:supervisor] = true }

@@ -7,7 +7,7 @@ module Tickrake
     class Paths
       def initialize(config)
         @config = config
-        @symbol_normalizer = Tickrake::Query::SymbolNormalizer.new
+        @symbol_normalizer = Tickrake::Core::SymbolNormalizer.new
       end
 
       def candle_path(provider:, symbol:, frequency:)

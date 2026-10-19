@@ -32,11 +32,13 @@ require_relative "tickrake/core/progress_reporter"
 require_relative "tickrake/database_config"
 require_relative "tickrake/config"
 require_relative "tickrake/config_loader"
+require_relative "tickrake/core/symbol_normalizer"
+require_relative "tickrake/core/frequency_normalizer"
 require_relative "tickrake/core/scheduled_run_result"
 
-# Data Structures & Models
-require_relative "tickrake/data/bar"
-require_relative "tickrake/data/option_sample_row"
+# Models & Data Structures
+require_relative "tickrake/models/bar"
+require_relative "tickrake/models/option_sample_row"
 require_relative "tickrake/models/base"
 require_relative "tickrake/models/fetch_run"
 require_relative "tickrake/models/file_metadata"
@@ -59,25 +61,18 @@ require_relative "tickrake/storage/csv_writer"
 require_relative "tickrake/storage/paths"
 require_relative "tickrake/storage/option_sample_writer"
 require_relative "tickrake/storage/candle_reconciler"
+require_relative "tickrake/storage/candle_metadata"
 require_relative "tickrake/storage/candle_metadata_sync"
+require_relative "tickrake/storage/candles_scanner"
+require_relative "tickrake/storage/options_scanner"
 require_relative "tickrake/storage/s3_archive"
 require_relative "tickrake/storage/staging_publisher"
 
-# Index & Importers
-require_relative "tickrake/index/atomic_json_writer"
-require_relative "tickrake/index_data/importer"
+# Importers
 require_relative "tickrake/importers/massive_option_symbol"
 require_relative "tickrake/importers/massive_options_importer"
 
-# Query Engine
-require_relative "tickrake/query/symbol_normalizer"
-require_relative "tickrake/query/frequency_normalizer"
-require_relative "tickrake/query/candle_metadata"
-require_relative "tickrake/query/candles_scanner"
-require_relative "tickrake/query/options_scanner"
-require_relative "tickrake/query/text_formatter"
-require_relative "tickrake/query/json_formatter"
-require_relative "tickrake/query/engine"
+# Public Data Loader
 require_relative "tickrake/data_loader"
 
 # Provider Integrations

@@ -167,7 +167,7 @@ module Tickrake
     end
 
     def symbol_normalizer
-      @symbol_normalizer ||= Tickrake::Query::SymbolNormalizer.new
+      @symbol_normalizer ||= Tickrake::Core::SymbolNormalizer.new
     end
 
     def selected_universe

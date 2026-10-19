@@ -93,7 +93,7 @@ RSpec.describe Tickrake::ChartStreamJob do
   end
 
   describe "#flush_buffer" do
-    let(:symbol_normalizer) { Tickrake::Query::SymbolNormalizer.new }
+    let(:symbol_normalizer) { Tickrake::Core::SymbolNormalizer.new }
 
     it "appends bars to a CSV file" do
       bar = Tickrake::Data::Bar.new(

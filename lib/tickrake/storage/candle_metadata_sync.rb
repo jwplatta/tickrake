@@ -15,7 +15,7 @@ module Tickrake
         @config = config
         @tracker = tracker
         @provider_name = provider_name
-        @metadata_builder = metadata_builder || Tickrake::Query::CandleMetadata.new(config: config)
+        @metadata_builder = metadata_builder || Tickrake::Storage::CandleMetadata.new(config: config)
       end
 
       def run
