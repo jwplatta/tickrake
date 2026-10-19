@@ -178,11 +178,19 @@ module Tickrake
     def watchdog(stream)
       chart_flush_interval = 60
       last_flush = Time.now
+      stats_log_interval = 30
+      last_stats_log = Time.now
 
       loop do
         sleep(WATCHDOG_POLL_SECONDS)
 
         break if @stop_requested
+
+        # Periodic delivery stats logging
+        if (Time.now - last_stats_log) >= stats_log_interval
+          log_delivery_stats
+          last_stats_log = Time.now
+        end
 
         # Periodic chart flush for chart streams
         if (Time.now - last_flush) >= chart_flush_interval
@@ -392,25 +400,30 @@ module Tickrake
     end
 
     def record_delivery_counts(service_str, entries_count:, accepted:, discarded:)
-      updated_stats = nil
       @stats_mu.synchronize do
         stats = @service_stats[service_str]
         stats[:entries] += entries_count
         stats[:accepted] += accepted
         stats[:discarded] += discarded
-        updated_stats = stats.dup
       end
+    end
 
-      logger.info({
-        msg: "#{log_prefix}[#{service_str}] Delivery update: callbacks=#{updated_stats[:callbacks]} entries=#{updated_stats[:entries]} accepted=#{updated_stats[:accepted]} discarded=#{updated_stats[:discarded]} last_event_at=#{updated_stats[:last_event_at]&.iso8601}",
-        event: "stream_delivery_update",
-        service: service_str,
-        callbacks: updated_stats[:callbacks],
-        entries: updated_stats[:entries],
-        accepted: updated_stats[:accepted],
-        discarded: updated_stats[:discarded],
-        last_event_at: updated_stats[:last_event_at]&.iso8601
-      })
+    def log_delivery_stats
+      stats_snapshot = @stats_mu.synchronize { @service_stats.transform_values(&:dup) }
+      stats_snapshot.each do |service_str, s|
+        next if s[:callbacks].zero? && s[:entries].zero?
+
+        logger.info({
+          msg: "#{log_prefix}[#{service_str}] Stats: callbacks=#{s[:callbacks]} entries=#{s[:entries]} accepted=#{s[:accepted]} discarded=#{s[:discarded]} last_event_at=#{s[:last_event_at]&.iso8601}",
+          event: "stream_delivery_stats",
+          service: service_str,
+          callbacks: s[:callbacks],
+          entries: s[:entries],
+          accepted: s[:accepted],
+          discarded: s[:discarded],
+          last_event_at: s[:last_event_at]&.iso8601
+        })
+      end
     end
 
     def flush_all_chart_buffers

@@ -212,8 +212,10 @@ RSpec.describe Tickrake::StreamJob do
       expect(stats[:accepted]).to eq(1)
       expect(stats[:discarded]).to eq(1)
       expect(stats[:last_event_at]).to be >= before_time
+
+      job.send(:log_delivery_stats)
       expect(logger).to have_received(:info).with(hash_including(
-        event: "stream_delivery_update",
+        event: "stream_delivery_stats",
         service: "LEVELONE_FUTURES",
         callbacks: 1,
         entries: 2,
