@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Tickrake
-  module Query
+  module Storage
     class OptionsScanner
       Result = Struct.new(
         :dataset_type,
@@ -14,7 +14,7 @@ module Tickrake
         keyword_init: true
       )
 
-      def initialize(config:, tracker:, symbol_normalizer: SymbolNormalizer.new)
+      def initialize(config:, tracker:, symbol_normalizer: Core::SymbolNormalizer.new)
         @config = config
         @tracker = tracker
         @symbol_normalizer = symbol_normalizer

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Tickrake
-  module Query
+  module Core
     class SymbolNormalizer
       def canonical(symbol, provider_definition: nil)
         value = mapped_symbol(symbol, provider_definition: provider_definition)

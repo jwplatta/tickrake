@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 module Tickrake
-  module Query
+  module Storage
     class CandleMetadata
-      def initialize(config:, symbol_normalizer: SymbolNormalizer.new)
+      def initialize(config:, symbol_normalizer: Core::SymbolNormalizer.new)
         @config = config
         @symbol_normalizer = symbol_normalizer
       end

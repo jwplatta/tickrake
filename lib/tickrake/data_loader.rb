@@ -50,7 +50,7 @@ module Tickrake
     def initialize(config_path: Tickrake::PathSupport.config_path, config: nil, tracker: nil)
       @config = config || Tickrake::ConfigLoader.load(config_path)
       @tracker = tracker || Tickrake::Tracker.new(@config)
-      @frequency_normalizer = Tickrake::Query::FrequencyNormalizer.new
+      @frequency_normalizer = Tickrake::Core::FrequencyNormalizer.new
     end
 
     def candles_available?(provider:, ticker:, frequency:, start_date:, end_date:, timezone: nil)
@@ -165,7 +165,7 @@ module Tickrake
       tz = resolve_tz(timezone)
       scanner_start = tz ? tz_date_to_utc(start_date, tz).to_date : start_date
       scanner_end = tz && end_date ? tz_date_to_utc(end_date + 1, tz).utc.to_date - 1 : end_date
-      Tickrake::Query::CandlesScanner.new(config: @config, tracker: @tracker).scan(
+      Tickrake::Storage::CandlesScanner.new(config: @config, tracker: @tracker).scan(
         provider_name: provider,
         ticker: ticker,
         frequency: frequency,
@@ -175,7 +175,7 @@ module Tickrake
     end
 
     def scan_options(provider:, ticker:, option_root: nil, expiration_date: nil, start_date:, end_date:)
-      results = Tickrake::Query::OptionsScanner.new(config: @config, tracker: @tracker).scan(
+      results = Tickrake::Storage::OptionsScanner.new(config: @config, tracker: @tracker).scan(
         provider_name: provider,
         ticker: option_root || ticker,
         start_date: start_date,
@@ -224,7 +224,7 @@ module Tickrake
       return results unless option_root
 
       normalized_root = option_root.to_s.upcase
-      normalized_ticker = Tickrake::Query::SymbolNormalizer.new.canonical(ticker)
+      normalized_ticker = Tickrake::Core::SymbolNormalizer.new.canonical(ticker)
       results.select do |result|
         result.root_symbol.to_s.upcase == normalized_root &&
           result.ticker.to_s.upcase == normalized_ticker

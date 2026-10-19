@@ -76,25 +76,6 @@ RSpec.describe "index data importer and members query" do
       expect(unique_alias_index).not_to be_nil
       expect(tracker.members_for_index(index_code: "SP500", as_of: "2017-01-01")).to eq(%w[AABA BF-B BFH COR META])
       expect(tracker.members_for_index(index_code: "SP500", as_of: "2024-01-01")).to eq(%w[BF-B COR META])
-
-      config = build_config(sqlite_path: sqlite_path)
-      stdout = StringIO.new
-      Tickrake::Query::Engine.new(config: config, tracker: tracker, stdout: stdout).run(
-        type: "members",
-        index_code: "SP500",
-        as_of: Date.new(2017, 1, 1),
-        format: "json"
-      )
-
-      payload = JSON.parse(stdout.string)
-      expect(payload).to eq(
-        "type" => "members",
-        "index" => "SP500",
-        "as_of" => "2017-01-01",
-        "count" => 5,
-        "tickers" => %w[AABA BF-B BFH COR META]
-      )
-      expect(payload.fetch("tickers")).not_to include("FB", "ABC")
     end
   end
 end

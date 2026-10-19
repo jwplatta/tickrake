@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Tickrake
-  module Query
+  module Core
     class FrequencyNormalizer
       ALIASES = {
         "minute" => "1min",
@@ -15,21 +15,27 @@ module Tickrake
         "15min" => "15min",
         "30m" => "30min",
         "30min" => "30min",
+        "hour" => "1hour",
+        "1h" => "1hour",
+        "1hour" => "1hour",
         "day" => "day",
         "daily" => "day",
+        "1d" => "day",
         "week" => "week",
         "weekly" => "week",
+        "1w" => "week",
         "month" => "month",
         "monthly" => "month"
       }.freeze
 
-      def normalize(value)
-        normalized = value.to_s.downcase.strip
-        return nil if normalized.empty?
-        return ALIASES.fetch(normalized) if ALIASES.key?(normalized)
+      def normalize(frequency)
+        normalized = ALIASES[frequency.to_s.strip.downcase]
+        raise Tickrake::Error, "Unknown candle frequency: `#{frequency}`." unless normalized
 
-        raise Tickrake::Error, "Unsupported candle frequency: #{value}"
+        normalized
       end
     end
   end
+  # Backward alias in case anything expects Tickrake::FrequencyNormalizer
+  FrequencyNormalizer = Core::FrequencyNormalizer
 end
