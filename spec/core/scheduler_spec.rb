@@ -206,4 +206,23 @@ RSpec.describe "schedulers" do
     expect(sleeper).to have_received(:sleep).at_least(:once)
     expect(logger).to have_received(:error).with(/iteration failed/)
   end
+
+  it "installs signal handlers and executes iterations in StagingPublisherSchedulerRunner" do
+    job_double = instance_double(Tickrake::StagingPublisherJob, run: nil)
+    scheduled_job = Tickrake::ScheduledJobConfig.new(
+      name: "staging_publisher",
+      type: "staging_publish",
+      interval_seconds: 60,
+      windows: []
+    )
+    runner = Tickrake::StagingPublisherSchedulerRunner.new(runtime, scheduled_job: scheduled_job, sleeper: sleeper)
+    runner.instance_variable_set(:@job, job_double)
+
+    expect { runner.send(:install_signal_handlers) }.not_to raise_error
+    expect(runner.due?(Time.now)).to eq(true)
+
+    result = runner.run_iteration(Time.now)
+    expect(result).to eq(true)
+    expect(job_double).to have_received(:run)
+  end
 end

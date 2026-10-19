@@ -10,6 +10,11 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added standalone migration script `scripts/rewrite_options_parquet.rb` to re-encode and re-sort existing option sample Parquet files in-place with atomic verification.
+- Added per-service delivery counters, accepted/discarded record metrics, and last-event timestamps to `StreamJob` to prevent chart traffic from masking silent Level One feeds.
+- Added `byte_count` to candle `fetch_success` logs for data-volume dashboard metrics.
+
+### Fixed
+- Fixed missing `install_signal_handlers`, `mark_iteration_success`, `in_window?`, and `log_iteration_failure` methods in `StagingPublisherSchedulerRunner`.
 
 - Removed dead AWS S3 cold archival pipeline, AWS Glacier storage classes, S3 manifest writers, and S3 manifest reconciler (`ReconcilerJob`, `ReconcilerRunner`, `DSL::ReconcileBuilder`, `Maintenance::Candles::Archiver`, `Maintenance::Candles::ManifestWriter`, `Maintenance::OptionSamples::ArtifactArchiver`, `Maintenance::OptionSamples::ManifestWriter`, `Maintenance::OptionSamples::LocalArtifactManager`).
 - Removed obsolete S3 manifest guards from `SourceSampleCleaner`, keeping local raw CSV pruning safely managed by compaction validation.

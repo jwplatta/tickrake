@@ -57,5 +57,41 @@ module Tickrake
     def scheduler_log_prefix
       "Staging publisher scheduler"
     end
+
+    def mark_iteration_success(now)
+      @last_run_at = now
+    end
+
+    def in_window?(time)
+      return true if @scheduled_job.windows.nil? || @scheduled_job.windows.empty?
+
+      day = time.strftime("%a").downcase[0, 3]
+      minutes = (time.hour * 60) + time.min
+
+      @scheduled_job.windows.any? do |window|
+        next false unless window.days.include?(day)
+
+        start_minutes = (window.start_time[0] * 60) + window.start_time[1]
+        end_minutes = (window.end_time[0] * 60) + window.end_time[1]
+        minutes >= start_minutes && minutes <= end_minutes
+      end
+    end
+
+    def install_signal_handlers
+      %w[TERM INT].each do |signal|
+        Signal.trap(signal) do
+          @shutdown_requested = true
+          @shutdown_reason = signal
+        end
+      end
+    end
+
+    def log_iteration_failure(now, error)
+      summary = Array(error.backtrace).first(3).join(" | ")
+      @runtime.logger.error(
+        "Staging publisher scheduler #{@scheduled_job.name} iteration failed at #{now.utc.iso8601}: #{error.class}: #{error.message}"
+      )
+      @runtime.logger.error("Backtrace: #{summary}") unless summary.empty?
+    end
   end
 end

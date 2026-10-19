@@ -190,6 +190,39 @@ RSpec.describe Tickrake::StreamJob do
       expect(parsed["quote_time"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
       expect(parsed["trade_time"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
     end
+
+    it "tracks per-service delivery counters, accepted/discarded records, and last_event_at" do
+      valid_entry = {
+        "key" => "/ES",
+        "1"   => 4500.0,
+        "2"   => 4501.0
+      }
+      discarded_entry = {
+        "key" => "/ES"
+      }
+      event = { "content" => [valid_entry, discarded_entry] }
+
+      before_time = Time.now
+      fake_stream.fire(:level_one_futures, event)
+      job.close
+
+      stats = job.service_stats["LEVELONE_FUTURES"]
+      expect(stats[:callbacks]).to eq(1)
+      expect(stats[:entries]).to eq(2)
+      expect(stats[:accepted]).to eq(1)
+      expect(stats[:discarded]).to eq(1)
+      expect(stats[:last_event_at]).to be >= before_time
+
+      job.send(:log_delivery_stats)
+      expect(logger).to have_received(:info).with(hash_including(
+        event: "stream_delivery_stats",
+        service: "LEVELONE_FUTURES",
+        callbacks: 1,
+        entries: 2,
+        accepted: 1,
+        discarded: 1
+      ))
+    end
   end
 
   describe "#run_session reconnect subscription state" do
