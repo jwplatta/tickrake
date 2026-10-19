@@ -13,6 +13,8 @@ module Tickrake
 
     CHART_HEADERS = %w[datetime open high low close volume].freeze
 
+    attr_reader :service_stats
+
     def initialize(runtime, scheduled_job:)
       @runtime = runtime
       @scheduled_job = scheduled_job
@@ -36,6 +38,17 @@ module Tickrake
       @active_subscriptions = {} # name => Set<symbols>
       @active_mu = Mutex.new
       @stream = nil
+
+      @stats_mu = Mutex.new
+      @service_stats = Hash.new do |h, k|
+        h[k] = {
+          callbacks: 0,
+          entries: 0,
+          accepted: 0,
+          discarded: 0,
+          last_event_at: nil
+        }
+      end
     end
 
     def run_session(window_start:)
@@ -198,7 +211,14 @@ module Tickrake
 
     def handle_event(event, service_str:, subscription:)
       received_at = Time.now.utc.iso8601
-      @last_event_mu.synchronize { @last_event_at = Time.now }
+      event_now = Time.now
+      @last_event_mu.synchronize { @last_event_at = event_now }
+
+      @stats_mu.synchronize do
+        stats = @service_stats[service_str]
+        stats[:callbacks] += 1
+        stats[:last_event_at] = event_now
+      end
 
       case subscription.kind
       when :level_one
@@ -222,14 +242,23 @@ module Tickrake
       writer = get_or_create_writer(subscription)
       entries = Array(event["content"] || event[:content] || [event])
 
+      accepted_count = 0
+      discarded_count = 0
+
       entries.each do |entry|
         symbol = entry["key"] || entry[:key]
-        next unless symbol
+        unless symbol
+          discarded_count += 1
+          next
+        end
 
         fields = extract_level_one_fields(entry, service_str)
-        next if fields[:bid].nil? && fields[:ask].nil? && fields[:last].nil? &&
-                fields[:volume].nil? && fields[:mark].nil? &&
-                fields[:bid_size].nil? && fields[:ask_size].nil?
+        if fields[:bid].nil? && fields[:ask].nil? && fields[:last].nil? &&
+           fields[:volume].nil? && fields[:mark].nil? &&
+           fields[:bid_size].nil? && fields[:ask_size].nil?
+          discarded_count += 1
+          next
+        end
 
         writer.write(
           "job_type"   => "level_one",
@@ -248,7 +277,10 @@ module Tickrake
           "mark"       => fields[:mark],
           "extra_json" => fields[:extra_json]
         )
+        accepted_count += 1
       end
+
+      record_delivery_counts(service_str, entries_count: entries.size, accepted: accepted_count, discarded: discarded_count)
     end
 
     def extract_level_one_fields(entry, service)
@@ -283,9 +315,15 @@ module Tickrake
       writer = get_or_create_writer(subscription)
       entries = Array(event["content"] || event[:content] || [event])
 
+      accepted_count = 0
+      discarded_count = 0
+
       entries.each do |entry|
         symbol = entry["key"] || entry[:key]
-        next unless symbol
+        unless symbol
+          discarded_count += 1
+          next
+        end
 
         book_time_raw = entry["1"] || entry[:book_time]
         book_time = book_time_raw ? Time.at(book_time_raw.to_i / 1000.0).utc.iso8601 : nil
@@ -300,21 +338,36 @@ module Tickrake
           "bids_json"   => extract_json(entry["2"] || entry[:bids]),
           "asks_json"   => extract_json(entry["3"] || entry[:asks])
         )
+        accepted_count += 1
       end
+
+      record_delivery_counts(service_str, entries_count: entries.size, accepted: accepted_count, discarded: discarded_count)
     end
 
     def handle_chart_event(event, service_str:, subscription:)
       fields = ChartStreamJob::SERVICE_FIELDS[service_str]
-      return unless fields
+      unless fields
+        record_delivery_counts(service_str, entries_count: 0, accepted: 0, discarded: 0)
+        return
+      end
 
       entries = Array(event["content"] || event[:content] || [event])
 
+      accepted_count = 0
+      discarded_count = 0
+
       entries.each do |entry|
         symbol = entry["key"] || entry[:key]
-        next unless symbol
+        unless symbol
+          discarded_count += 1
+          next
+        end
 
         chart_time_ms = entry[fields[:chart_time_ms]]&.to_i
-        next unless chart_time_ms && chart_time_ms > 0
+        unless chart_time_ms && chart_time_ms > 0
+          discarded_count += 1
+          next
+        end
 
         bar = Data::Bar.new(
           datetime: Time.at(chart_time_ms / 1000.0).utc,
@@ -332,7 +385,32 @@ module Tickrake
           buf = (@chart_buffers[subscription.name] ||= {})
           (buf[symbol.to_s] ||= []) << bar
         end
+        accepted_count += 1
       end
+
+      record_delivery_counts(service_str, entries_count: entries.size, accepted: accepted_count, discarded: discarded_count)
+    end
+
+    def record_delivery_counts(service_str, entries_count:, accepted:, discarded:)
+      updated_stats = nil
+      @stats_mu.synchronize do
+        stats = @service_stats[service_str]
+        stats[:entries] += entries_count
+        stats[:accepted] += accepted
+        stats[:discarded] += discarded
+        updated_stats = stats.dup
+      end
+
+      logger.info({
+        msg: "#{log_prefix}[#{service_str}] Delivery update: callbacks=#{updated_stats[:callbacks]} entries=#{updated_stats[:entries]} accepted=#{updated_stats[:accepted]} discarded=#{updated_stats[:discarded]} last_event_at=#{updated_stats[:last_event_at]&.iso8601}",
+        event: "stream_delivery_update",
+        service: service_str,
+        callbacks: updated_stats[:callbacks],
+        entries: updated_stats[:entries],
+        accepted: updated_stats[:accepted],
+        discarded: updated_stats[:discarded],
+        last_event_at: updated_stats[:last_event_at]&.iso8601
+      })
     end
 
     def flush_all_chart_buffers
