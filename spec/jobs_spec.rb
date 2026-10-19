@@ -737,6 +737,8 @@ RSpec.describe "job execution" do
       provider = instance_double(Tickrake::Providers::Schwab, provider_name: "schwab", adapter_name: "schwab")
       provider_factory = instance_double(Tickrake::ProviderFactory, build: provider)
       runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, provider_factory: provider_factory, logger: logger, provider_name: "schwab")
+      logged_events = []
+      allow(logger).to receive(:info) { |payload| logged_events << payload }
       rows = {
         "day" => [Tickrake::Data::Bar.new(datetime: Time.utc(2026, 4, 1, 21, 0, 0), open: 1, high: 2, low: 0.5, close: 1.5, volume: 10)],
         "1min" => [Tickrake::Data::Bar.new(datetime: Time.utc(2026, 4, 1, 14, 0, 0), open: 1, high: 2, low: 0.5, close: 1.5, volume: 10)],
@@ -754,6 +756,14 @@ RSpec.describe "job execution" do
       expect(result.success_count).to eq(3)
       expect(result.failure_count).to eq(0)
       expect(result).to be_successful
+
+      candle_success_events = logged_events.select { |evt| evt.is_a?(Hash) && evt[:event] == "fetch_success" && evt[:data_type] == "candles" }
+      expect(candle_success_events.size).to eq(3)
+      candle_success_events.each do |event|
+        expect(event[:byte_count]).to be > 0
+        expect(event[:byte_count]).to eq(File.size(event[:path]))
+      end
+
       expect(provider).to have_received(:fetch_bars).with(
         hash_including(
           symbol: "SPY",

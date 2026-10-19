@@ -69,7 +69,8 @@ module Tickrake
         end
 
         elapsed_ms = ((Time.now - started_at) * 1000).round
-        @runtime.logger.info({ msg: "fetch_success", event: "fetch_success", symbol: entry.symbol, frequency: frequency, data_type: "candles", row_count: total_candles, duration_ms: elapsed_ms, path: path })
+        byte_count = File.exist?(path) ? File.size(path) : 0
+        @runtime.logger.info({ msg: "fetch_success", event: "fetch_success", symbol: entry.symbol, frequency: frequency, data_type: "candles", row_count: total_candles, byte_count: byte_count, duration_ms: elapsed_ms, path: path })
         write_sidecar(
           symbol: canonical_symbol, frequency: frequency, scheduled_for: scheduled_for,
           started_at: started_at, status: "success", output_path: path
