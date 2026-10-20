@@ -3,18 +3,17 @@
 require "spec_helper"
 
 RSpec.describe Tickrake::OrderBookJob do
-  let(:pending_events_dir) { Dir.mktmpdir("events") }
+  let(:data_dir) { Dir.mktmpdir("data") }
   let(:logger) { instance_double(Logger, info: nil, warn: nil, error: nil) }
   let(:order_book_config) do
     instance_double(
       Tickrake::OrderBookConfig,
       services: ["TOTAL_VIEW"],
-      rotation_interval_seconds: 300,
       options_book?: false
     )
   end
   let(:config) do
-    instance_double(Tickrake::Config, pending_events_dir: pending_events_dir)
+    instance_double(Tickrake::Config, data_dir: data_dir, provider_definition: nil)
   end
   let(:runtime) do
     instance_double(Tickrake::Runtime, config: config, logger: logger)
@@ -31,13 +30,13 @@ RSpec.describe Tickrake::OrderBookJob do
 
   subject(:job) { described_class.new(runtime, scheduled_job: scheduled_job) }
 
-  after { FileUtils.rm_rf(pending_events_dir) }
+  after { FileUtils.rm_rf(data_dir) }
 
   describe "#handle_event (private)" do
-    let(:writer) { instance_double(Tickrake::EventsWriter, write: nil, close: nil, recover_stale_files: nil) }
+    let(:writer) { instance_double(Tickrake::Streaming::EventStreamWriter, write: nil, close: nil) }
 
     before do
-      allow(Tickrake::EventsWriter).to receive(:new).and_return(writer)
+      allow(Tickrake::Streaming::EventStreamWriter).to receive(:new).and_return(writer)
     end
 
     it "writes an order_book row with UTC ISO 8601 timestamps" do

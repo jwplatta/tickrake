@@ -13,16 +13,11 @@ RSpec.describe Tickrake::DSL::LevelOneBuilder do
     subject(:config) do
       build do
         services [:level_one_futures]
-        rotation_interval 300
       end
     end
 
     it "stores services as DSL symbols for stream.on" do
       expect(config.services).to eq([:level_one_futures])
-    end
-
-    it "sets rotation_interval_seconds" do
-      expect(config.rotation_interval_seconds).to eq(300)
     end
   end
 
@@ -35,17 +30,10 @@ RSpec.describe Tickrake::DSL::LevelOneBuilder do
     end
   end
 
-  describe "defaults" do
-    it "defaults rotation_interval_seconds to 900" do
-      config = build { services [:level_one_futures] }
-      expect(config.rotation_interval_seconds).to eq(900)
-    end
-  end
-
   describe "validations" do
     it "raises with no services" do
       expect do
-        build { rotation_interval 300 }
+        build { }
       end.to raise_error(Tickrake::Error, /requires at least one service/)
     end
 

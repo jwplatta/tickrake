@@ -56,7 +56,6 @@ require_relative "tickrake/tracker"
 require_relative "tickrake/core/rate_limiter"
 
 # Storage & Persistence
-require_relative "tickrake/events_writer"
 require_relative "tickrake/storage/csv_writer"
 require_relative "tickrake/storage/paths"
 require_relative "tickrake/storage/option_sample_writer"
@@ -93,6 +92,7 @@ require_relative "tickrake/core/scheduler_supervisor"
 require_relative "tickrake/core/scheduled_runner_support"
 
 # Streaming Jobs & Components
+require_relative "tickrake/streaming/event_stream_writer"
 require_relative "tickrake/streaming/stream_config"
 require_relative "tickrake/streaming/stream_job"
 require_relative "tickrake/streaming/stream_runner"

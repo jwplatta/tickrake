@@ -34,9 +34,6 @@ module Tickrake
       pending_metadata_dir = Tickrake::PathSupport.expand_path(
         dig(storage, "pending_metadata_dir", Tickrake::PathSupport.default_pending_metadata_dir(data_dir: data_dir))
       )
-      pending_events_dir = Tickrake::PathSupport.expand_path(
-        dig(storage, "pending_events_dir", Tickrake::PathSupport.default_pending_events_dir(data_dir: data_dir))
-      )
       datastores = load_datastores(data.fetch("datastores", {}))
       universes = load_universes(data.fetch("universes", {}))
       if data.key?("schedule")
@@ -56,7 +53,6 @@ module Tickrake
         option_snapshot_filename_timezone: option_snapshot_filename_timezone,
         datastores: datastores,
         pending_metadata_dir: pending_metadata_dir,
-        pending_events_dir: pending_events_dir,
         staging_datastore: storage["staging_datastore"],
         universes: universes,
         data_dir: data_dir,

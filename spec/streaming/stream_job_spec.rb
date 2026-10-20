@@ -3,15 +3,16 @@
 require "spec_helper"
 
 RSpec.describe Tickrake::StreamJob do
-  let(:pending_events_dir) { Dir.mktmpdir("events") }
+  let(:data_dir) { Dir.mktmpdir("data") }
   let(:candles_dir) { Dir.mktmpdir("candles") }
   let(:logger) { instance_double(Logger, info: nil, warn: nil, error: nil) }
 
   let(:config) do
     instance_double(
       Tickrake::Config,
-      pending_events_dir: pending_events_dir,
-      candles_dir: candles_dir
+      data_dir: data_dir,
+      candles_dir: candles_dir,
+      provider_definition: nil
     ).tap do |c|
       allow(c).to receive(:option_snapshot_filename_timezone).and_return("UTC")
     end
@@ -26,7 +27,7 @@ RSpec.describe Tickrake::StreamJob do
       name: "equity_l1",
       kind: :level_one,
       symbols: %w[SPY QQQ],
-      settings: Tickrake::LevelOneConfig.new(services: [:level_one_equities], rotation_interval_seconds: 300),
+      settings: Tickrake::LevelOneConfig.new(services: [:level_one_equities]),
       windows: [
         Tickrake::SchedulerWindow.new(
           days: %w[mon tue wed thu fri],
@@ -42,7 +43,7 @@ RSpec.describe Tickrake::StreamJob do
       name: "futures_l1",
       kind: :level_one,
       symbols: ["/ES"],
-      settings: Tickrake::LevelOneConfig.new(services: [:level_one_futures], rotation_interval_seconds: 300),
+      settings: Tickrake::LevelOneConfig.new(services: [:level_one_futures]),
       windows: [] # Always in window
     )
   end
@@ -67,7 +68,7 @@ RSpec.describe Tickrake::StreamJob do
   subject(:job) { described_class.new(runtime, scheduled_job: scheduled_job) }
 
   after do
-    FileUtils.rm_rf(pending_events_dir)
+    FileUtils.rm_rf(data_dir)
     FileUtils.rm_rf(candles_dir)
   end
 
@@ -162,7 +163,7 @@ RSpec.describe Tickrake::StreamJob do
       job.sync_subscriptions(t)
     end
 
-    it "writes received Level 1 events to dedicated EventsWriter" do
+    it "writes received Level 1 events to dedicated EventStreamWriter" do
       event = {
         "content" => [{
           "key" => "/ES",
@@ -177,8 +178,8 @@ RSpec.describe Tickrake::StreamJob do
       fake_stream.fire(:level_one_futures, event)
       job.close
 
-      # Check generated file in pending_events_dir
-      files = Dir.glob(File.join(pending_events_dir, "futures_l1*.ndjson"))
+      # Check generated file in data_dir
+      files = Dir.glob(File.join(data_dir, "level_one", "schwab", "**", "*.ndjson"))
       expect(files.size).to eq(1)
 
       lines = File.readlines(files.first)

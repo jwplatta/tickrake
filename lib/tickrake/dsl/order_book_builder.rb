@@ -15,18 +15,6 @@ module Tickrake
         @services = normalized
       end
 
-      def rotation_interval(seconds)
-        @rotation_interval_seconds = Integer(seconds)
-      end
-
-      def rotation_size(bytes)
-        @rotation_size_bytes = Integer(bytes)
-      end
-
-      def rotation_size_mb(megabytes)
-        @rotation_size_bytes = (Float(megabytes) * 1024 * 1024).round
-      end
-
       def contracts(&block)
         @contracts_builder = OrderBookContractsBuilder.new
         @contracts_builder.instance_eval(&block)
@@ -58,8 +46,6 @@ module Tickrake
 
         Tickrake::OrderBookConfig.new(
           services: services,
-          rotation_interval_seconds: @rotation_interval_seconds || 900,
-          rotation_size_bytes: @rotation_size_bytes,
           contracts: contracts
         )
       end

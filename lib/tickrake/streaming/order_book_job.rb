@@ -13,12 +13,13 @@ module Tickrake
       @subscribed_symbols = []
       @last_resolved_at = nil
 
-      @events_writer = Tickrake::EventsWriter.new(
-        pending_events_dir: runtime.config.pending_events_dir,
-        job_name: @job_name,
-        rotation_interval_seconds: @order_book_config.rotation_interval_seconds,
-        rotation_size_bytes: @order_book_config.respond_to?(:rotation_size_bytes) ? @order_book_config.rotation_size_bytes : nil,
-        logger: runtime.logger
+      provider_def = runtime.config.provider_definition(@provider)
+      @events_writer = Tickrake::Streaming::EventStreamWriter.new(
+        config: runtime.config,
+        logger: runtime.logger,
+        dataset_type: "order_book",
+        provider: @provider,
+        provider_definition: provider_def
       )
     end
 
@@ -26,8 +27,6 @@ module Tickrake
       @stop_requested = false
       @subscribed_symbols = []
       @last_resolved_at = nil
-
-      @events_writer.recover_stale_files
 
       client = Tickrake::ClientFactory.new(@runtime.config).build
       stream = SchwabRb::Stream::Client.new(client)
@@ -65,8 +64,17 @@ module Tickrake
     private
 
     def resolve_loop(stream:, resolver:)
+      stats_log_interval = 30
+      last_stats_log = Time.now
+
       until @stop_requested
         sleep(0.25)
+
+        if (Time.now - last_stats_log) >= stats_log_interval
+          @events_writer&.flush_progress
+          last_stats_log = Time.now
+        end
+
         next unless resolver
 
         elapsed = Time.now - @last_resolved_at

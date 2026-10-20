@@ -58,8 +58,6 @@ module Tickrake
 
   OrderBookConfig = Struct.new(
     :services,
-    :rotation_interval_seconds,
-    :rotation_size_bytes,
     :contracts,
     keyword_init: true
   ) do
@@ -74,8 +72,6 @@ module Tickrake
 
   LevelOneConfig = Struct.new(
     :services,
-    :rotation_interval_seconds,
-    :rotation_size_bytes,
     keyword_init: true
   )
 
@@ -190,7 +186,7 @@ module Tickrake
     attr_reader :timezone, :sqlite_path, :database, :providers, :default_provider_name, :data_dir, :candles_dir, :options_dir, :max_workers,
                 :retry_count, :retry_delay_seconds, :option_fetch_timeout_seconds, :candle_fetch_timeout_seconds, :jobs, :import_jobs,
                 :option_root_tickers, :option_snapshot_filename_timezone, :datastores, :universes, :pending_metadata_dir,
-                :pending_events_dir, :staging_datastore
+                :staging_datastore
 
     def initialize(
       timezone:,
@@ -227,7 +223,6 @@ module Tickrake
       @staging_datastore = staging_datastore
       @data_dir = data_dir
       @pending_metadata_dir = pending_metadata_dir || Tickrake::PathSupport.default_pending_metadata_dir(data_dir: @data_dir)
-      @pending_events_dir = pending_events_dir || Tickrake::PathSupport.default_pending_events_dir(data_dir: @data_dir)
       @universes = universes
       @candles_dir = candles_dir
       @options_dir = options_dir

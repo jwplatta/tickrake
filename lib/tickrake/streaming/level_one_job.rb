@@ -41,20 +41,19 @@ module Tickrake
       @last_event_at  = nil
       @last_event_mu  = Mutex.new
 
-      @events_writer = Tickrake::EventsWriter.new(
-        pending_events_dir: runtime.config.pending_events_dir,
-        job_name: @job_name,
-        rotation_interval_seconds: @level_one_config.rotation_interval_seconds,
-        rotation_size_bytes: @level_one_config.respond_to?(:rotation_size_bytes) ? @level_one_config.rotation_size_bytes : nil,
-        logger: runtime.logger
+      provider_def = runtime.config.provider_definition(@provider)
+      @events_writer = Tickrake::Streaming::EventStreamWriter.new(
+        config: runtime.config,
+        logger: runtime.logger,
+        dataset_type: "level_one",
+        provider: @provider,
+        provider_definition: provider_def
       )
     end
 
     def run_session(window_start:)
       @stop_requested = false
       attempts = 0
-
-      @events_writer.recover_stale_files
 
       loop do
         break if @stop_requested
@@ -124,10 +123,18 @@ module Tickrake
     # Logs a +stream_stale+ event and returns (causing the caller to reconnect)
     # if no event arrives within @stale_timeout seconds.
     def watchdog(stream)
+      stats_log_interval = 30
+      last_stats_log = Time.now
+
       loop do
         sleep(WATCHDOG_POLL_SECONDS)
 
         break if @stop_requested
+
+        if (Time.now - last_stats_log) >= stats_log_interval
+          @events_writer&.flush_progress
+          last_stats_log = Time.now
+        end
 
         last = @last_event_mu.synchronize { @last_event_at }
         elapsed = last ? (Time.now - last) : @stale_timeout + 1
