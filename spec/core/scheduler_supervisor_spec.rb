@@ -4,7 +4,22 @@ RSpec.describe Tickrake::SchedulerSupervisor do
   let(:config) do
     Tickrake::ConfigLoader.load(File.expand_path("../../config/tickrake.example.yml", __dir__))
   end
-  let(:job) { config.job("index_options") }
+  let(:job) do
+    Tickrake::ScheduledJobConfig.new(
+      name: "index_options",
+      type: "options",
+      provider: "schwab",
+      interval_seconds: 300,
+      windows: [Tickrake::SchedulerWindow.new(days: %w[mon tue wed thu fri], start_time: [8, 30], end_time: [15, 0])],
+      run_at: nil,
+      days: [],
+      lookback_days: nil,
+      dte_buckets: [0, 10, 30],
+      universe: [
+        Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")
+      ]
+    )
+  end
   let(:logger) do
     instance_double(Logger, info: nil, error: nil).tap do |double|
       allow(double).to receive(:level=)

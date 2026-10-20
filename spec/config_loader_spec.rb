@@ -1,16 +1,10 @@
 # frozen_string_literal: true
 
 RSpec.describe Tickrake::ConfigLoader do
-  it "loads the example config with typed scheduled jobs" do
+  it "loads the example config" do
     config = described_class.load(File.expand_path("../config/tickrake.example.yml", __dir__))
 
-    expect(config.jobs.map(&:name)).to eq(%w[index_options eod_candles spx_min_candles manual_candles])
-    expect(config.job("index_options").type).to eq("options")
-    expect(config.job("index_options").interval_seconds).to eq(300)
-    expect(config.job("index_options").dte_buckets).to include(0, 10, 30)
-    expect(config.job("eod_candles").type).to eq("candles")
-    expect(config.job("eod_candles").lookback_days).to eq(7)
-    expect(config.job("manual_candles")).to be_manual
+    expect(config.jobs).to eq([])
     expect(config.default_provider_name).to eq("schwab")
     expect(config.provider_definition("schwab").adapter).to eq("schwab")
     expect(config.provider_definition("schwab").restart_after_consecutive_failures).to eq(3)
@@ -23,8 +17,6 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.import_job("spxw_massive_options").provider).to eq("massive")
     expect(config.import_job("spxw_massive_options").option_root).to eq("SPXW")
     expect(config.import_job("spxw_massive_options").paths).to include(/2025-10-01\.csv/)
-    expect(config.options_universe.map(&:symbol)).to include("$SPX", "SPY")
-    expect(config.job("eod_candles").universe.first.frequencies).to include("day", "30min", "10min", "5min", "1min")
     expect(config.universe("index_option_roots").option_roots).to eq(%w[SPXW SPY QQQ])
     expect(config.datastores["minio_historical"].bucket).to eq("tickrake-historical")
     expect(config.datastores["minio_historical"].type).to eq("minio")
@@ -42,17 +34,6 @@ RSpec.describe Tickrake::ConfigLoader do
           s3_archive:
             type: s3
             bucket: tickrake
-        schedule:
-          index_options:
-            type: options
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [0DTE]
-            universe:
-              - symbol: SPY
       YAML
 
       config = described_class.load(path)
@@ -79,17 +60,6 @@ RSpec.describe Tickrake::ConfigLoader do
             region: us-east-1
             prefix: archive/daily
             storage_class: glacier
-        schedule:
-          index_options:
-            type: options
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [0DTE]
-            universe:
-              - symbol: SPY
       YAML
 
       config = described_class.load(path)
@@ -113,17 +83,6 @@ RSpec.describe Tickrake::ConfigLoader do
           s3_archive:
             type: s3
             bucket:
-        schedule:
-          index_options:
-            type: options
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [0DTE]
-            universe:
-              - symbol: SPY
       YAML
 
       expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /datastore `s3_archive` bucket is required/)
@@ -143,17 +102,6 @@ RSpec.describe Tickrake::ConfigLoader do
             type: s3
             bucket: tickrake
             storage_class: frozen
-        schedule:
-          index_options:
-            type: options
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [0DTE]
-            universe:
-              - symbol: SPY
       YAML
 
       expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /datastore `s3_archive` has invalid storage_class/)
@@ -200,17 +148,6 @@ RSpec.describe Tickrake::ConfigLoader do
             settings:
               restart_after_consecutive_failures: 5
               restart_cooldown_seconds: 45
-        schedule:
-          index_options:
-            type: options
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [0DTE]
-            universe:
-              - symbol: SPY
       YAML
 
       config = described_class.load(path)
@@ -231,17 +168,6 @@ RSpec.describe Tickrake::ConfigLoader do
             adapter: schwab
         options:
           snapshot_filename_timezone: America/Chicago
-        schedule:
-          index_options:
-            type: options
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [0DTE]
-            universe:
-              - symbol: SPY
       YAML
 
       config = described_class.load(path)
@@ -260,17 +186,6 @@ RSpec.describe Tickrake::ConfigLoader do
             adapter: schwab
         options:
           snapshot_filename_timezone: Mars/Olympus
-        schedule:
-          index_options:
-            type: options
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [0DTE]
-            universe:
-              - symbol: SPY
       YAML
 
       expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Invalid options\.snapshot_filename_timezone/)
@@ -288,19 +203,6 @@ RSpec.describe Tickrake::ConfigLoader do
         options:
           root_tickers:
             SPXW: SPX
-        schedule:
-          index_options:
-            type: options
-            provider: massive
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [0DTE]
-            universe:
-              - symbol: SPX
-                option_root: SPXW
       YAML
 
       config = described_class.load(path)
@@ -311,51 +213,8 @@ RSpec.describe Tickrake::ConfigLoader do
     end
   end
 
-  it "loads manual configured jobs without scheduler fields" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "manual-jobs.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-          ibkr-paper:
-            adapter: ibkr
-        schedule:
-          manual_options:
-            type: options
-            manual: true
-            provider: schwab
-            dte_buckets: [0DTE, 30DTE]
-            universe:
-              - symbol: $SPX
-                option_root: SPXW
-              - symbol: SPY
-          manual_candles:
-            type: candles
-            manual: true
-            provider: ibkr-paper
-            lookback_days: 14
-            frequencies: [day, minute]
-            universe:
-              - symbol: SPY
-                start_date: "2020-01-01"
-      YAML
 
-      config = described_class.load(path)
-
-      expect(config.job("manual_options")).to be_manual
-      expect(config.job("manual_options").interval_seconds).to be_nil
-      expect(config.job("manual_options").windows).to eq([])
-      expect(config.job("manual_options").dte_buckets).to eq([0, 30])
-      expect(config.job("manual_candles")).to be_manual
-      expect(config.job("manual_candles").run_at).to be_nil
-      expect(config.job("manual_candles").days).to eq([])
-      expect(config.job("manual_candles").universe.first.frequencies).to eq(%w[day 1min])
-    end
-  end
-
-  it "loads named universes from an external yaml file for options and candles jobs" do
+  it "loads named universes from an external yaml file" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.yml")
       universe_path = File.join(dir, "universes.yml")
@@ -385,59 +244,13 @@ RSpec.describe Tickrake::ConfigLoader do
           s3_archive:
             type: s3
             bucket: tickrake
-        schedule:
-          index_options:
-            type: options
-            provider: schwab
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [0DTE]
-            universe: trading_symbols
-          eod_candles:
-            type: candles
-            provider: ibkr-paper
-            run_at: "15:05"
-            days: [mon]
-            lookback_days: 7
-            start_date: "2020-01-01"
-            frequencies: [day, 1min]
-            universe: futures_symbols
       YAML
 
       config = described_class.load(path)
 
       expect(config.universe("trading_symbols").symbols).to eq(["$SPX", "SPY"])
       expect(config.universe("trading_symbols").option_roots).to eq(%w[SPXW SPY])
-      expect(config.job("index_options").universe.map { |entry| [entry.symbol, entry.option_root] }).to eq([["$SPX", "SPXW"], ["SPY", nil]])
-      candle_entry = config.job("eod_candles").universe.first
-      expect(candle_entry.symbol).to eq("/ES")
-      expect(candle_entry.start_date).to eq(Date.new(2020, 1, 1))
-      expect(candle_entry.frequencies).to eq(%w[day 1min])
-    end
-  end
-
-  it "rejects manual jobs with scheduler fields" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "manual-with-schedule.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-        schedule:
-          manual_options:
-            type: options
-            manual: true
-            interval_seconds: 300
-            dte_buckets: [0DTE]
-            universe:
-              - symbol: SPY
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /manual job `manual_options` cannot define schedule fields/)
+      expect(config.universe("futures_symbols").symbols).to eq(["/ES"])
     end
   end
 
@@ -449,19 +262,6 @@ RSpec.describe Tickrake::ConfigLoader do
         providers:
           massive:
             adapter: massive
-        schedule:
-          index_options:
-            type: options
-            provider: massive
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [0DTE]
-            universe:
-              - symbol: SPX
-                option_root: SPXW
       YAML
 
       config = described_class.load(path)
@@ -470,86 +270,11 @@ RSpec.describe Tickrake::ConfigLoader do
     end
   end
 
-  it "loads multiple named jobs with mixed types and job-level/per-symbol providers" do
+
+  it "rejects schedule defined in YAML configuration" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.yml")
       File.write(path, <<~YAML)
-        default_provider: ibkr-paper
-        providers:
-          schwab:
-            adapter: schwab
-          ibkr-paper:
-            adapter: ibkr
-            settings:
-              host: 127.0.0.1
-        schedule:
-          index_options:
-            type: options
-            provider: schwab
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [0DTE, 2DTE]
-            universe:
-              - symbol: $SPX
-                option_root: SPXW
-          stock_options:
-            type: options
-            interval_seconds: 1800
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [30DTE]
-            universe:
-              - symbol: AAPL
-          eod_candles:
-            type: candles
-            provider: ibkr-paper
-            run_at: "16:05"
-            days: [mon]
-            lookback_days: 7
-            frequencies: [day]
-            universe:
-              - symbol: SPY
-                start_date: "2020-01-01"
-          intraday_candles:
-            type: candles
-            provider: ibkr-paper
-            interval_seconds: 120
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            lookback_days: 7
-            frequencies: [30min, 5min, 1min]
-            universe:
-              - symbol: $SPX
-                start_date: "2026-03-01"
-      YAML
-
-      config = described_class.load(path)
-
-      expect(config.jobs.map(&:name)).to eq(%w[index_options stock_options eod_candles intraday_candles])
-      expect(config.job("index_options").provider).to eq("schwab")
-      expect(config.job("stock_options").dte_buckets).to eq([30])
-      expect(config.job("eod_candles").run_at).to eq([16, 5])
-      expect(config.job("intraday_candles").interval_seconds).to eq(120)
-      expect(config.job("intraday_candles").windows.first.days).to eq(["mon"])
-      expect(config.provider_name_for_entry(config.job("index_options").universe.first, scheduled_job: config.job("index_options"))).to eq("schwab")
-      expect(config.provider_name_for_entry(config.job("stock_options").universe.first, scheduled_job: config.job("stock_options"))).to eq("ibkr-paper")
-
-      expect(config.provider_name_for_entry(config.job("eod_candles").universe.first, scheduled_job: config.job("eod_candles"))).to eq("ibkr-paper")
-      expect(config.provider_name_for_entry(config.job("intraday_candles").universe.first, scheduled_job: config.job("intraday_candles"))).to eq("ibkr-paper")
-    end
-  end
-
-  it "rejects unknown job-level providers" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "bad-job-provider.yml")
-      File.write(path, <<~YAML)
         default_provider: schwab
         providers:
           schwab:
@@ -557,210 +282,11 @@ RSpec.describe Tickrake::ConfigLoader do
         schedule:
           index_options:
             type: options
-            provider: missing
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [0DTE]
-            universe:
-              - symbol: SPY
       YAML
 
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Unknown provider `missing`/)
-    end
-  end
-
-  it "rejects missing job types" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "missing-type.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-        schedule:
-          index_options:
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [0DTE]
-            universe:
-              - symbol: SPY
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /must define type/)
-    end
-  end
-
-  it "rejects unknown job types" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "unknown-type.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-        schedule:
-          weird_job:
-            type: snapshots
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Unknown job type/)
-    end
-  end
-
-  it "rejects malformed dte buckets" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "bad-buckets.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-        schedule:
-          index_options:
-            type: options
-            interval_seconds: 300
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            dte_buckets: [near]
-            universe:
-              - symbol: SPY
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /Invalid DTE bucket/)
-    end
-  end
-
-  it "rejects negative candle lookback days" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "bad-lookback.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-        schedule:
-          eod_candles:
-            type: candles
-            run_at: "16:05"
-            days: [mon]
-            lookback_days: -1
-            frequencies: [day]
-            universe:
-              - symbol: SPY
-                start_date: "2020-01-01"
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /lookback_days must be non-negative/)
-    end
-  end
-
-  it "rejects candle jobs that mix daily and interval schedule fields" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "mixed-candle-schedule.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-        schedule:
-          mixed_candles:
-            type: candles
-            run_at: "16:05"
-            days: [mon]
-            interval_seconds: 120
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            lookback_days: 7
-            frequencies: [day]
-            universe:
-              - symbol: SPY
-                start_date: "2020-01-01"
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /must use either interval_seconds\/windows or run_at\/days, not both/)
-    end
-  end
-
-  it "rejects candle jobs without a schedule shape" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "missing-candle-schedule.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-        schedule:
-          missing_candles:
-            type: candles
-            lookback_days: 7
-            frequencies: [day]
-            universe:
-              - symbol: SPY
-                start_date: "2020-01-01"
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /must define either interval_seconds\/windows or run_at\/days/)
-    end
-  end
-
-  it "rejects non-positive interval candle jobs" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "bad-candle-interval.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-        schedule:
-          intraday_candles:
-            type: candles
-            interval_seconds: 0
-            windows:
-              - days: [mon]
-                start: "08:30"
-                end: "15:00"
-            lookback_days: 7
-            frequencies: [1min]
-            universe:
-              - symbol: SPY
-                start_date: "2020-01-01"
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /interval must be positive/)
-    end
-  end
-
-  it "rejects interval candle jobs without windows" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "bad-candle-windows.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-        schedule:
-          intraday_candles:
-            type: candles
-            interval_seconds: 120
-            windows: []
-            lookback_days: 7
-            frequencies: [1min]
-            universe:
-              - symbol: SPY
-                start_date: "2020-01-01"
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /At least one candles job window is required/)
+      expect do
+        described_class.load(path)
+      end.to raise_error(Tickrake::ConfigError, /Defining jobs in YAML configuration \('schedule'\) is no longer supported/)
     end
   end
 end

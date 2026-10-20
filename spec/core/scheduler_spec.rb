@@ -17,9 +17,43 @@ RSpec.describe "schedulers" do
       allow(double).to receive(:sleep)
     end
   end
+  let(:index_options_job) do
+    Tickrake::ScheduledJobConfig.new(
+      name: "index_options",
+      type: "options",
+      provider: "schwab",
+      interval_seconds: 300,
+      windows: [Tickrake::SchedulerWindow.new(days: %w[mon tue wed thu fri], start_time: [8, 30], end_time: [15, 0])],
+      run_at: nil,
+      days: [],
+      lookback_days: nil,
+      dte_buckets: [0, 10, 30],
+      universe: [
+        Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW"),
+        Tickrake::OptionSymbol.new(symbol: "SPY", option_root: nil),
+        Tickrake::OptionSymbol.new(symbol: "QQQ", option_root: nil)
+      ]
+    )
+  end
+  let(:eod_candles_job) do
+    Tickrake::ScheduledJobConfig.new(
+      name: "eod_candles",
+      type: "candles",
+      provider: "ibkr-paper",
+      interval_seconds: nil,
+      windows: [],
+      run_at: [16, 5],
+      days: %w[mon tue wed thu fri],
+      lookback_days: 7,
+      dte_buckets: [],
+      universe: [
+        Tickrake::CandleSymbol.new(symbol: "$SPX", frequencies: %w[day 30min 10min 5min 1min], start_date: Date.iso8601("2020-01-01"))
+      ]
+    )
+  end
 
   it "runs an options job only inside its configured windows" do
-    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"))
+    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: index_options_job)
 
     inside = Time.new(2026, 4, 6, 9, 0, 0, "-05:00")
     outside = Time.new(2026, 4, 6, 16, 0, 0, "-05:00")
@@ -29,7 +63,7 @@ RSpec.describe "schedulers" do
   end
 
   it "runs a candles job once after configured time" do
-    runner = Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: config.job("eod_candles"))
+    runner = Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: eod_candles_job)
 
     before = Time.new(2026, 4, 6, 16, 4, 0, "-05:00")
     after = Time.new(2026, 4, 6, 16, 5, 0, "-05:00")
@@ -49,7 +83,7 @@ RSpec.describe "schedulers" do
       days: [],
       lookback_days: 7,
       dte_buckets: [],
-      universe: config.job("eod_candles").universe
+      universe: eod_candles_job.universe
     )
     runner = Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: job)
 
@@ -70,7 +104,7 @@ RSpec.describe "schedulers" do
   it "keeps the options scheduler alive after an iteration failure and applies backoff" do
     failing_job = instance_double(Tickrake::OptionsJob)
     runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
-    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
+    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: index_options_job, sleeper: sleeper)
 
     runner.instance_variable_set(:@job, failing_job)
     allow(failing_job).to receive(:run).and_raise(Timeout::Error, "timed out")
@@ -85,7 +119,7 @@ RSpec.describe "schedulers" do
   it "counts degraded schwab options iterations as failures and exits after the threshold" do
     degraded_job = instance_double(Tickrake::OptionsJob)
     runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
-    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
+    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: index_options_job, sleeper: sleeper)
 
     runner.instance_variable_set(:@job, degraded_job)
     allow(degraded_job).to receive(:run).and_return(
@@ -107,7 +141,7 @@ RSpec.describe "schedulers" do
   it "counts timeout-degraded schwab options iterations as failures and exits after the threshold" do
     degraded_job = instance_double(Tickrake::OptionsJob)
     runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
-    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
+    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: index_options_job, sleeper: sleeper)
 
     runner.instance_variable_set(:@job, degraded_job)
     allow(degraded_job).to receive(:run).and_return(
@@ -129,7 +163,7 @@ RSpec.describe "schedulers" do
   it "counts raised schwab iteration exceptions toward the restart threshold" do
     failing_job = instance_double(Tickrake::OptionsJob)
     runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
-    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
+    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: index_options_job, sleeper: sleeper)
 
     runner.instance_variable_set(:@job, failing_job)
     allow(failing_job).to receive(:run).and_raise(Timeout::Error, "timed out")
@@ -147,7 +181,7 @@ RSpec.describe "schedulers" do
   it "resets the consecutive failure count after a successful schwab options iteration" do
     job = instance_double(Tickrake::OptionsJob)
     runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
-    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: config.job("index_options"), sleeper: sleeper)
+    runner = Tickrake::OptionsMonitorRunner.new(runtime, scheduled_job: index_options_job, sleeper: sleeper)
 
     runner.instance_variable_set(:@job, job)
     allow(job).to receive(:run).and_return(
@@ -168,7 +202,7 @@ RSpec.describe "schedulers" do
   it "keeps the candles scheduler alive after an iteration failure and applies backoff" do
     failing_job = instance_double(Tickrake::CandlesJob)
     runtime = Tickrake::Runtime.new(config: config, tracker: tracker, client_factory: client_factory, logger: logger)
-    runner = Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: config.job("eod_candles"), sleeper: sleeper)
+    runner = Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: eod_candles_job, sleeper: sleeper)
 
     runner.instance_variable_set(:@job, failing_job)
     allow(failing_job).to receive(:run).and_raise(StandardError, "boom")
@@ -193,7 +227,7 @@ RSpec.describe "schedulers" do
       days: [],
       lookback_days: 7,
       dte_buckets: [],
-      universe: config.job("eod_candles").universe
+      universe: eod_candles_job.universe
     )
     runner = Tickrake::CandlesSchedulerRunner.new(runtime, scheduled_job: scheduled_job, sleeper: sleeper)
 

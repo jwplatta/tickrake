@@ -66,16 +66,6 @@ RSpec.describe Tickrake::DataLoader do
         providers:
           ibkr-paper:
             adapter: ibkr
-        schedule:
-          manual_candles:
-            type: candles
-            manual: true
-            provider: ibkr-paper
-            lookback_days: 7
-            frequencies: [1min]
-            universe:
-              - symbol: SPY
-                start_date: "2026-01-01"
       YAML
 
       loader = described_class.new(config_path: path)
