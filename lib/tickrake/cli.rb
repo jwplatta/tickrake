@@ -85,16 +85,27 @@ module Tickrake
     end
 
     def publish_staging_command(argv, config, common_options)
-      options = { datastore: nil, datasets: nil, batch_size: nil, delete_after_upload: true }
+      options = { datastore: nil, datasets: nil, batch_size: nil, delete_after_upload: true, after: nil, before: nil }
       parser = OptionParser.new do |opts|
         opts.on("--datastore NAME", "Staging datastore name from config") { |v| options[:datastore] = v }
         opts.on("--dataset TYPE", "Dataset to publish (options, candles, level_one, order_book, fundamentals, economic_events, or all)") do |v|
           options[:datasets] = v.split(",").map(&:strip)
         end
+        opts.on("--after DATE", "Publish files on or after this date (inclusive, YYYY-MM-DD)") do |v|
+          options[:after] = parse_cli_date_option!(v, option_name: "--after")
+        end
+        opts.on("--before DATE", "Publish files before this date (exclusive, YYYY-MM-DD)") do |v|
+          options[:before] = parse_cli_date_option!(v, option_name: "--before")
+        end
         opts.on("--batch-size N", Integer, "Maximum number of files to upload") { |v| options[:batch_size] = v }
         opts.on("--no-delete", "Do not delete published local files after upload") { options[:delete_after_upload] = false }
       end
       parser.order!(argv)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+
+      if options[:after] && options[:before] && options[:after] >= options[:before]
+        raise Tickrake::Error, "--after must be before --before."
+      end
 
       runtime = Tickrake::Runtime.new(
         config: config,
@@ -112,7 +123,9 @@ module Tickrake
       summary = publisher.scan_and_publish(
         dataset_types: options[:datasets],
         batch_size: options[:batch_size],
-        delete_after_upload: options[:delete_after_upload]
+        delete_after_upload: options[:delete_after_upload],
+        after: options[:after],
+        before: options[:before]
       )
       @stdout.puts("Staging publish complete: scanned #{summary[:files_scanned]} file(s), uploaded #{summary[:files_uploaded]} file(s), deleted #{summary[:files_deleted]} file(s).")
       0
@@ -464,6 +477,17 @@ module Tickrake
       raise Tickrake::Error, "#{option_name} must be true or false."
     end
 
+    def parse_cli_date_option!(value, option_name:)
+      str = value.to_s.strip
+      if str.include?("T") || str.include?(":")
+        Time.iso8601(str)
+      else
+        Date.iso8601(str)
+      end
+    rescue ArgumentError
+      raise Tickrake::Error, "#{option_name} must be a valid ISO8601 date (YYYY-MM-DD) or timestamp."
+    end
+
     def init_command(argv)
       options = { force: false, config_path: Tickrake::PathSupport.config_path }
       parser = OptionParser.new do |opts|
@@ -500,7 +524,7 @@ module Tickrake
           tickrake init [--config path/to/tickrake.yml] [--force]
           tickrake validate-config [--config path/to/tickrake.yml] [--verbose]
           tickrake migrate [--config path/to/tickrake.yml]
-          tickrake publish-staging [--datastore NAME] [--dataset TYPE] [--batch-size N] [--no-delete] [--config path/to/tickrake.yml] [--verbose]
+          tickrake publish-staging [--datastore NAME] [--dataset TYPE] [--after DATE] [--before DATE] [--batch-size N] [--no-delete] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --job JOB_NAME [--provider NAME] [--from-config-start] [--start-date YYYY-MM-DD --end-date YYYY-MM-DD] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type options --ticker SYMBOL --expiration-date YYYY-MM-DD [--option-root ROOT] [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type candles --ticker SYMBOL --start-date YYYY-MM-DD --end-date YYYY-MM-DD --frequency FREQ [--provider NAME] [--config path/to/tickrake.yml] [--verbose]

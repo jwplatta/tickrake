@@ -103,5 +103,86 @@ RSpec.describe Tickrake::Storage::StagingPublisher do
         expect(summary[:files_uploaded]).to eq(0)
       end
     end
+
+    it "filters files with inclusive after and exclusive before bounds" do
+      Dir.mktmpdir do |dir|
+        allow(Tickrake::PathSupport).to receive(:expand_path).with("/tmp/tickrake_data").and_return(dir)
+        publisher = described_class.new(runtime: runtime)
+
+        # Create three option files on consecutive days: Oct 15, Oct 16, Oct 17
+        dir15 = File.join(dir, "options", "schwab", "2026", "10", "15")
+        dir16 = File.join(dir, "options", "schwab", "2026", "10", "16")
+        dir17 = File.join(dir, "options", "schwab", "2026", "10", "17")
+        FileUtils.mkdir_p(dir15)
+        FileUtils.mkdir_p(dir16)
+        FileUtils.mkdir_p(dir17)
+
+        file15 = File.join(dir15, "SPY_exp2026-10-15.csv")
+        file16 = File.join(dir16, "SPY_exp2026-10-16.csv")
+        file17 = File.join(dir17, "SPY_exp2026-10-17.csv")
+        File.write(file15, "15")
+        File.write(file16, "16")
+        File.write(file17, "17")
+
+        # Range: after: 2026-10-16 (inclusive), before: 2026-10-17 (exclusive) => only file16 matches
+        expect(s3_archive).to receive(:upload_file).with(file16, key: "options/schwab/2026/10/16/SPY_exp2026-10-16.csv").and_return(remote_obj)
+        expect(s3_archive).not_to receive(:upload_file).with(file15, any_args)
+        expect(s3_archive).not_to receive(:upload_file).with(file17, any_args)
+
+        summary = publisher.scan_and_publish(
+          after: Date.new(2026, 10, 16),
+          before: Date.new(2026, 10, 17)
+        )
+
+        expect(summary[:files_scanned]).to eq(1)
+        expect(summary[:files_uploaded]).to eq(1)
+        expect(File.exist?(file15)).to be(true)
+        expect(File.exist?(file16)).to be(false)
+        expect(File.exist?(file17)).to be(true)
+      end
+    end
+
+    it "filters undated files like candles using File.mtime" do
+      Dir.mktmpdir do |dir|
+        allow(Tickrake::PathSupport).to receive(:expand_path).with("/tmp/tickrake_data").and_return(dir)
+        publisher = described_class.new(runtime: runtime)
+
+        candles_dir = File.join(dir, "candles", "daily")
+        FileUtils.mkdir_p(candles_dir)
+        candle_file = File.join(candles_dir, "QQQ_day.csv")
+        File.write(candle_file, "time,open\n")
+
+        # Set mtime to 2026-10-16 12:00:00
+        target_time = Time.utc(2026, 10, 16, 12, 0, 0)
+        File.utime(target_time, target_time, candle_file)
+
+        # Filter after 2026-10-17 should skip it
+        summary = publisher.scan_and_publish(after: "2026-10-17")
+        expect(summary[:files_scanned]).to eq(0)
+        expect(summary[:files_uploaded]).to eq(0)
+        expect(File.exist?(candle_file)).to be(true)
+
+        # Filter after 2026-10-16 and before 2026-10-17 should match
+        expect(s3_archive).to receive(:upload_file).with(candle_file, key: "candles/daily/QQQ_day.csv").and_return(remote_obj)
+        summary2 = publisher.scan_and_publish(after: "2026-10-16", before: "2026-10-17")
+        expect(summary2[:files_scanned]).to eq(1)
+        expect(summary2[:files_uploaded]).to eq(1)
+      end
+    end
+
+    it "raises ArgumentError when after >= before" do
+      Dir.mktmpdir do |dir|
+        allow(Tickrake::PathSupport).to receive(:expand_path).with("/tmp/tickrake_data").and_return(dir)
+        publisher = described_class.new(runtime: runtime)
+
+        expect do
+          publisher.scan_and_publish(after: "2026-10-20", before: "2026-10-20")
+        end.to raise_error(ArgumentError, /after boundary must be before before boundary/)
+
+        expect do
+          publisher.scan_and_publish(after: "2026-10-21", before: "2026-10-20")
+        end.to raise_error(ArgumentError, /after boundary must be before before boundary/)
+      end
+    end
   end
 end

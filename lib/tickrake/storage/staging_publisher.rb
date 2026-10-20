@@ -26,9 +26,18 @@ module Tickrake
         @data_dir = Tickrake::PathSupport.expand_path(@config.data_dir)
       end
 
-      def scan_and_publish(dataset_types: nil, batch_size: nil, delete_after_upload: true)
+      def scan_and_publish(dataset_types: nil, batch_size: nil, delete_after_upload: true, after: nil, before: nil)
+        parsed_after = parse_boundary(after)
+        parsed_before = parse_boundary(before)
+        if parsed_after && parsed_before && parsed_after >= parsed_before
+          raise ArgumentError, "after boundary must be before before boundary"
+        end
+
         target_datasets = normalize_datasets(dataset_types)
-        @runtime.logger.info("staging_publisher: starting scan for datasets: #{target_datasets.join(', ')} (delete_after_upload=#{delete_after_upload})")
+        log_details = ["datasets: #{target_datasets.join(', ')}", "delete_after_upload=#{delete_after_upload}"]
+        log_details << "after=#{parsed_after}" if parsed_after
+        log_details << "before=#{parsed_before}" if parsed_before
+        @runtime.logger.info("staging_publisher: starting scan for #{log_details.join(', ')}")
 
         files_scanned = 0
         files_uploaded = 0
@@ -41,6 +50,7 @@ module Tickrake
           pattern = File.join(dataset_dir, DATASET_PATTERNS.fetch(dataset_type, "**/*"))
           Dir.glob(pattern).each do |file_path|
             next if file_path.end_with?(".tmp")
+            next unless file_matches_date_range?(file_path, dataset_type, after: parsed_after, before: parsed_before)
 
             files_scanned += 1
             break if batch_size && files_uploaded >= batch_size
@@ -145,6 +155,64 @@ module Tickrake
       end
 
       private
+
+      def parse_boundary(value)
+        return nil if value.nil?
+        return value if value.is_a?(Date) || value.is_a?(Time)
+
+        str = value.to_s.strip
+        return nil if str.empty?
+
+        if str.include?("T") || str.include?(":")
+          Time.iso8601(str)
+        else
+          Date.iso8601(str)
+        end
+      rescue ArgumentError => e
+        raise ArgumentError, "invalid date/time boundary #{value.inspect}: #{e.message}"
+      end
+
+      def file_matches_date_range?(file_path, dataset_type, after:, before:)
+        return true if after.nil? && before.nil?
+
+        file_temporal = resolve_file_temporal(file_path, dataset_type)
+        return true if file_temporal.nil?
+
+        if after
+          after_cmp = boundary_for_comparison(after, file_temporal)
+          return false if file_temporal < after_cmp
+        end
+
+        if before
+          before_cmp = boundary_for_comparison(before, file_temporal)
+          return false if file_temporal >= before_cmp
+        end
+
+        true
+      end
+
+      def resolve_file_temporal(file_path, dataset_type)
+        meta = extract_metadata(dataset_type, file_path)
+        if meta[:date]
+          begin
+            return Date.iso8601(meta[:date])
+          rescue ArgumentError
+            # Fall back to file modification time if metadata date string is malformed
+          end
+        end
+
+        File.mtime(file_path) if File.exist?(file_path)
+      end
+
+      def boundary_for_comparison(boundary, file_temporal)
+        if file_temporal.is_a?(Date) && boundary.is_a?(Time)
+          boundary.to_date
+        elsif file_temporal.is_a?(Time) && boundary.is_a?(Date)
+          boundary.to_time
+        else
+          boundary
+        end
+      end
 
       def normalize_datasets(datasets)
         return VALID_DATASETS if datasets.nil? || datasets.empty?
