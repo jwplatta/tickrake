@@ -13,7 +13,7 @@ options = {
   data_dir: nil,
   config_path: Tickrake::PathSupport.config_path,
   dry_run: false,
-  delete_migrated: true
+  delete_migrated: false
 }
 
 parser = OptionParser.new do |opts|
@@ -39,8 +39,8 @@ parser = OptionParser.new do |opts|
     options[:dry_run] = true
   end
 
-  opts.on("--no-delete", "Do not delete migrated pending_events files after successful migration") do
-    options[:delete_migrated] = false
+  opts.on("--delete", "Delete migrated pending_events files after successful migration (default: keep source files)") do
+    options[:delete_migrated] = true
   end
 end
 

@@ -64,8 +64,17 @@ module Tickrake
     private
 
     def resolve_loop(stream:, resolver:)
+      stats_log_interval = 30
+      last_stats_log = Time.now
+
       until @stop_requested
         sleep(0.25)
+
+        if (Time.now - last_stats_log) >= stats_log_interval
+          @events_writer&.flush_progress
+          last_stats_log = Time.now
+        end
+
         next unless resolver
 
         elapsed = Time.now - @last_resolved_at

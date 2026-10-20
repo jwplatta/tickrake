@@ -103,4 +103,62 @@ RSpec.describe Tickrake::Streaming::EventStreamWriter do
       expect(line["bids_json"]).to eq("[]")
     end
   end
+
+  describe "intraday byte tracking and progress logging" do
+    let(:logged_events) { [] }
+    let(:test_logger) do
+      l = instance_double(Logger)
+      allow(l).to receive(:info) { |payload| logged_events << payload }
+      allow(l).to receive(:warn)
+      allow(l).to receive(:error)
+      l
+    end
+
+    subject(:writer) do
+      described_class.new(
+        config: config,
+        logger: test_logger,
+        dataset_type: "level_one",
+        provider: "schwab",
+        provider_definition: provider_def,
+        log_interval: 10 # 10 seconds
+      )
+    end
+
+    it "tracks byte count and emits structured stream_bytes_written events on close and on interval" do
+      writer.write("symbol" => "SPY", "bid" => 580.1)
+      writer.write("symbol" => "SPY", "bid" => 580.2)
+
+      today_str = Time.now.utc.strftime("%Y-%m-%d")
+      spy_stat = writer.stats[[today_str, "SPY"]]
+      expect(spy_stat[:event_count]).to eq(2)
+      expect(spy_stat[:byte_count]).to be > 0
+
+      # Flushing with force logs all pending bytes
+      writer.flush_progress(force: true)
+      expect(logged_events.size).to eq(1)
+
+      log_evt = logged_events.first
+      expect(log_evt[:event]).to eq("stream_bytes_written")
+      expect(log_evt[:symbol]).to eq("SPY")
+      expect(log_evt[:dataset_type]).to eq("level_one")
+      expect(log_evt[:provider]).to eq("schwab")
+      expect(log_evt[:market_date]).to eq(today_str)
+      expect(log_evt[:byte_count]).to eq(spy_stat[:byte_count])
+      expect(log_evt[:delta_bytes]).to eq(spy_stat[:byte_count])
+      expect(log_evt[:event_count]).to eq(2)
+      expect(log_evt[:delta_events]).to eq(2)
+
+      # Second write and close flushes remaining delta
+      writer.write("symbol" => "SPY", "bid" => 580.3)
+      writer.close
+
+      expect(logged_events.size).to eq(2)
+      second_evt = logged_events.last
+      expect(second_evt[:event_count]).to eq(3)
+      expect(second_evt[:delta_events]).to eq(1)
+      expect(second_evt[:byte_count]).to be > log_evt[:byte_count]
+      expect(second_evt[:delta_bytes]).to eq(second_evt[:byte_count] - log_evt[:byte_count])
+    end
+  end
 end

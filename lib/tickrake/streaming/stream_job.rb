@@ -181,6 +181,7 @@ module Tickrake
         # Periodic delivery stats logging
         if (Time.now - last_stats_log) >= stats_log_interval
           log_delivery_stats
+          flush_all_writers_progress
           last_stats_log = Time.now
         end
 
@@ -473,6 +474,12 @@ module Tickrake
             provider_definition: provider_def
           )
         end
+      end
+    end
+
+    def flush_all_writers_progress
+      @writers_mu.synchronize do
+        @writers.each_value(&:flush_progress)
       end
     end
 

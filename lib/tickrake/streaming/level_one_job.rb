@@ -123,10 +123,18 @@ module Tickrake
     # Logs a +stream_stale+ event and returns (causing the caller to reconnect)
     # if no event arrives within @stale_timeout seconds.
     def watchdog(stream)
+      stats_log_interval = 30
+      last_stats_log = Time.now
+
       loop do
         sleep(WATCHDOG_POLL_SECONDS)
 
         break if @stop_requested
+
+        if (Time.now - last_stats_log) >= stats_log_interval
+          @events_writer&.flush_progress
+          last_stats_log = Time.now
+        end
 
         last = @last_event_mu.synchronize { @last_event_at }
         elapsed = last ? (Time.now - last) : @stale_timeout + 1
