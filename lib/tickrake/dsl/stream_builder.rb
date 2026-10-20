@@ -28,18 +28,6 @@ module Tickrake
         @services = Array(list)
       end
 
-      def rotation_interval(seconds)
-        @rotation_interval_seconds = Integer(seconds)
-      end
-
-      def rotation_size(bytes)
-        @rotation_size_bytes = Integer(bytes)
-      end
-
-      def rotation_size_mb(megabytes)
-        @rotation_size_bytes = (Float(megabytes) * 1024 * 1024).round
-      end
-
       def flush_interval(seconds)
         @flush_interval_seconds = Integer(seconds)
       end
@@ -73,9 +61,7 @@ module Tickrake
                      raise Tickrake::Error, "Unknown level_one services in `#{@name}`: #{unknown.join(", ")}" unless unknown.empty?
 
                      Tickrake::LevelOneConfig.new(
-                       services: symbols_sym,
-                       rotation_interval_seconds: @rotation_interval_seconds || 300,
-                       rotation_size_bytes: @rotation_size_bytes
+                       services: symbols_sym
                      )
                    when :order_book
                      normalized = @services.map { |s| s.to_s.upcase }
@@ -85,8 +71,6 @@ module Tickrake
 
                      Tickrake::OrderBookConfig.new(
                        services: normalized,
-                       rotation_interval_seconds: @rotation_interval_seconds || 300,
-                       rotation_size_bytes: @rotation_size_bytes,
                        contracts: nil
                      )
                    when :chart_stream

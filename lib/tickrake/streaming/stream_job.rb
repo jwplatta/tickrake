@@ -55,14 +55,6 @@ module Tickrake
       @stop_requested = false
       attempts = 0
 
-      # Recover any stale files for our writer names
-      @stream_config.subscriptions.each do |sub|
-        next if sub.kind == :chart_stream
-
-        writer = get_or_create_writer(sub)
-        writer.recover_stale_files
-      end
-
       loop do
         break if @stop_requested
 
@@ -470,13 +462,17 @@ module Tickrake
 
     def get_or_create_writer(subscription)
       @writers_mu.synchronize do
-        @writers[subscription.name] ||= Tickrake::EventsWriter.new(
-          pending_events_dir: @runtime.config.pending_events_dir,
-          job_name: subscription.name,
-          rotation_interval_seconds: subscription.settings.rotation_interval_seconds,
-          rotation_size_bytes: subscription.settings.respond_to?(:rotation_size_bytes) ? subscription.settings.rotation_size_bytes : nil,
-          logger: @runtime.logger
-        )
+        @writers[subscription.name] ||= begin
+          provider_def = @runtime.config.provider_definition(@provider)
+          dataset_type = subscription.kind.to_s
+          Tickrake::Streaming::EventStreamWriter.new(
+            config: @runtime.config,
+            logger: @runtime.logger,
+            dataset_type: dataset_type,
+            provider: @provider,
+            provider_definition: provider_def
+          )
+        end
       end
     end
 

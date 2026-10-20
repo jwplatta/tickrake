@@ -3,17 +3,20 @@
 require "spec_helper"
 
 RSpec.describe Tickrake::LevelOneJob do
-  let(:pending_events_dir) { Dir.mktmpdir("events") }
+  let(:data_dir) { Dir.mktmpdir("data") }
   let(:logger) { instance_double(Logger, info: nil, warn: nil, error: nil) }
   let(:level_one_config) do
     instance_double(
       Tickrake::LevelOneConfig,
-      services: [:level_one_futures],
-      rotation_interval_seconds: 300
+      services: [:level_one_futures]
     )
   end
   let(:config) do
-    instance_double(Tickrake::Config, pending_events_dir: pending_events_dir)
+    instance_double(
+      Tickrake::Config,
+      data_dir: data_dir,
+      provider_definition: nil
+    )
   end
   let(:runtime) do
     instance_double(Tickrake::Runtime, config: config, logger: logger)
@@ -30,7 +33,7 @@ RSpec.describe Tickrake::LevelOneJob do
 
   subject(:job) { described_class.new(runtime, scheduled_job: scheduled_job) }
 
-  after { FileUtils.rm_rf(pending_events_dir) }
+  after { FileUtils.rm_rf(data_dir) }
 
   # ---------------------------------------------------------------------------
   # Helpers
@@ -82,10 +85,10 @@ RSpec.describe Tickrake::LevelOneJob do
   # ---------------------------------------------------------------------------
 
   describe "#handle_event (private)" do
-    let(:writer) { instance_double(Tickrake::EventsWriter, write: nil, close: nil, recover_stale_files: nil) }
+    let(:writer) { instance_double(Tickrake::Streaming::EventStreamWriter, write: nil, close: nil) }
 
     before do
-      allow(Tickrake::EventsWriter).to receive(:new).and_return(writer)
+      allow(Tickrake::Streaming::EventStreamWriter).to receive(:new).and_return(writer)
     end
 
     it "writes a level_one row for a valid LEVELONE_FUTURES event" do
@@ -135,10 +138,10 @@ RSpec.describe Tickrake::LevelOneJob do
 
   describe "#run_session watchdog" do
     let(:fake_stream) { FakeStream.new }
-    let(:writer) { instance_double(Tickrake::EventsWriter, write: nil, close: nil, recover_stale_files: nil) }
+    let(:writer) { instance_double(Tickrake::Streaming::EventStreamWriter, write: nil, close: nil) }
 
     before do
-      allow(Tickrake::EventsWriter).to receive(:new).and_return(writer)
+      allow(Tickrake::Streaming::EventStreamWriter).to receive(:new).and_return(writer)
       allow(Tickrake::ClientFactory).to receive(:new).and_return(double(build: nil))
 
       call_count = 0
@@ -192,8 +195,8 @@ RSpec.describe Tickrake::LevelOneJob do
 
   describe "#stop" do
     it "causes run_session to exit without reconnecting" do
-      writer = instance_double(Tickrake::EventsWriter, write: nil, close: nil, recover_stale_files: nil)
-      allow(Tickrake::EventsWriter).to receive(:new).and_return(writer)
+      writer = instance_double(Tickrake::Streaming::EventStreamWriter, write: nil, close: nil)
+      allow(Tickrake::Streaming::EventStreamWriter).to receive(:new).and_return(writer)
       allow(Tickrake::ClientFactory).to receive(:new).and_return(double(build: nil))
 
       stream = FakeStream.new

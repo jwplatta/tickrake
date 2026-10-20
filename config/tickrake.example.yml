@@ -46,7 +46,6 @@ storage:
   history_dir: ~/.tickrake/data/history
   options_dir: ~/.tickrake/data/options
   pending_metadata_dir: ~/.tickrake/staging/pending_metadata
-  pending_events_dir: ~/.tickrake/staging/pending_events
 
 datastores:
   minio_historical:

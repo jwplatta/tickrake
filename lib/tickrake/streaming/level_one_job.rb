@@ -41,20 +41,19 @@ module Tickrake
       @last_event_at  = nil
       @last_event_mu  = Mutex.new
 
-      @events_writer = Tickrake::EventsWriter.new(
-        pending_events_dir: runtime.config.pending_events_dir,
-        job_name: @job_name,
-        rotation_interval_seconds: @level_one_config.rotation_interval_seconds,
-        rotation_size_bytes: @level_one_config.respond_to?(:rotation_size_bytes) ? @level_one_config.rotation_size_bytes : nil,
-        logger: runtime.logger
+      provider_def = runtime.config.provider_definition(@provider)
+      @events_writer = Tickrake::Streaming::EventStreamWriter.new(
+        config: runtime.config,
+        logger: runtime.logger,
+        dataset_type: "level_one",
+        provider: @provider,
+        provider_definition: provider_def
       )
     end
 
     def run_session(window_start:)
       @stop_requested = false
       attempts = 0
-
-      @events_writer.recover_stale_files
 
       loop do
         break if @stop_requested
