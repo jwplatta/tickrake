@@ -353,10 +353,12 @@ RSpec.describe Tickrake::CLI do
     allow(config).to receive(:provider_definition).with("schwab").and_return(double("schwab_provider"))
     publisher = instance_double(Tickrake::Storage::StagingPublisher)
     allow(Tickrake::Storage::StagingPublisher).to receive(:new).and_return(publisher)
-    allow(publisher).to receive(:scan_and_publish).with(
+    expect(publisher).to receive(:scan_and_publish).with(
       dataset_types: ["options"],
       batch_size: 10,
-      delete_after_upload: false
+      delete_after_upload: false,
+      after: nil,
+      before: nil
     ).and_return(
       files_scanned: 5,
       files_uploaded: 2,
@@ -372,5 +374,63 @@ RSpec.describe Tickrake::CLI do
 
     expect(exit_code).to eq(0)
     expect(stdout.string).to include("Staging publish complete: scanned 5 file(s), uploaded 2 file(s), deleted 0 file(s).")
+  end
+
+  it "executes publish-staging command with --after and --before filters" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
+    allow(config).to receive(:provider_definition).with("schwab").and_return(double("schwab_provider"))
+    publisher = instance_double(Tickrake::Storage::StagingPublisher)
+    allow(Tickrake::Storage::StagingPublisher).to receive(:new).and_return(publisher)
+    expect(publisher).to receive(:scan_and_publish).with(
+      dataset_types: ["options"],
+      batch_size: nil,
+      delete_after_upload: true,
+      after: Date.new(2026, 10, 15),
+      before: Date.new(2026, 10, 20)
+    ).and_return(
+      files_scanned: 3,
+      files_uploaded: 3,
+      files_deleted: 3
+    )
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "publish-staging",
+      "--dataset", "options",
+      "--after", "2026-10-15",
+      "--before", "2026-10-20"
+    ])
+
+    expect(exit_code).to eq(0)
+    expect(stdout.string).to include("Staging publish complete: scanned 3 file(s), uploaded 3 file(s), deleted 3 file(s).")
+  end
+
+  it "rejects invalid date format for --after and --before in publish-staging" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "publish-staging",
+      "--after", "not-a-date"
+    ])
+
+    expect(exit_code).to eq(1)
+    expect(stderr.string).to include("--after must be a valid ISO8601 date (YYYY-MM-DD) or timestamp.")
+  end
+
+  it "rejects --after when greater than or equal to --before in publish-staging" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "publish-staging",
+      "--after", "2026-10-20",
+      "--before", "2026-10-15"
+    ])
+
+    expect(exit_code).to eq(1)
+    expect(stderr.string).to include("--after must be before --before.")
   end
 end
