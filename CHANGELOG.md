@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 - Updated `DuckdbOptionCompactedWriter` to sort option sample Parquet files by `expiration_date, sampled_at, strike, contract_type, symbol` to optimize Parquet row-group pruning for expiration filters and preserve chain snapshot locality for backtesting.
 - Updated option sample Parquet compaction to use `ZSTD` compression (matching Apache Iceberg standards) and `ROW_GROUP_SIZE 50000`.
 
+### Removed
+- Removed support for defining scheduled jobs in YAML configuration (`schedule`). All jobs are now defined using the Ruby DSL (`Tickrake.job`). `ConfigLoader` now rejects YAML configuration containing a `schedule` mapping with an explicit error.
+
 ### Added
 - Added standalone migration script `scripts/rewrite_options_parquet.rb` to re-encode and re-sort existing option sample Parquet files in-place with atomic verification.
 - Added per-service delivery counters, accepted/discarded record metrics, and last-event timestamps to `StreamJob` to prevent chart traffic from masking silent Level One feeds.

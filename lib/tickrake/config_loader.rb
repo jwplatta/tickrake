@@ -5,8 +5,6 @@ require "tzinfo"
 module Tickrake
   class ConfigLoader
     VALID_ADAPTERS = %w[schwab ibkr massive].freeze
-    VALID_DAYS = %w[mon tue wed thu fri sat sun].freeze
-    VALID_JOB_TYPES = %w[options candles].freeze
     VALID_IMPORT_TYPES = %w[options].freeze
     VALID_S3_STORAGE_CLASSES = %w[STANDARD STANDARD_IA GLACIER GLACIER_IR].freeze
     VALID_DATASTORE_TYPES = %w[s3 s3_compatible minio].freeze
@@ -41,9 +39,11 @@ module Tickrake
       )
       datastores = load_datastores(data.fetch("datastores", {}))
       universes = load_universes(data.fetch("universes", {}))
-      @universes = universes
+      if data.key?("schedule")
+        raise ConfigError, "Defining jobs in YAML configuration ('schedule') is no longer supported. Define jobs using the DSL instead."
+      end
+
       runtime = data.fetch("runtime", {})
-      jobs = load_jobs(data.fetch("schedule", {}))
       import_jobs = load_import_jobs(data.fetch("imports", {}))
 
       config = Config.new(
@@ -67,7 +67,7 @@ module Tickrake
         retry_delay_seconds: Integer(runtime.fetch("retry_delay_seconds", 2)),
         option_fetch_timeout_seconds: Integer(runtime.fetch("option_fetch_timeout_seconds", 30)),
         candle_fetch_timeout_seconds: Integer(runtime.fetch("candle_fetch_timeout_seconds", 60)),
-        jobs: jobs,
+        jobs: [],
         import_jobs: import_jobs
       )
 
@@ -84,25 +84,6 @@ module Tickrake
       end
 
       config.provider_definition(config.default_provider_name)
-
-      config.jobs.each do |job|
-        raise ConfigError, "Unknown job type `#{job.type}` for `#{job.name}`." unless VALID_JOB_TYPES.include?(job.type)
-        config.provider_definition(job.provider) if job.provider
-
-        if job.options?
-          unless job.manual?
-            raise ConfigError, "options job `#{job.name}` interval must be positive." if job.interval_seconds.to_i <= 0
-            raise ConfigError, "At least one options job window is required for `#{job.name}`." if job.windows.empty?
-          end
-          raise ConfigError, "At least one options universe symbol is required for `#{job.name}`." if job.universe.empty?
-          job.universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
-        elsif job.candles?
-          raise ConfigError, "At least one candle universe symbol is required for `#{job.name}`." if job.universe.empty?
-          raise ConfigError, "candle lookback_days must be non-negative for `#{job.name}`." if job.lookback_days.to_i.negative?
-          validate_candle_schedule!(job)
-          job.universe.each { |entry| config.provider_definition(entry.provider) if entry.provider }
-        end
-      end
 
       config.import_jobs.each do |job|
         raise ConfigError, "Unknown import type `#{job.type}` for `#{job.name}`." unless VALID_IMPORT_TYPES.include?(job.type)
@@ -338,14 +319,6 @@ module Tickrake
       end
     end
 
-    def load_jobs(schedule)
-      raise ConfigError, "schedule must be a mapping." unless schedule.is_a?(Hash)
-
-      schedule.map do |name, raw_job|
-        build_job(name, raw_job)
-      end
-    end
-
     def load_import_jobs(imports)
       raise ConfigError, "imports must be a mapping." unless imports.is_a?(Hash)
 
@@ -370,188 +343,6 @@ module Tickrake
         paths: Array(raw_job.fetch("paths")).map(&:to_s),
         force: !!raw_job.fetch("force", false)
       )
-    end
-
-    def build_job(name, raw_job)
-      raise ConfigError, "job `#{name}` must be a mapping." unless raw_job.is_a?(Hash)
-      raise ConfigError, "job `#{name}` must define type." unless raw_job.key?("type")
-
-      type = raw_job.fetch("type").to_s
-      raise ConfigError, "Unknown job type `#{type}` for `#{name}`." unless VALID_JOB_TYPES.include?(type)
-
-      case type
-      when "options"
-        build_options_job(name, raw_job)
-      when "candles"
-        build_candles_job(name, raw_job)
-      end
-    end
-
-    def build_options_job(name, raw_job)
-      manual = manual_job?(raw_job)
-      validate_no_schedule_fields!(name, raw_job, %w[interval_seconds windows]) if manual
-
-      ScheduledJobConfig.new(
-        name: name.to_s,
-        type: "options",
-        provider: raw_job["provider"],
-        interval_seconds: manual ? nil : Integer(raw_job.fetch("interval_seconds")),
-        windows: manual ? [] : load_scheduler_windows(raw_job.fetch("windows")),
-        run_at: nil,
-        days: [],
-        lookback_days: nil,
-        dte_buckets: Array(raw_job.fetch("dte_buckets")).map { |bucket| parse_bucket(bucket) },
-        universe: load_options_universe(raw_job),
-        tasks: [],
-        task: nil,
-        settings: {},
-        manual: manual
-      )
-    end
-
-    def build_candles_job(name, raw_job)
-      manual = manual_job?(raw_job)
-      validate_no_schedule_fields!(name, raw_job, %w[interval_seconds windows run_at days]) if manual
-      uses_interval_schedule = raw_job.key?("interval_seconds") || raw_job.key?("windows")
-      uses_daily_schedule = raw_job.key?("run_at") || raw_job.key?("days")
-
-      ScheduledJobConfig.new(
-        name: name.to_s,
-        type: "candles",
-        provider: raw_job["provider"],
-        interval_seconds: uses_interval_schedule ? Integer(raw_job.fetch("interval_seconds")) : nil,
-        windows: uses_interval_schedule ? load_scheduler_windows(raw_job.fetch("windows")) : [],
-        run_at: uses_daily_schedule ? normalize_clock(raw_job.fetch("run_at")) : nil,
-        days: uses_daily_schedule ? normalize_days(raw_job.fetch("days")) : [],
-        lookback_days: Integer(raw_job.fetch("lookback_days")),
-        dte_buckets: [],
-        universe: load_candles_universe(raw_job),
-        tasks: [],
-        task: nil,
-        settings: {},
-        manual: manual
-      )
-    end
-
-    def validate_candle_schedule!(job)
-      return if job.manual?
-
-      if job.interval_schedule? && job.daily_schedule?
-        raise ConfigError, "candles job `#{job.name}` must use either interval_seconds/windows or run_at/days, not both."
-      end
-      if !job.interval_schedule? && !job.daily_schedule?
-        raise ConfigError, "candles job `#{job.name}` must define either interval_seconds/windows or run_at/days."
-      end
-      if job.interval_schedule?
-        raise ConfigError, "candles job `#{job.name}` interval must be positive." if job.interval_seconds.to_i <= 0
-        raise ConfigError, "At least one candles job window is required for `#{job.name}`." if job.windows.empty?
-      end
-      if job.daily_schedule?
-        raise ConfigError, "At least one candles job day is required for `#{job.name}`." if job.days.empty?
-      end
-    end
-
-    def manual_job?(raw_job)
-      raw_job.fetch("manual", false) == true
-    end
-
-    def validate_no_schedule_fields!(name, raw_job, fields)
-      present = fields.select { |field| raw_job.key?(field) }
-      return if present.empty?
-
-      raise ConfigError, "manual job `#{name}` cannot define schedule fields: #{present.join(', ')}."
-    end
-
-    def load_scheduler_windows(raw_windows)
-      Array(raw_windows).map do |window|
-        SchedulerWindow.new(
-          days: normalize_days(window.fetch("days")),
-          start_time: normalize_clock(window.fetch("start")),
-          end_time: normalize_clock(window.fetch("end"))
-        )
-      end
-    end
-
-    def load_options_universe(raw_job)
-      load_job_entries(raw_job).flat_map do |entry|
-        expand_option_universe_entry(entry, raw_job)
-      end
-    end
-
-    def load_candles_universe(raw_job)
-      expand_candle_entries(load_job_entries(raw_job), raw_job, universe_name: "job")
-    end
-
-    def expand_option_universe_entry(entry, raw_job)
-      default_roots = Array(raw_job["option_roots"]).map(&:to_s)
-      default_root = raw_job["option_root"]&.to_s
-      roots = Array(entry.option_roots).map(&:to_s)
-      roots << entry.option_root.to_s unless entry.option_root.to_s.empty?
-      roots.concat(default_roots)
-      roots << default_root unless default_root.to_s.empty?
-      roots = roots.reject(&:empty?).uniq
-      roots = [nil] if roots.empty?
-
-      roots.map do |option_root|
-        OptionSymbol.new(symbol: entry.symbol, option_root: option_root)
-      end
-    end
-
-    def expand_candle_entries(entries, raw_job, universe_name:)
-      default_frequencies = Array(raw_job["frequencies"]).map { |value| normalize_frequency(value) }.uniq
-      default_start_date = raw_job["start_date"] ? Date.iso8601(raw_job.fetch("start_date").to_s) : nil
-      default_extended_hours = !!raw_job.fetch("need_extended_hours_data", false)
-      default_previous_close = !!raw_job.fetch("need_previous_close", false)
-
-      entries.map do |entry|
-        start_date = entry.start_date || default_start_date
-        raise ConfigError, "candles job universe `#{universe_name}` requires job-level frequencies." if default_frequencies.empty?
-        raise ConfigError, "candles job universe `#{universe_name}` requires start_date for #{entry.symbol}." if start_date.nil?
-
-        CandleSymbol.new(
-          symbol: entry.symbol,
-          provider: nil,
-          frequencies: default_frequencies,
-          start_date: start_date,
-          need_extended_hours_data: entry.need_extended_hours_data || default_extended_hours,
-          need_previous_close: entry.need_previous_close || default_previous_close
-        )
-      end
-    end
-
-    def load_job_entries(raw_job)
-      entries = []
-
-      case raw_job["universe"]
-      when String
-        entries.concat(universe(raw_job["universe"]).entries)
-      when Array
-        entries.concat(Array(raw_job["universe"]).map { |row| load_inline_universe_entry("job", row) })
-      when nil
-      else
-        raise ConfigError, "job universe must be a string or array."
-      end
-
-      Array(raw_job["universes"]).each do |name|
-        entries.concat(universe(name).entries)
-      end
-
-      Array(raw_job["tickers"]).each do |row|
-        entries << load_inline_universe_entry("job", row)
-      end
-
-      entries
-    end
-
-    def load_inline_universe_entry(job_type, row)
-      load_universe_entry("#{job_type} job", row)
-    end
-
-    def universe(name)
-      selected = @universes.fetch(name.to_s, nil)
-      raise ConfigError, "Unknown universe `#{name}`." unless selected
-
-      selected
     end
 
     def load_providers(data)
@@ -619,59 +410,6 @@ module Tickrake
 
     def boolean?(value)
       value == true || value == false
-    end
-
-    def parse_bucket(bucket)
-      match = /\A(\d+)DTE\z/.match(bucket.to_s.strip.upcase)
-      raise ConfigError, "Invalid DTE bucket: #{bucket}" unless match
-
-      Integer(match[1])
-    end
-
-    def normalize_days(days)
-      Array(days).map do |day|
-        normalized = day.to_s.downcase[0, 3]
-        raise ConfigError, "Invalid weekday: #{day}" unless VALID_DAYS.include?(normalized)
-
-        normalized
-      end
-    end
-
-    def normalize_clock(value)
-      match = /\A(\d{2}):(\d{2})\z/.match(value.to_s)
-      raise ConfigError, "Invalid clock value: #{value}" unless match
-
-      hour = Integer(match[1], 10)
-      minute = Integer(match[2], 10)
-      raise ConfigError, "Invalid clock value: #{value}" unless hour.between?(0, 23) && minute.between?(0, 59)
-
-      [hour, minute]
-    end
-
-    def normalize_frequency(value)
-      normalized = value.to_s.downcase.strip
-      aliases = {
-        "minute" => "1min",
-        "1m" => "1min",
-        "1min" => "1min",
-        "5m" => "5min",
-        "5min" => "5min",
-        "10m" => "10min",
-        "10min" => "10min",
-        "15m" => "15min",
-        "15min" => "15min",
-        "30m" => "30min",
-        "30min" => "30min",
-        "day" => "day",
-        "daily" => "day",
-        "week" => "week",
-        "weekly" => "week",
-        "month" => "month",
-        "monthly" => "month"
-      }
-      return aliases.fetch(normalized) if aliases.key?(normalized)
-
-      raise ConfigError, "Unsupported candle frequency: #{value}"
     end
   end
 end

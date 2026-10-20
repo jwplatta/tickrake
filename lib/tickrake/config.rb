@@ -213,8 +213,8 @@ module Tickrake
       retry_delay_seconds:,
       option_fetch_timeout_seconds:,
       candle_fetch_timeout_seconds:,
-      jobs:,
-      import_jobs:
+      jobs: [],
+      import_jobs: []
     )
       @timezone = timezone
       @sqlite_path = sqlite_path

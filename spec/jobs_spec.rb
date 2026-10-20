@@ -41,13 +41,52 @@ RSpec.describe "job execution" do
       candles_universe: overrides.delete(:candles_universe)
     }
 
-    attrs[:jobs] = config.jobs.map(&:dup)
+    attrs[:jobs] = default_jobs
     if job_overrides.values.any? { |value| !value.nil? }
       attrs[:jobs] = rebuild_jobs(attrs[:jobs], job_overrides)
       attrs[:jobs] = keep_single_candle_job(attrs[:jobs]) if candle_overrides?(job_overrides)
     end
 
     Tickrake::Config.new(**attrs.merge(overrides))
+  end
+
+  def default_jobs
+    [
+      Tickrake::ScheduledJobConfig.new(
+        name: "index_options",
+        type: "options",
+        provider: "schwab",
+        interval_seconds: 300,
+        windows: [Tickrake::SchedulerWindow.new(days: %w[mon tue wed thu fri], start_time: [8, 30], end_time: [15, 0])],
+        run_at: nil,
+        days: [],
+        lookback_days: nil,
+        dte_buckets: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 30],
+        universe: [
+          Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW"),
+          Tickrake::OptionSymbol.new(symbol: "SPY", option_root: nil),
+          Tickrake::OptionSymbol.new(symbol: "QQQ", option_root: nil)
+        ]
+      ),
+      Tickrake::ScheduledJobConfig.new(
+        name: "eod_candles",
+        type: "candles",
+        provider: "ibkr-paper",
+        interval_seconds: nil,
+        windows: [],
+        run_at: [16, 5],
+        days: %w[mon tue wed thu fri],
+        lookback_days: 7,
+        dte_buckets: [],
+        universe: [
+          Tickrake::CandleSymbol.new(symbol: "$SPX", frequencies: %w[day 30min 10min 5min 1min], start_date: Date.iso8601("2020-01-01")),
+          Tickrake::CandleSymbol.new(symbol: "SPY", frequencies: %w[day 30min 10min 5min 1min], start_date: Date.iso8601("2020-01-01")),
+          Tickrake::CandleSymbol.new(symbol: "QQQ", frequencies: %w[day 30min 10min 5min 1min], start_date: Date.iso8601("2020-01-01")),
+          Tickrake::CandleSymbol.new(symbol: "$VIX", frequencies: %w[day 30min 10min 5min 1min], start_date: Date.iso8601("2020-01-01")),
+          Tickrake::CandleSymbol.new(symbol: "$VIX9D", frequencies: %w[day 30min 10min 5min 1min], start_date: Date.iso8601("2020-01-01"))
+        ]
+      )
+    ]
   end
 
   def candle_overrides?(overrides)
@@ -493,7 +532,7 @@ RSpec.describe "job execution" do
     result = nil
     expect { result = Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0)) }.not_to raise_error
     expect(result.success_count).to eq(0)
-    expect(result.failure_count).to eq(config.options_universe.length)
+    expect(result.failure_count).to eq(runtime.config.options_universe.length)
     expect(result).not_to be_successful
   end
 
