@@ -976,7 +976,7 @@ RSpec.describe "job execution" do
         need_previous_close: false
       )
       custom = config_with(config, candles_dir: dir, candles_universe: [candle_entry], candle_lookback_days: 3)
-      existing_dir = File.join(dir, "schwab", "day")
+      existing_dir = File.join(dir, "schwab", "2026", "04", "01", "day")
       FileUtils.mkdir_p(existing_dir)
       existing_path = File.join(existing_dir, "SPY.csv")
       File.write(existing_path, "datetime,open,high,low,close,volume\n")
@@ -1082,7 +1082,7 @@ RSpec.describe "job execution" do
         need_previous_close: false
       )
       custom = config_with(config, candles_dir: dir, candles_universe: [candle_entry], candle_lookback_days: 3)
-      existing_dir = File.join(dir, "schwab", "day")
+      existing_dir = File.join(dir, "schwab", "2026", "04", "01", "day")
       FileUtils.mkdir_p(existing_dir)
       existing_path = File.join(existing_dir, "SPY.csv")
       File.write(existing_path, "datetime,open,high,low,close,volume\n")

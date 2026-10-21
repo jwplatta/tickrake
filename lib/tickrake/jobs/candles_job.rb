@@ -187,11 +187,7 @@ module Tickrake
       symbol = canonical_symbol_for(entry.symbol, provider_definition)
       # Check partitioned: candles/<provider>/*/*/*/<frequency>/<symbol>.csv
       partitioned_pattern = File.join(@runtime.config.candles_dir, provider.to_s, "*", "*", "*", frequency.to_s, "#{symbol}.csv")
-      return true if Dir.glob(partitioned_pattern).any?
-
-      # Fallback to legacy unpartitioned: candles/<provider>/<frequency>/<symbol>.csv
-      legacy_path = File.join(@runtime.config.candles_dir, provider.to_s, frequency.to_s, "#{symbol}.csv")
-      File.exist?(legacy_path)
+      Dir.glob(partitioned_pattern).any?
     end
 
     def storage_paths
