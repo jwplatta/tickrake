@@ -50,6 +50,7 @@ module Tickrake
           pattern = File.join(dataset_dir, DATASET_PATTERNS.fetch(dataset_type, "**/*"))
           Dir.glob(pattern).each do |file_path|
             next if file_path.end_with?(".tmp")
+            next unless valid_dataset_path?(file_path, dataset_type)
             next unless file_matches_date_range?(file_path, dataset_type, after: parsed_after, before: parsed_before)
 
             files_scanned += 1
@@ -129,15 +130,9 @@ module Tickrake
           { provider: provider || "unknown", symbol: root || "unknown", date: date }
         when "candles"
           # candles/<provider>/<YYYY>/<MM>/<DD>/<frequency>/<symbol>.csv
-          # or legacy: candles/<provider>/<frequency>/<symbol>.csv
           provider = parts[1]
-          if parts.length >= 7
-            date = parts[2..4].join("-")
-            symbol = File.basename(parts.last, ".csv")
-          else
-            date = nil
-            symbol = File.basename(parts.last, ".csv")
-          end
+          date = parts.length >= 7 ? parts[2..4].join("-") : nil
+          symbol = File.basename(parts.last, ".csv")
           { provider: provider || "unknown", symbol: symbol, date: date }
         when "level_one", "order_book"
           # level_one/<provider>/<YYYY>/<MM>/<DD>/<symbol>.ndjson
@@ -162,6 +157,15 @@ module Tickrake
       end
 
       private
+
+      def valid_dataset_path?(file_path, dataset_type)
+        return true unless dataset_type == "candles"
+
+        rel = relative_key_for(file_path)
+        parts = rel.split("/")
+        # candles/<provider>/<YYYY>/<MM>/<DD>/<frequency>/<symbol>.csv => 7 parts
+        parts.length == 7 && parts[2] =~ /\A\d{4}\z/ && parts[3] =~ /\A\d{2}\z/ && parts[4] =~ /\A\d{2}\z/
+      end
 
       def parse_boundary(value)
         return nil if value.nil?

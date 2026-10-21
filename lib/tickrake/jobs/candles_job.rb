@@ -177,17 +177,21 @@ module Tickrake
       return @start_date_override if @start_date_override
       return entry.start_date if @from_config_start
       return lookback_start_date(entry, scheduled_for) if ibkr_intraday_frequency?(frequency, provider_definition)
-      return entry.start_date unless File.exist?(history_path(entry, frequency, provider_definition))
+      return entry.start_date unless history_exists?(entry, frequency, provider_definition)
 
       lookback_start_date(entry, scheduled_for)
     end
 
-    def history_path(entry, frequency, provider_definition)
-      storage_paths.candle_path(
-        provider: provider_name_for(entry),
-        symbol: canonical_symbol_for(entry.symbol, provider_definition),
-        frequency: frequency
-      )
+    def history_exists?(entry, frequency, provider_definition)
+      provider = provider_name_for(entry)
+      symbol = canonical_symbol_for(entry.symbol, provider_definition)
+      # Check partitioned: candles/<provider>/*/*/*/<frequency>/<symbol>.csv
+      partitioned_pattern = File.join(@runtime.config.candles_dir, provider.to_s, "*", "*", "*", frequency.to_s, "#{symbol}.csv")
+      return true if Dir.glob(partitioned_pattern).any?
+
+      # Fallback to legacy unpartitioned: candles/<provider>/<frequency>/<symbol>.csv
+      legacy_path = File.join(@runtime.config.candles_dir, provider.to_s, frequency.to_s, "#{symbol}.csv")
+      File.exist?(legacy_path)
     end
 
     def storage_paths
