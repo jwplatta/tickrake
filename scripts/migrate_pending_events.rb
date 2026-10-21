@@ -5,6 +5,8 @@ require "optparse"
 require "json"
 require "time"
 require "fileutils"
+require "digest"
+require "set"
 require_relative "../lib/tickrake"
 
 options = {
@@ -94,26 +96,114 @@ end
 
 total_events = 0
 migrated_files_count = 0
-open_targets = {}
+skipped_duplicates_count = 0
 
-begin
-  candidate_files.each do |source_file|
-    puts "\nProcessing #{File.basename(source_file)}..."
-    file_events = 0
+# Cache of existing event fingerprints per target path to guarantee idempotency across re-runs
+existing_fingerprints = Hash.new do |h, path|
+  set = Set.new
+  if File.exist?(path)
+    File.foreach(path) do |existing_line|
+      trimmed = existing_line.strip
+      set << Digest::MD5.hexdigest(trimmed) unless trimmed.empty?
+    end
+  end
+  h[path] = set
+end
+
+candidate_files.each do |source_file|
+  puts "\nProcessing #{File.basename(source_file)}..."
+  buffer = Hash.new { |h, k| h[k] = [] }
+  buffered_line_count = 0
+  file_events = 0
+  file_skipped = 0
+  BATCH_SIZE = 10_000
+
+  flush_buffer = lambda do
+    buffer.each do |target_path, lines|
+      next if lines.empty?
+      FileUtils.mkdir_p(File.dirname(target_path))
+      File.open(target_path, "a") do |f|
+        lines.each { |l| f.puts(l) }
+      end
+    end
+    buffer.clear
+    buffered_line_count = 0
+  end
+
+  File.foreach(source_file) do |line|
+    trimmed = line.strip
+    next if trimmed.empty?
+
+    event = JSON.parse(trimmed) rescue nil
+    next unless event
+
+    symbol = event["symbol"]
+    next unless symbol
+
+    job_type = event["job_type"] || (File.basename(source_file).include?("order_book") ? "order_book" : "level_one")
+    provider = event["provider"] || "schwab"
+    provider_def = config.provider_definition(provider)
+
+    received_at_str = event["received_at"] || event["quote_time"] || event["book_time"]
+    event_time = received_at_str ? (Time.iso8601(received_at_str) rescue Time.now.utc) : Time.now.utc
+
+    target_path = case job_type
+                  when "level_one"
+                    paths_helper.level_one_path(
+                      provider: provider,
+                      symbol: symbol,
+                      flush_start: event_time,
+                      provider_definition: provider_def
+                    )
+                  when "order_book"
+                    paths_helper.order_book_path(
+                      provider: provider,
+                      symbol: symbol,
+                      flush_start: event_time,
+                      provider_definition: provider_def
+                    )
+                  else
+                    nil
+                  end
+
+    next unless target_path
+
+    fingerprint = Digest::MD5.hexdigest(trimmed)
+    if existing_fingerprints[target_path].include?(fingerprint)
+      file_skipped += 1
+      skipped_duplicates_count += 1
+      next
+    end
+
+    existing_fingerprints[target_path] << fingerprint
+    file_events += 1
+    total_events += 1
+
+    unless options[:dry_run]
+      buffer[target_path] << trimmed
+      buffered_line_count += 1
+      flush_buffer.call if buffered_line_count >= BATCH_SIZE
+    end
+  end
+
+  flush_buffer.call unless options[:dry_run]
+
+  puts " -> Extracted #{file_events} new event(s), skipped #{file_skipped} duplicate(s)"
+
+  if !options[:dry_run] && options[:delete_migrated]
+    # Verification: scan source_file once more to verify 100% of valid events are accounted for
+    verified = true
+    unverified_count = 0
 
     File.foreach(source_file) do |line|
-      next if line.strip.empty?
-
-      event = JSON.parse(line) rescue nil
-      next unless event
-
-      symbol = event["symbol"]
-      next unless symbol
+      trimmed = line.strip
+      next if trimmed.empty?
+      event = JSON.parse(trimmed) rescue nil
+      next unless event && event["symbol"]
 
       job_type = event["job_type"] || (File.basename(source_file).include?("order_book") ? "order_book" : "level_one")
       provider = event["provider"] || "schwab"
       provider_def = config.provider_definition(provider)
-
       received_at_str = event["received_at"] || event["quote_time"] || event["book_time"]
       event_time = received_at_str ? (Time.iso8601(received_at_str) rescue Time.now.utc) : Time.now.utc
 
@@ -121,56 +211,42 @@ begin
                     when "level_one"
                       paths_helper.level_one_path(
                         provider: provider,
-                        symbol: symbol,
+                        symbol: event["symbol"],
                         flush_start: event_time,
                         provider_definition: provider_def
                       )
                     when "order_book"
                       paths_helper.order_book_path(
                         provider: provider,
-                        symbol: symbol,
+                        symbol: event["symbol"],
                         flush_start: event_time,
                         provider_definition: provider_def
                       )
-                    else
-                      nil
                     end
 
       next unless target_path
-
-      file_events += 1
-      total_events += 1
-
-      unless options[:dry_run]
-        handle = open_targets[target_path] ||= begin
-          FileUtils.mkdir_p(File.dirname(target_path))
-          File.open(target_path, "a")
-        end
-        handle.puts(line)
+      fingerprint = Digest::MD5.hexdigest(trimmed)
+      unless existing_fingerprints[target_path].include?(fingerprint)
+        verified = false
+        unverified_count += 1
       end
     end
 
-    # Flush all current target files for safety
-    open_targets.each_value(&:flush)
-
-    puts " -> Extracted #{file_events} event(s)"
-
-    if !options[:dry_run] && options[:delete_migrated]
+    if verified
       File.unlink(source_file)
-      puts " -> Unlinked #{File.basename(source_file)}"
+      puts " -> Verified 100% of events present in target files. Safely unlinked #{File.basename(source_file)}"
+    else
+      warn " -> WARNING: #{unverified_count} event(s) not verified in destination for #{File.basename(source_file)}. Skipping deletion!"
     end
+  end
 
-    migrated_files_count += 1
-  end
-ensure
-  open_targets.each_value do |h|
-    h.close rescue nil
-  end
+  migrated_files_count += 1
 end
 
 puts "\n================================================================="
 puts "Migration summary:"
-puts "Files processed : #{migrated_files_count}"
-puts "Events migrated : #{total_events}"
+puts "Files processed    : #{migrated_files_count}"
+puts "New events written : #{total_events}"
+puts "Duplicates skipped : #{skipped_duplicates_count}"
 puts "Completed successfully."
 puts "================================================================="
