@@ -10,8 +10,22 @@ module Tickrake
         @symbol_normalizer = Tickrake::Core::SymbolNormalizer.new
       end
 
-      def candle_path(provider:, symbol:, frequency:)
-        File.join(provider_candles_dir(provider), frequency.to_s, "#{sanitize_symbol(symbol)}.csv")
+      def candle_path(provider:, symbol:, frequency:, date: nil, provider_definition: nil)
+        resolved_provider_def = provider_definition || @config.provider_definition(provider)
+        token = sanitize_symbol(symbol, provider_definition: resolved_provider_def)
+        if date
+          d = date.is_a?(Date) ? date : (date.respond_to?(:utc) ? date.utc.to_date : Date.iso8601(date.to_s))
+          File.join(
+            provider_candles_dir(provider),
+            d.strftime("%Y"),
+            d.strftime("%m"),
+            d.strftime("%d"),
+            frequency.to_s,
+            "#{token}.csv"
+          )
+        else
+          File.join(provider_candles_dir(provider), frequency.to_s, "#{token}.csv")
+        end
       end
 
       def option_sample_path(provider:, symbol:, expiration_date:, timestamp:, root: nil)

@@ -128,10 +128,17 @@ module Tickrake
           root = parts.last.to_s.split("_").first
           { provider: provider || "unknown", symbol: root || "unknown", date: date }
         when "candles"
-          # candles/<provider>/<frequency>/<symbol>.csv
+          # candles/<provider>/<YYYY>/<MM>/<DD>/<frequency>/<symbol>.csv
+          # or legacy: candles/<provider>/<frequency>/<symbol>.csv
           provider = parts[1]
-          symbol = File.basename(parts.last, ".csv")
-          { provider: provider || "unknown", symbol: symbol, date: nil }
+          if parts.length >= 7
+            date = parts[2..4].join("-")
+            symbol = File.basename(parts.last, ".csv")
+          else
+            date = nil
+            symbol = File.basename(parts.last, ".csv")
+          end
+          { provider: provider || "unknown", symbol: symbol, date: date }
         when "level_one", "order_book"
           # level_one/<provider>/<YYYY>/<MM>/<DD>/<symbol>.ndjson
           provider = parts[1]

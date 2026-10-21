@@ -95,7 +95,11 @@ RSpec.describe Tickrake::ChartStreamJob do
   describe "#flush_buffer" do
     let(:symbol_normalizer) { Tickrake::Core::SymbolNormalizer.new }
 
-    it "appends bars to a CSV file" do
+    before do
+      allow(config).to receive(:provider_definition).with("schwab").and_return(nil)
+    end
+
+    it "appends bars to a CSV file partitioned by date and logs stream_bytes_written" do
       bar = Tickrake::Data::Bar.new(
         datetime: Time.utc(2026, 9, 19, 14, 30, 0),
         open: 450.0, high: 451.0, low: 449.5, close: 450.5, volume: 100_000,
@@ -103,9 +107,20 @@ RSpec.describe Tickrake::ChartStreamJob do
       )
 
       job.instance_variable_get(:@buffer)["SPY"] = [bar]
+
+      expect(logger).to receive(:info).with(hash_including(
+        event: "stream_bytes_written",
+        dataset_type: "chart_stream",
+        provider: "schwab",
+        symbol: "SPY",
+        market_date: "2026-09-19",
+        delta_events: 1,
+        delta_bytes: a_value > 0
+      ))
+
       job.send(:flush_buffer)
 
-      path = File.join(candles_dir, "schwab", "1min", "SPY.csv")
+      path = File.join(candles_dir, "schwab", "2026", "09", "19", "1min", "SPY.csv")
       expect(File.exist?(path)).to be true
 
       lines = File.readlines(path)
@@ -125,7 +140,7 @@ RSpec.describe Tickrake::ChartStreamJob do
         job.send(:flush_buffer)
       end
 
-      path = File.join(candles_dir, "schwab", "1min", "SPY.csv")
+      path = File.join(candles_dir, "schwab", "2026", "09", "19", "1min", "SPY.csv")
       lines = File.readlines(path)
       expect(lines.size).to eq(3) # header + 2 data rows
     end

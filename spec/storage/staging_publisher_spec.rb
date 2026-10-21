@@ -170,6 +170,32 @@ RSpec.describe Tickrake::Storage::StagingPublisher do
       end
     end
 
+    it "extracts date from date-partitioned candle paths and filters accordingly" do
+      Dir.mktmpdir do |dir|
+        allow(Tickrake::PathSupport).to receive(:expand_path).with("/tmp/tickrake_data").and_return(dir)
+        publisher = described_class.new(runtime: runtime)
+
+        dir15 = File.join(dir, "candles", "schwab", "2026", "10", "15", "1min")
+        dir16 = File.join(dir, "candles", "schwab", "2026", "10", "16", "1min")
+        FileUtils.mkdir_p(dir15)
+        FileUtils.mkdir_p(dir16)
+
+        file15 = File.join(dir15, "SPY.csv")
+        file16 = File.join(dir16, "SPY.csv")
+        File.write(file15, "time,open\n")
+        File.write(file16, "time,open\n")
+
+        expect(s3_archive).to receive(:upload_file).with(file16, key: "candles/schwab/2026/10/16/1min/SPY.csv").and_return(remote_obj)
+        expect(s3_archive).not_to receive(:upload_file).with(file15, any_args)
+
+        summary = publisher.scan_and_publish(after: "2026-10-16", before: "2026-10-17")
+        expect(summary[:files_scanned]).to eq(1)
+        expect(summary[:files_uploaded]).to eq(1)
+        expect(File.exist?(file15)).to be(true)
+        expect(File.exist?(file16)).to be(false)
+      end
+    end
+
     it "raises ArgumentError when after >= before" do
       Dir.mktmpdir do |dir|
         allow(Tickrake::PathSupport).to receive(:expand_path).with("/tmp/tickrake_data").and_return(dir)

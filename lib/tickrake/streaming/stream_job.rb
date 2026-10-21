@@ -440,24 +440,50 @@ module Tickrake
       bars_by_symbol.each do |symbol, bars|
         next if bars.empty?
 
-        path = @storage_paths.candle_path(provider: @provider, symbol: symbol, frequency: "1min")
-        FileUtils.mkdir_p(File.dirname(path))
+        provider_def = @runtime.config.provider_definition(@provider)
+        bars_by_date = bars.group_by { |b| b.utc_datetime.to_date }
 
-        write_headers = !File.exist?(path)
-        CSV.open(path, "a") do |csv|
-          csv << CHART_HEADERS if write_headers
-          bars.each do |bar|
-            csv << [
-              bar.utc_datetime.iso8601,
-              bar.open,
-              bar.high,
-              bar.low,
-              bar.close,
-              bar.volume
-            ]
+        bars_by_date.each do |market_date, date_bars|
+          next if date_bars.empty?
+
+          path = @storage_paths.candle_path(
+            provider: @provider,
+            symbol: symbol,
+            frequency: "1min",
+            date: market_date,
+            provider_definition: provider_def
+          )
+          FileUtils.mkdir_p(File.dirname(path))
+
+          write_headers = !File.exist?(path)
+          csv_payload = CSV.generate do |csv|
+            csv << CHART_HEADERS if write_headers
+            date_bars.each do |bar|
+              csv << [
+                bar.utc_datetime.iso8601,
+                bar.open,
+                bar.high,
+                bar.low,
+                bar.close,
+                bar.volume
+              ]
+            end
           end
+          File.open(path, "ab") { |file| file.write(csv_payload) }
+
+          logged_at = Time.now.utc
+          logger.info({
+            msg: "stream_bytes_written",
+            event: "stream_bytes_written",
+            dataset_type: "chart_stream",
+            provider: @provider,
+            symbol: symbol,
+            market_date: market_date.strftime("%Y-%m-%d"),
+            delta_events: date_bars.size,
+            delta_bytes: csv_payload.bytesize,
+            logged_at: logged_at.iso8601
+          })
         end
-        logger.info("[stream:#{@job_name}:#{subscription.name}] Flushed #{bars.size} bar(s) for #{symbol}")
       end
     end
 

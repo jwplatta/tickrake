@@ -12,11 +12,15 @@ All notable changes to this project will be documented in this file.
 - Removed support for defining scheduled jobs in YAML configuration (`schedule`). All jobs are now defined using the Ruby DSL (`Tickrake.job`). `ConfigLoader` now rejects YAML configuration containing a `schedule` mapping with an explicit error.
 
 ### Added
+- Added date-partitioned daily candle storage (`data/candles/<provider>/<YYYY>/<MM>/<DD>/<frequency>/<symbol>.csv`) across streaming (`StreamJob`, `ChartStreamJob`) and batch collection (`CandlesJob`) to support idempotent downstream Iceberg table ingestion.
+- Added structured chart stream write logs with bar-count and CSV-byte deltas for data-volume dashboard metrics.
 - Added standalone migration script `scripts/rewrite_options_parquet.rb` to re-encode and re-sort existing option sample Parquet files in-place with atomic verification.
 - Added per-service delivery counters, accepted/discarded record metrics, and last-event timestamps to `StreamJob` to prevent chart traffic from masking silent Level One feeds.
 - Added `byte_count` to candle `fetch_success` logs for data-volume dashboard metrics.
 
 ### Fixed
+- Fixed symbol normalization in `Paths#candle_path` to consistently apply the provider's `symbol_map` (e.g., `/ES` -> `^ES`).
+- Fixed date extraction in `StagingPublisher` to support date-partitioned candle paths.
 - Fixed missing `install_signal_handlers`, `mark_iteration_success`, `in_window?`, and `log_iteration_failure` methods in `StagingPublisherSchedulerRunner`.
 
 - Removed dead AWS S3 cold archival pipeline, AWS Glacier storage classes, S3 manifest writers, and S3 manifest reconciler (`ReconcilerJob`, `ReconcilerRunner`, `DSL::ReconcileBuilder`, `Maintenance::Candles::Archiver`, `Maintenance::Candles::ManifestWriter`, `Maintenance::OptionSamples::ArtifactArchiver`, `Maintenance::OptionSamples::ManifestWriter`, `Maintenance::OptionSamples::LocalArtifactManager`).
