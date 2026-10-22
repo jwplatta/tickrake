@@ -789,9 +789,9 @@ RSpec.describe "job execution" do
 
       result = Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(File.exist?(File.join(dir, "schwab", "day", "SPY.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "schwab", "1min", "SPY.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "schwab", "5min", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "2026", "04", "01", "day", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "2026", "04", "01", "1min", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "2026", "04", "01", "5min", "SPY.csv"))).to eq(true)
       expect(result.success_count).to eq(3)
       expect(result.failure_count).to eq(0)
       expect(result).to be_successful
@@ -862,8 +862,8 @@ RSpec.describe "job execution" do
 
       Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(File.exist?(File.join(dir, "schwab", "1min", "^ES.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "schwab", "1min", "ES.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "schwab", "2026", "04", "01", "1min", "^ES.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "2026", "04", "01", "1min", "ES.csv"))).to eq(false)
       expect(provider).to have_received(:fetch_bars).with(hash_including(symbol: "/ES", frequency: "1min"))
     end
   end
@@ -976,7 +976,7 @@ RSpec.describe "job execution" do
         need_previous_close: false
       )
       custom = config_with(config, candles_dir: dir, candles_universe: [candle_entry], candle_lookback_days: 3)
-      existing_dir = File.join(dir, "schwab", "day")
+      existing_dir = File.join(dir, "schwab", "2026", "04", "01", "day")
       FileUtils.mkdir_p(existing_dir)
       existing_path = File.join(existing_dir, "SPY.csv")
       File.write(existing_path, "datetime,open,high,low,close,volume\n")
@@ -1027,8 +1027,8 @@ RSpec.describe "job execution" do
 
       Tickrake::CandlesJob.new(runtime, scheduled_job: scheduled_job).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(File.exist?(File.join(dir, "ibkr-paper", "day", "SPY.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "schwab", "day", "SPY.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "2026", "04", "06", "day", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "2026", "04", "06", "day", "SPY.csv"))).to eq(false)
     end
   end
 
@@ -1067,8 +1067,8 @@ RSpec.describe "job execution" do
 
       Tickrake::CandlesJob.new(runtime, scheduled_job: scheduled_job).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(File.exist?(File.join(dir, "schwab", "day", "SPY.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "ibkr-paper", "day", "SPY.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "schwab", "2026", "04", "06", "day", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "2026", "04", "06", "day", "SPY.csv"))).to eq(false)
     end
   end
 
@@ -1082,7 +1082,7 @@ RSpec.describe "job execution" do
         need_previous_close: false
       )
       custom = config_with(config, candles_dir: dir, candles_universe: [candle_entry], candle_lookback_days: 3)
-      existing_dir = File.join(dir, "schwab", "day")
+      existing_dir = File.join(dir, "schwab", "2026", "04", "01", "day")
       FileUtils.mkdir_p(existing_dir)
       existing_path = File.join(existing_dir, "SPY.csv")
       File.write(existing_path, "datetime,open,high,low,close,volume\n")
@@ -1200,8 +1200,8 @@ RSpec.describe "job execution" do
 
       Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
-      expect(File.exist?(File.join(dir, "schwab_paper", "day", "SPY.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "schwab_live", "day", "SPY.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "schwab_paper", "2026", "04", "01", "day", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab_live", "2026", "04", "01", "day", "SPY.csv"))).to eq(false)
     end
   end
 
@@ -1261,8 +1261,8 @@ RSpec.describe "job execution" do
 
       expect(runtime_provider).to have_received(:fetch_bars).with(hash_including(symbol: "/ES", frequency: "1min")).at_least(:once)
       expect(runtime_provider).to have_received(:fetch_bars).with(hash_including(symbol: "SPY", frequency: "day")).at_least(:once)
-      expect(File.exist?(File.join(dir, "ibkr-paper", "1min", "ES.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "ibkr-paper", "day", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "2026", "04", "01", "1min", "ES.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "2026", "04", "01", "day", "SPY.csv"))).to eq(true)
     end
   end
 
@@ -1303,8 +1303,8 @@ RSpec.describe "job execution" do
       Tickrake::CandlesJob.new(runtime).run(now: Time.utc(2026, 4, 6, 21, 10, 0))
 
       expect(runtime_provider).to have_received(:fetch_bars).at_least(:once)
-      expect(File.exist?(File.join(dir, "ibkr-paper", "day", "SPY.csv"))).to eq(true)
-      expect(File.exist?(File.join(dir, "schwab", "day", "SPY.csv"))).to eq(false)
+      expect(File.exist?(File.join(dir, "ibkr-paper", "2026", "04", "01", "day", "SPY.csv"))).to eq(true)
+      expect(File.exist?(File.join(dir, "schwab", "2026", "04", "01", "day", "SPY.csv"))).to eq(false)
     end
   end
 

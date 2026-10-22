@@ -41,18 +41,18 @@ RSpec.describe Tickrake::Storage::StagingPublisher do
 
         # Create dummy options and candles files
         options_dir = File.join(dir, "options", "schwab", "2026", "10", "18")
-        candles_dir = File.join(dir, "candles", "daily")
+        candles_dir = File.join(dir, "candles", "schwab", "2026", "10", "18", "day")
         FileUtils.mkdir_p(options_dir)
         FileUtils.mkdir_p(candles_dir)
 
         opt_file = File.join(options_dir, "SPY_exp2026-10-18.csv")
-        candle_file = File.join(candles_dir, "SPY_day.csv")
+        candle_file = File.join(candles_dir, "SPY.csv")
         File.write(opt_file, "strike,bid,ask\n100,1.0,1.2\n")
         File.write(candle_file, "time,open,high,low,close,volume\n")
 
         # Expect uploads
         expect(s3_archive).to receive(:upload_file).with(opt_file, key: "options/schwab/2026/10/18/SPY_exp2026-10-18.csv").and_return(remote_obj)
-        expect(s3_archive).to receive(:upload_file).with(candle_file, key: "candles/daily/SPY_day.csv").and_return(remote_obj)
+        expect(s3_archive).to receive(:upload_file).with(candle_file, key: "candles/schwab/2026/10/18/day/SPY.csv").and_return(remote_obj)
 
         summary = publisher.scan_and_publish(delete_after_upload: true)
 
@@ -142,31 +142,48 @@ RSpec.describe Tickrake::Storage::StagingPublisher do
       end
     end
 
-    it "filters undated files like candles using File.mtime" do
+    it "ignores legacy unpartitioned candle paths" do
       Dir.mktmpdir do |dir|
         allow(Tickrake::PathSupport).to receive(:expand_path).with("/tmp/tickrake_data").and_return(dir)
         publisher = described_class.new(runtime: runtime)
 
-        candles_dir = File.join(dir, "candles", "daily")
-        FileUtils.mkdir_p(candles_dir)
-        candle_file = File.join(candles_dir, "QQQ_day.csv")
-        File.write(candle_file, "time,open\n")
+        legacy_candle_dir = File.join(dir, "candles", "daily")
+        FileUtils.mkdir_p(legacy_candle_dir)
+        legacy_candle_file = File.join(legacy_candle_dir, "QQQ_day.csv")
+        File.write(legacy_candle_file, "time,open\n")
 
-        # Set mtime to 2026-10-16 12:00:00
-        target_time = Time.utc(2026, 10, 16, 12, 0, 0)
-        File.utime(target_time, target_time, candle_file)
-
-        # Filter after 2026-10-17 should skip it
-        summary = publisher.scan_and_publish(after: "2026-10-17")
+        # Expect legacy unpartitioned candles to be completely ignored by staging publisher
+        expect(s3_archive).not_to receive(:upload_file)
+        summary = publisher.scan_and_publish
         expect(summary[:files_scanned]).to eq(0)
         expect(summary[:files_uploaded]).to eq(0)
-        expect(File.exist?(candle_file)).to be(true)
+        expect(File.exist?(legacy_candle_file)).to be(true)
+      end
+    end
 
-        # Filter after 2026-10-16 and before 2026-10-17 should match
-        expect(s3_archive).to receive(:upload_file).with(candle_file, key: "candles/daily/QQQ_day.csv").and_return(remote_obj)
-        summary2 = publisher.scan_and_publish(after: "2026-10-16", before: "2026-10-17")
-        expect(summary2[:files_scanned]).to eq(1)
-        expect(summary2[:files_uploaded]).to eq(1)
+    it "extracts date from date-partitioned candle paths and filters accordingly" do
+      Dir.mktmpdir do |dir|
+        allow(Tickrake::PathSupport).to receive(:expand_path).with("/tmp/tickrake_data").and_return(dir)
+        publisher = described_class.new(runtime: runtime)
+
+        dir15 = File.join(dir, "candles", "schwab", "2026", "10", "15", "1min")
+        dir16 = File.join(dir, "candles", "schwab", "2026", "10", "16", "1min")
+        FileUtils.mkdir_p(dir15)
+        FileUtils.mkdir_p(dir16)
+
+        file15 = File.join(dir15, "SPY.csv")
+        file16 = File.join(dir16, "SPY.csv")
+        File.write(file15, "time,open\n")
+        File.write(file16, "time,open\n")
+
+        expect(s3_archive).to receive(:upload_file).with(file16, key: "candles/schwab/2026/10/16/1min/SPY.csv").and_return(remote_obj)
+        expect(s3_archive).not_to receive(:upload_file).with(file15, any_args)
+
+        summary = publisher.scan_and_publish(after: "2026-10-16", before: "2026-10-17")
+        expect(summary[:files_scanned]).to eq(1)
+        expect(summary[:files_uploaded]).to eq(1)
+        expect(File.exist?(file15)).to be(true)
+        expect(File.exist?(file16)).to be(false)
       end
     end
 

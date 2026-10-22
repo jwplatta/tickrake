@@ -226,6 +226,43 @@ RSpec.describe Tickrake::StreamJob do
     end
   end
 
+  describe "chart stream write metrics" do
+    it "logs bar and CSV byte deltas, including the header only on the first append" do
+      logged_events = []
+      allow(logger).to receive(:info) { |payload| logged_events << payload }
+      subscription = instance_double(Tickrake::StreamSubscription, name: "equity_chart_streams")
+      bar = Tickrake::Data::Bar.new(
+        datetime: Time.utc(2026, 10, 21, 14, 30, 0),
+        open: 450.0, high: 451.0, low: 449.5, close: 450.5, volume: 100_000,
+        source: "schwab", symbol: "SPY", frequency: "1min"
+      )
+      chart_buffers = job.instance_variable_get(:@chart_buffers)
+      chart_buffers[subscription.name] = { "SPY" => [bar] }
+
+      job.send(:flush_chart_buffer, subscription)
+
+      path = File.join(candles_dir, "schwab", "2026", "10", "21", "1min", "SPY.csv")
+      first_size = File.size(path)
+      first_metric = logged_events.find { |event| event.is_a?(Hash) && event[:event] == "stream_bytes_written" }
+      expect(first_metric).to include(
+        dataset_type: "chart_stream",
+        symbol: "SPY",
+        market_date: "2026-10-21",
+        delta_events: 1,
+        delta_bytes: first_size
+      )
+      expect(File.readlines(path).first.strip).to eq("datetime,open,high,low,close,volume")
+
+      chart_buffers[subscription.name] = { "SPY" => [bar] }
+      job.send(:flush_chart_buffer, subscription)
+
+      second_size = File.size(path)
+      metrics = logged_events.select { |event| event.is_a?(Hash) && event[:event] == "stream_bytes_written" }
+      expect(metrics.last).to include(dataset_type: "chart_stream", delta_events: 1, delta_bytes: second_size - first_size)
+      expect(File.readlines(path).count { |line| line.start_with?("datetime,") }).to eq(1)
+    end
+  end
+
   describe "#run_session reconnect subscription state" do
     it "re-adds active in-window subscriptions to the replacement client after a disconnect" do
       client1 = FakeClient.new

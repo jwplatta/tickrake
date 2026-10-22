@@ -47,6 +47,7 @@ module Tickrake
         ranges = request_ranges(provider: provider, frequency: frequency, start_date: start_date, end_date: end_date)
         progress_reporter = build_progress_reporter(entry: entry, frequency: frequency, total: ranges.length)
         total_candles = 0
+        written_paths = []
 
         ranges.each_with_index do |(chunk_start, chunk_end), index|
           @runtime.logger.info(
@@ -63,17 +64,47 @@ module Tickrake
               previous_close: entry.need_previous_close
             )
           end
-          candle_reconciler.write(path: path, bars: fetched_bars)
+          bars_by_date = Array(fetched_bars).group_by { |b| b.utc_datetime.to_date }
+          if bars_by_date.empty?
+            today_path = storage_paths.candle_path(
+              provider: provider.provider_name,
+              symbol: canonical_symbol,
+              frequency: frequency,
+              date: scheduled_for.to_date,
+              provider_definition: provider_definition
+            )
+            candle_reconciler.write(path: today_path, bars: [])
+            written_paths << today_path
+          else
+            bars_by_date.each do |bar_date, date_bars|
+              date_path = storage_paths.candle_path(
+                provider: provider.provider_name,
+                symbol: canonical_symbol,
+                frequency: frequency,
+                date: bar_date,
+                provider_definition: provider_definition
+              )
+              candle_reconciler.write(path: date_path, bars: date_bars)
+              written_paths << date_path
+            end
+          end
           total_candles += Array(fetched_bars).size
           progress_reporter&.advance(title: progress_title(entry: entry, frequency: frequency, index: index, total: ranges.length))
         end
 
         elapsed_ms = ((Time.now - started_at) * 1000).round
-        byte_count = File.exist?(path) ? File.size(path) : 0
-        @runtime.logger.info({ msg: "fetch_success", event: "fetch_success", symbol: entry.symbol, frequency: frequency, data_type: "candles", row_count: total_candles, byte_count: byte_count, duration_ms: elapsed_ms, path: path })
+        primary_path = written_paths.last || storage_paths.candle_path(
+          provider: provider.provider_name,
+          symbol: canonical_symbol,
+          frequency: frequency,
+          date: scheduled_for.to_date,
+          provider_definition: provider_definition
+        )
+        total_bytes = written_paths.sum { |p| File.exist?(p) ? File.size(p) : 0 }
+        @runtime.logger.info({ msg: "fetch_success", event: "fetch_success", symbol: entry.symbol, frequency: frequency, data_type: "candles", row_count: total_candles, byte_count: total_bytes, duration_ms: elapsed_ms, path: primary_path })
         write_sidecar(
           symbol: canonical_symbol, frequency: frequency, scheduled_for: scheduled_for,
-          started_at: started_at, status: "success", output_path: path
+          started_at: started_at, status: "success", output_path: primary_path
         )
         progress_reporter&.finish
         :success
@@ -146,17 +177,17 @@ module Tickrake
       return @start_date_override if @start_date_override
       return entry.start_date if @from_config_start
       return lookback_start_date(entry, scheduled_for) if ibkr_intraday_frequency?(frequency, provider_definition)
-      return entry.start_date unless File.exist?(history_path(entry, frequency, provider_definition))
+      return entry.start_date unless history_exists?(entry, frequency, provider_definition)
 
       lookback_start_date(entry, scheduled_for)
     end
 
-    def history_path(entry, frequency, provider_definition)
-      storage_paths.candle_path(
-        provider: provider_name_for(entry),
-        symbol: canonical_symbol_for(entry.symbol, provider_definition),
-        frequency: frequency
-      )
+    def history_exists?(entry, frequency, provider_definition)
+      provider = provider_name_for(entry)
+      symbol = canonical_symbol_for(entry.symbol, provider_definition)
+      # Check partitioned: candles/<provider>/*/*/*/<frequency>/<symbol>.csv
+      partitioned_pattern = File.join(@runtime.config.candles_dir, provider.to_s, "*", "*", "*", frequency.to_s, "#{symbol}.csv")
+      Dir.glob(partitioned_pattern).any?
     end
 
     def storage_paths
