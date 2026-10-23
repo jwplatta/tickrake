@@ -217,6 +217,71 @@ RSpec.describe "job execution" do
     end
   end
 
+  it "populates open, high, low, and close in OptionSampleRow and writes them to the CSV" do
+    Dir.mktmpdir do |dir|
+      custom = config_with(
+        config,
+        options_dir: dir,
+        pending_metadata_dir: File.join(dir, "pending_metadata"),
+        options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")],
+        dte_buckets: [4]
+      )
+      client = instance_double("client")
+      expiration_entry = Struct.new(:expiration_date, :days_to_expiration, :option_roots) do
+        def date_object = Date.iso8601(expiration_date)
+      end
+      option = Struct.new(
+        :put_call, :symbol, :description, :strike, :expiration_date, :mark, :bid, :bid_size, :ask, :ask_size,
+        :last, :last_size, :open_interest, :total_volume, :delta, :gamma, :theta, :vega, :rho, :volatility,
+        :theoretical_volatility, :theoretical_option_value, :intrinsic_value, :extrinsic_value, :option_root,
+        :open_price, :high_price, :low_price, :close_price,
+        keyword_init: true
+      )
+      expiration_chain = instance_double(
+        "SchwabRb::DataObjects::OptionExpirationChain",
+        expiration_list: [expiration_entry.new("2026-04-10", 4, "SPXW")]
+      )
+      allow(client).to receive(:get_option_expiration_chain).and_return(expiration_chain)
+      allow(client).to receive(:get_option_chain).and_return(
+        instance_double(
+          "SchwabRb::DataObjects::OptionChain",
+          underlying_price: 5100.5,
+          call_opts: [
+            option.new(
+              put_call: "CALL", symbol: "SPXW  260410C05100000", description: "SPXW call",
+              strike: 5100.0, expiration_date: Date.new(2026, 4, 10), mark: 12.5,
+              open_price: 10.5, high_price: 13.0, low_price: 10.0, close_price: 12.4,
+              bid: 12.0, bid_size: 10, ask: 13.0, ask_size: 12, last: 12.4, last_size: 3,
+              open_interest: 100, total_volume: 50, delta: 0.5, gamma: 0.1, theta: -0.2,
+              vega: 0.3, rho: 0.05, volatility: 0.22, theoretical_volatility: 0.21,
+              theoretical_option_value: 12.3, intrinsic_value: 1.0, extrinsic_value: 11.3,
+              option_root: "SPXW"
+            )
+          ],
+          put_opts: []
+        )
+      )
+      client_factory = instance_double(Tickrake::ClientFactory, build: client)
+      runtime = Tickrake::Runtime.new(config: custom, tracker: tracker, client_factory: client_factory, logger: logger)
+
+      Tickrake::OptionsJob.new(runtime).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
+
+      sidecars = Dir.glob(File.join(dir, "pending_metadata", "*.meta.json"))
+      expect(sidecars.length).to eq(1)
+      sidecar = JSON.parse(File.read(sidecars.first))
+      csv_path = sidecar["fetch_run"]["output_path"]
+      expect(File.exist?(csv_path)).to be true
+
+      csv_rows = CSV.read(csv_path, headers: true)
+      expect(csv_rows.length).to eq(1)
+      row = csv_rows.first
+      expect(row["open"]).to eq("10.5")
+      expect(row["high"]).to eq("13.0")
+      expect(row["low"]).to eq("10.0")
+      expect(row["close"]).to eq("12.4")
+    end
+  end
+
   it "ingests combined sidecars via metadata_sync with fetch_run and file_metadata in one transaction" do
     Dir.mktmpdir do |dir|
       pending_dir = File.join(dir, "pending_metadata")
