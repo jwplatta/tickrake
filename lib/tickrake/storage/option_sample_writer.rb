@@ -6,6 +6,8 @@ module Tickrake
       CSV_HEADERS = %w[
         contract_type
         symbol
+        underlying_symbol
+        option_root
         description
         strike
         expiration_date
@@ -63,6 +65,8 @@ module Tickrake
         [
           row.contract_type,
           row.symbol,
+          row.respond_to?(:underlying_symbol) ? row.underlying_symbol : nil,
+          row.respond_to?(:option_root) ? row.option_root : nil,
           row.description,
           row.strike,
           row.expiration_date,

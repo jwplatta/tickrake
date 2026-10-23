@@ -5,6 +5,8 @@ module Tickrake
     OptionSampleRow = Struct.new(
       :contract_type,
       :symbol,
+      :underlying_symbol,
+      :option_root,
       :description,
       :strike,
       :expiration_date,

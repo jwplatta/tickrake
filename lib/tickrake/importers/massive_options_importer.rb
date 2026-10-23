@@ -111,6 +111,8 @@ module Tickrake
         Tickrake::Data::OptionSampleRow.new(
           contract_type: parsed.contract_type,
           symbol: parsed.symbol,
+          underlying_symbol: @ticker,
+          option_root: parsed.massive_root || @option_root,
           description: parsed.description,
           strike: parsed.strike,
           expiration_date: parsed.expiration_date.iso8601,
