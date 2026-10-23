@@ -85,6 +85,8 @@ RSpec.describe Tickrake::Importers::MassiveOptionsImporter do
       expect(rows.length).to eq(2)
       expect(rows.first["contract_type"]).to eq("CALL")
       expect(rows.first["symbol"]).to eq("SPXW241202C04300000")
+      expect(rows.first["underlying_symbol"]).to eq("SPX")
+      expect(rows.first["option_root"]).to eq("SPXW")
       expect(rows.first["strike"]).to eq("4300.0")
       expect(rows.first["open"]).to eq("1739.72")
       expect(rows.first["high"]).to eq("1739.72")

@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Removed support for defining scheduled jobs in YAML configuration (`schedule`). All jobs are now defined using the Ruby DSL (`Tickrake.job`). `ConfigLoader` now rejects YAML configuration containing a `schedule` mapping with an explicit error.
 
 ### Added
+- Added `underlying_symbol` (e.g. `$SPX`) and `option_root` (e.g. `SPXW`) columns to option chain sample CSV files across live Schwab collection (`OptionsJob`) and historical Massive imports (`MassiveOptionsImporter`).
 - Added date-partitioned daily candle storage (`data/candles/<provider>/<YYYY>/<MM>/<DD>/<frequency>/<symbol>.csv`) across streaming (`StreamJob`, `ChartStreamJob`) and batch collection (`CandlesJob`) to support idempotent downstream Iceberg table ingestion.
 - Added structured chart stream write logs with bar-count and CSV-byte deltas for data-volume dashboard metrics.
 - Added standalone migration script `scripts/rewrite_options_parquet.rb` to re-encode and re-sort existing option sample Parquet files in-place with atomic verification.

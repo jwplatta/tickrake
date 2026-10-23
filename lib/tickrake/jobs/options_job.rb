@@ -244,7 +244,7 @@ module Tickrake
       end
       raise Tickrake::Error, "Option chain request returned nil for #{symbol} exp=#{expiration_date}" if chain.nil?
 
-      rows = option_sample_rows(chain, root, provider_name, timestamp: timestamp)
+      rows = option_sample_rows(chain, root, provider_name, symbol: symbol, timestamp: timestamp)
       path = storage_paths.option_sample_path(
         provider: provider_name,
         symbol: symbol,
@@ -258,7 +258,7 @@ module Tickrake
       { path: path, row_count: rows.length, byte_count: byte_count }
     end
 
-    def option_sample_rows(chain, option_root, provider_name, timestamp: Time.now.utc)
+    def option_sample_rows(chain, option_root, provider_name, symbol: nil, timestamp: Time.now.utc)
       batch_time = timestamp.utc
       filtered_options(chain, option_root).sort_by do |option|
         [
@@ -267,9 +267,19 @@ module Tickrake
           option.strike.to_f
         ]
       end.map do |option|
+        resolved_root = option_root ||
+                        (option.respond_to?(:option_root) && option.option_root) ||
+                        (option.respond_to?(:underlying_symbol) && option.underlying_symbol) ||
+                        symbol
+        resolved_underlying = symbol ||
+                              (chain.respond_to?(:symbol) && chain.symbol) ||
+                              (option.respond_to?(:underlying_symbol) && option.underlying_symbol)
+
         Tickrake::Data::OptionSampleRow.new(
           contract_type: option.put_call,
           symbol: option.symbol,
+          underlying_symbol: resolved_underlying,
+          option_root: resolved_root,
           description: option.description,
           strike: option.strike,
           expiration_date: option.expiration_date&.iso8601,

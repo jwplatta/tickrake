@@ -275,6 +275,9 @@ RSpec.describe "job execution" do
       csv_rows = CSV.read(csv_path, headers: true)
       expect(csv_rows.length).to eq(1)
       row = csv_rows.first
+      expect(row["symbol"]).to eq("SPXW  260410C05100000")
+      expect(row["underlying_symbol"]).to eq("$SPX")
+      expect(row["option_root"]).to eq("SPXW")
       expect(row["open"]).to eq("10.5")
       expect(row["high"]).to eq("13.0")
       expect(row["low"]).to eq("10.0")
