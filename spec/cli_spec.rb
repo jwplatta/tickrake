@@ -92,26 +92,6 @@ RSpec.describe Tickrake::CLI do
     expect(stdout.string).to include("Migrated Tickrake database")
   end
 
-  it "reports status for configured and orphaned jobs" do
-    stdout = StringIO.new
-    stderr = StringIO.new
-    registry = instance_double(Tickrake::JobRegistry)
-    allow(Tickrake::JobRegistry).to receive(:new).and_return(registry)
-    allow(registry).to receive(:registered_names).and_return(["orphan_job"])
-    allow(registry).to receive(:statuses).with(%w[eod_candles index_options orphan_job]).and_return([
-      { name: "eod_candles", state: "stopped" },
-      { name: "index_options", state: "running", pid: 123, started_at: "2026-04-10T16:00:00Z", log_path: "/tmp/index_options.log" },
-      { name: "orphan_job", state: "stale", pid: 321, started_at: "2026-04-10T15:00:00Z" }
-    ])
-
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["status"])
-
-    expect(exit_code).to eq(0)
-    expect(stdout.string).to include("index_options: running pid=123")
-    expect(stdout.string).to include("eod_candles: stopped")
-    expect(stdout.string).to include("orphan_job: stale pid=321")
-  end
-
   it "prints the targeted log file tail" do
     Dir.mktmpdir do |dir|
       log_path = File.join(dir, "cli.log")

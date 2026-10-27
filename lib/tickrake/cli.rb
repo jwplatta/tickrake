@@ -41,9 +41,6 @@ module Tickrake
       when "migrate"
         config = Tickrake::ConfigLoader.load(config_path)
         migrate_command(argv, config)
-      when "status"
-        config = Tickrake::ConfigLoader.load(config_path)
-        status_command(argv, config)
       when "publish-staging"
         config = Tickrake::ConfigLoader.load(config_path)
         publish_staging_command(argv, config, common_options)
@@ -198,24 +195,6 @@ module Tickrake
       0
     end
 
-    def status_command(argv, config)
-      raise OptionParser::InvalidOption, argv.first if argv.any?
-
-      registry = Tickrake::JobRegistry.new
-      known_names = (config.jobs.map(&:name) + registry.registered_names).uniq.sort
-      registry.statuses(known_names).each do |job|
-        case job[:state]
-        when "running"
-          @stdout.puts("#{job[:name]}: running pid=#{job[:pid]} started_at=#{job[:started_at]} log=#{job[:log_path]}")
-        when "stale"
-          @stdout.puts("#{job[:name]}: stale pid=#{job[:pid]} started_at=#{job[:started_at]}")
-        else
-          @stdout.puts("#{job[:name]}: stopped")
-        end
-      end
-      0
-    end
-
     def logs_command(argv)
       options = parse_logs_options!(argv)
       log_path = Tickrake::PathSupport.named_log_path(options[:target])
@@ -324,7 +303,6 @@ module Tickrake
           tickrake migrate [--config path/to/tickrake.yml]
           tickrake publish-staging [--datastore NAME] [--dataset TYPE] [--after DATE] [--before DATE] [--batch-size N] [--no-delete] [--config path/to/tickrake.yml] [--verbose]
           tickrake purge-staging --date YYYY-MM-DD [--dataset TYPE] [--provider NAME] [--datastore NAME] [--remote] [--local] [--all] [--dry-run] [--config path/to/tickrake.yml] [--verbose]
-          tickrake status [--config path/to/tickrake.yml]
           tickrake logs [TARGET] [--tail N]
       TEXT
     end
