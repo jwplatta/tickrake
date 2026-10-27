@@ -56,6 +56,9 @@ module Tickrake
       when "publish-staging"
         config = Tickrake::ConfigLoader.load(config_path)
         publish_staging_command(argv, config, common_options)
+      when "purge-staging"
+        config = Tickrake::ConfigLoader.load(config_path)
+        purge_staging_command(argv, config, common_options)
       else
         @stderr.puts(usage)
         1
@@ -128,6 +131,79 @@ module Tickrake
         before: options[:before]
       )
       @stdout.puts("Staging publish complete: scanned #{summary[:files_scanned]} file(s), uploaded #{summary[:files_uploaded]} file(s), deleted #{summary[:files_deleted]} file(s).")
+      0
+    end
+
+    def purge_staging_command(argv, config, common_options)
+      options = {
+        datastore: nil,
+        datasets: nil,
+        date: nil,
+        provider: nil,
+        dry_run: false,
+        remote: false,
+        local: false
+      }
+      parser = OptionParser.new do |opts|
+        opts.on("-d", "--date DATE", "Date to purge (required, YYYY-MM-DD)") do |v|
+          options[:date] = parse_cli_date_option!(v, option_name: "--date")
+        end
+        opts.on("--dataset TYPE", "Dataset to purge (options, candles, level_one, order_book, fundamentals, economic_events, or all)") do |v|
+          options[:datasets] = v.split(",").map(&:strip)
+        end
+        opts.on("-p", "--provider NAME", "Provider name filter (e.g. schwab)") { |v| options[:provider] = v }
+        opts.on("--datastore NAME", "Staging datastore name from config") { |v| options[:datastore] = v }
+        opts.on("--remote", "Purge from remote staging datastore") { options[:remote] = true }
+        opts.on("--local", "Purge from local data directory") { options[:local] = true }
+        opts.on("--all", "Purge from both remote datastore and local directory") do
+          options[:remote] = true
+          options[:local] = true
+        end
+        opts.on("--dry-run", "Preview matching files and keys without deleting") { options[:dry_run] = true }
+      end
+      parser.order!(argv)
+      raise OptionParser::InvalidOption, argv.first if argv.any?
+
+      raise Tickrake::Error, "--date YYYY-MM-DD is required for purge-staging." unless options[:date]
+
+      # Default to remote purge if neither --remote nor --local was explicitly specified
+      unless options[:remote] || options[:local]
+        options[:remote] = true
+      end
+
+      runtime = Tickrake::Runtime.new(
+        config: config,
+        verbose: common_options[:verbose],
+        stdout: @stdout,
+        log_path: Tickrake::PathSupport.named_log_path("staging_purger"),
+        config_path: common_options[:config_path],
+        context: { job_name: "staging_purger", job_type: "staging_purge" }
+      )
+
+      purger = Tickrake::Storage::StagingPurger.new(
+        runtime: runtime,
+        datastore_name: options[:datastore]
+      )
+
+      summary = purger.purge(
+        dataset_types: options[:datasets],
+        date: options[:date],
+        provider: options[:provider],
+        dry_run: options[:dry_run],
+        purge_remote: options[:remote],
+        purge_local: options[:local]
+      )
+
+      prefix = options[:dry_run] ? "[DRY RUN] " : ""
+      parts = []
+      if options[:remote]
+        parts << "remote keys: scanned #{summary[:remote_keys_scanned]}, deleted #{summary[:remote_keys_deleted]}"
+      end
+      if options[:local]
+        parts << "local files: scanned #{summary[:local_files_scanned]}, deleted #{summary[:local_files_deleted]}"
+      end
+
+      @stdout.puts("#{prefix}Staging purge complete: #{parts.join('; ')}.")
       0
     end
 
@@ -525,6 +601,7 @@ module Tickrake
           tickrake validate-config [--config path/to/tickrake.yml] [--verbose]
           tickrake migrate [--config path/to/tickrake.yml]
           tickrake publish-staging [--datastore NAME] [--dataset TYPE] [--after DATE] [--before DATE] [--batch-size N] [--no-delete] [--config path/to/tickrake.yml] [--verbose]
+          tickrake purge-staging --date YYYY-MM-DD [--dataset TYPE] [--provider NAME] [--datastore NAME] [--remote] [--local] [--all] [--dry-run] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --job JOB_NAME [--provider NAME] [--from-config-start] [--start-date YYYY-MM-DD --end-date YYYY-MM-DD] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type options --ticker SYMBOL --expiration-date YYYY-MM-DD [--option-root ROOT] [--provider NAME] [--config path/to/tickrake.yml] [--verbose]
           tickrake run --type candles --ticker SYMBOL --start-date YYYY-MM-DD --end-date YYYY-MM-DD --frequency FREQ [--provider NAME] [--config path/to/tickrake.yml] [--verbose]

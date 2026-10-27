@@ -66,6 +66,7 @@ require_relative "tickrake/storage/candles_scanner"
 require_relative "tickrake/storage/options_scanner"
 require_relative "tickrake/storage/s3_archive"
 require_relative "tickrake/storage/staging_publisher"
+require_relative "tickrake/storage/staging_purger"
 
 # Importers
 require_relative "tickrake/importers/massive_option_symbol"
