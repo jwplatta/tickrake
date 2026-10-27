@@ -433,4 +433,53 @@ RSpec.describe Tickrake::CLI do
     expect(exit_code).to eq(1)
     expect(stderr.string).to include("--after must be before --before.")
   end
+
+  it "executes purge-staging command" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
+    allow(config).to receive(:provider_definition).with("schwab").and_return(double("schwab_provider"))
+    purger = instance_double(Tickrake::Storage::StagingPurger)
+    allow(Tickrake::Storage::StagingPurger).to receive(:new).and_return(purger)
+    expect(purger).to receive(:purge).with(
+      dataset_types: ["order_book"],
+      date: Date.new(2026, 9, 16),
+      provider: "schwab",
+      dry_run: false,
+      purge_remote: true,
+      purge_local: false
+    ).and_return(
+      remote_keys_scanned: 5,
+      remote_keys_deleted: 5,
+      local_files_scanned: 0,
+      local_files_deleted: 0,
+      dry_run: false
+    )
+
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "purge-staging",
+      "--date", "2026-09-16",
+      "--dataset", "order_book",
+      "--provider", "schwab",
+      "--remote"
+    ])
+
+    expect(exit_code).to eq(0)
+    expect(stdout.string).to include("Staging purge complete: remote keys: scanned 5, deleted 5.")
+  end
+
+  it "requires --date for purge-staging command" do
+    stdout = StringIO.new
+    stderr = StringIO.new
+
+    allow(Tickrake::ConfigLoader).to receive(:load).and_return(config)
+    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
+      "purge-staging",
+      "--dataset", "order_book"
+    ])
+
+    expect(exit_code).to eq(1)
+    expect(stderr.string).to include("--date YYYY-MM-DD is required for purge-staging.")
+  end
 end
