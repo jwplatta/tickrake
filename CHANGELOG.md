@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Updated option sample Parquet compaction to use `ZSTD` compression (matching Apache Iceberg standards) and `ROW_GROUP_SIZE 50000`.
 
 ### Removed
+- Removed legacy CLI commands `tickrake run`, `tickrake start`, `tickrake stop`, and `tickrake restart`. Scheduled jobs are defined via Ruby DSL files (`TICKRAKE_JOB_FILE`) and orchestrated via system/container process runners.
 - Removed support for defining scheduled jobs in YAML configuration (`schedule`). All jobs are now defined using the Ruby DSL (`Tickrake.job`). `ConfigLoader` now rejects YAML configuration containing a `schedule` mapping with an explicit error.
 
 ### Added

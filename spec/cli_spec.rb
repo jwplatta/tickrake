@@ -79,31 +79,6 @@ RSpec.describe Tickrake::CLI do
     end
   end
 
-  it "runs a configured options job once with --job" do
-    stdout = StringIO.new
-    stderr = StringIO.new
-    runtime = instance_double(Tickrake::Runtime)
-    progress_reporter = instance_double(Tickrake::ProgressReporter)
-    job = instance_double(Tickrake::OptionsJob, run: true)
-
-    allow(Tickrake::Runtime).to receive(:new).with(
-      config: config,
-      provider_name: nil,
-      verbose: false,
-      stdout: stdout,
-      log_path: Tickrake::PathSupport.named_log_path("index_options"),
-      config_path: Tickrake::PathSupport.config_path,
-      context: { job_name: "index_options", job_type: "options", provider: nil }
-    ).and_return(runtime)
-    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 4, title: "Options", output: stdout).and_return(progress_reporter)
-    allow(Tickrake::OptionsJob).to receive(:new).with(runtime, progress_reporter: progress_reporter, scheduled_job: index_options_job).and_return(job)
-
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "--job", "index_options"])
-
-    expect(exit_code).to eq(0)
-    expect(stdout.string).to include("Completed job index_options.")
-  end
-
   it "runs database migrations only through the dedicated command" do
     stdout = StringIO.new
     stderr = StringIO.new
@@ -115,188 +90,6 @@ RSpec.describe Tickrake::CLI do
     expect(exit_code).to eq(0)
     expect(Tickrake::Tracker).to have_received(:migrate!).with("/tmp/tickrake.sqlite3")
     expect(stdout.string).to include("Migrated Tickrake database")
-  end
-
-  it "runs a manual configured options job once with --job" do
-    stdout = StringIO.new
-    stderr = StringIO.new
-    runtime = instance_double(Tickrake::Runtime)
-    progress_reporter = instance_double(Tickrake::ProgressReporter)
-    job = instance_double(Tickrake::OptionsJob, run: true)
-
-    allow(Tickrake::Runtime).to receive(:new).with(
-      config: config,
-      provider_name: nil,
-      verbose: false,
-      stdout: stdout,
-      log_path: Tickrake::PathSupport.named_log_path("manual_options"),
-      config_path: Tickrake::PathSupport.config_path,
-      context: { job_name: "manual_options", job_type: "options", provider: nil }
-    ).and_return(runtime)
-    allow(Tickrake::ProgressReporter).to receive(:build).with(total: 2, title: "Options", output: stdout).and_return(progress_reporter)
-    allow(Tickrake::OptionsJob).to receive(:new).with(runtime, progress_reporter: progress_reporter, scheduled_job: manual_options_job).and_return(job)
-
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "--job", "manual_options"])
-
-    expect(exit_code).to eq(0)
-    expect(stdout.string).to include("Completed job manual_options.")
-  end
-
-  it "rejects scheduler mode for manual configured jobs" do
-    stdout = StringIO.new
-    stderr = StringIO.new
-
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "--job", "manual_options", "--scheduler"])
-
-    expect(exit_code).to eq(1)
-    expect(stderr.string).to include("Manual job `manual_options` cannot run as a scheduler")
-  end
-
-  it "runs a configured candles job once with --job" do
-    stdout = StringIO.new
-    stderr = StringIO.new
-    runtime = instance_double(Tickrake::Runtime)
-    job = instance_double(Tickrake::CandlesJob, run: true)
-
-    allow(Tickrake::Runtime).to receive(:new).with(
-      config: config,
-      provider_name: nil,
-      verbose: false,
-      stdout: stdout,
-      log_path: Tickrake::PathSupport.named_log_path("eod_candles"),
-      config_path: Tickrake::PathSupport.config_path,
-      context: { job_name: "eod_candles", job_type: "candles", provider: nil }
-    ).and_return(runtime)
-    allow(Tickrake::CandlesJob).to receive(:new).with(
-      runtime,
-      from_config_start: true,
-      progress_output: stdout,
-      scheduled_job: eod_candles_job
-    ).and_return(job)
-
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "--job", "eod_candles", "--from-config-start"])
-
-    expect(exit_code).to eq(0)
-    expect(stdout.string).to include("Completed job eod_candles.")
-  end
-
-  it "runs direct candles from explicit ticker arguments" do
-    stdout = StringIO.new
-    stderr = StringIO.new
-    runtime = instance_double(Tickrake::Runtime)
-    job = instance_double(Tickrake::CandlesJob, run: true)
-
-    allow(Tickrake::Runtime).to receive(:new).and_return(runtime)
-    allow(Tickrake::CandlesJob).to receive(:new) do |_, **kwargs|
-      universe = kwargs.fetch(:universe)
-      expect(kwargs[:from_config_start]).to eq(false)
-      expect(kwargs[:start_date_override]).to eq(Date.new(2026, 4, 1))
-      expect(kwargs[:end_date_override]).to eq(Date.new(2026, 4, 11))
-      expect(kwargs[:progress_output]).to eq(stdout)
-      expect(universe.first.symbol).to eq("SPY")
-      expect(universe.first.frequencies).to eq(["1min"])
-      job
-    end
-
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
-      "run",
-      "--type", "candles",
-      "--ticker", "SPY",
-      "--start-date", "2026-04-01",
-      "--end-date", "2026-04-11",
-      "--frequency", "minute"
-    ])
-
-    expect(exit_code).to eq(0)
-    expect(stdout.string).to include("Completed one-off candle scrape.")
-  end
-
-  it "runs direct options from explicit ticker arguments" do
-    stdout = StringIO.new
-    stderr = StringIO.new
-    runtime = instance_double(Tickrake::Runtime)
-    job = instance_double(Tickrake::OptionsJob, run: true)
-
-    allow(Tickrake::Runtime).to receive(:new).and_return(runtime)
-    allow(Tickrake::OptionsJob).to receive(:new) do |_, **kwargs|
-      universe = kwargs.fetch(:universe)
-      expect(kwargs[:expiration_date]).to eq(Date.new(2026, 4, 11))
-      expect(kwargs[:progress_reporter]).to be_nil
-      expect(universe.first.symbol).to eq("$SPX")
-      expect(universe.first.option_root).to eq("SPXW")
-      job
-    end
-
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call([
-      "run",
-      "--type", "options",
-      "--provider", "schwab",
-      "--ticker", "$SPX",
-      "--expiration-date", "2026-04-11",
-      "--option-root", "SPXW"
-    ])
-
-    expect(exit_code).to eq(0)
-    expect(stdout.string).to include("Completed one-off options scrape.")
-  end
-
-  it "starts a configured job in the foreground by default" do
-    stdout = StringIO.new
-    stderr = StringIO.new
-    controller = instance_double(Tickrake::JobControl, start: true)
-
-    allow(Tickrake::JobControl).to receive(:new).with(stdout: stdout).and_return(controller)
-    allow(controller).to receive(:start).with(
-      target: "index_options",
-      config_path: Tickrake::PathSupport.config_path,
-      provider_name: "schwab_live",
-      from_config_start: false,
-      restart: true,
-      detach: false
-    )
-
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["start", "--job", "index_options", "--provider", "schwab_live", "--restart"])
-
-    expect(exit_code).to eq(0)
-  end
-
-  it "starts a configured job as a detached background process with --detach" do
-    stdout = StringIO.new
-    stderr = StringIO.new
-    controller = instance_double(Tickrake::JobControl, start: true)
-
-    allow(Tickrake::JobControl).to receive(:new).with(stdout: stdout).and_return(controller)
-    allow(controller).to receive(:start).with(
-      target: "index_options",
-      config_path: Tickrake::PathSupport.config_path,
-      provider_name: nil,
-      from_config_start: false,
-      restart: false,
-      detach: true
-    )
-
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["start", "--job", "index_options", "--detach"])
-
-    expect(exit_code).to eq(0)
-  end
-
-  it "restarts all configured jobs" do
-    stdout = StringIO.new
-    stderr = StringIO.new
-    controller = instance_double(Tickrake::JobControl, restart: true)
-
-    allow(Tickrake::JobControl).to receive(:new).with(stdout: stdout).and_return(controller)
-    allow(controller).to receive(:restart).with(
-      target: "all",
-      config_path: Tickrake::PathSupport.config_path,
-      provider_name: nil,
-      from_config_start: nil,
-      restart: nil
-    )
-
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["restart", "--job", "all"])
-
-    expect(exit_code).to eq(0)
   end
 
   it "reports status for configured and orphaned jobs" do
@@ -321,28 +114,18 @@ RSpec.describe Tickrake::CLI do
 
   it "prints the targeted log file tail" do
     Dir.mktmpdir do |dir|
-      log_path = File.join(dir, "index_options.log")
+      log_path = File.join(dir, "cli.log")
       File.write(log_path, "one\ntwo\nthree\n")
       stdout = StringIO.new
       stderr = StringIO.new
 
-      allow(Tickrake::PathSupport).to receive(:named_log_path).with("index_options").and_return(log_path)
+      allow(Tickrake::PathSupport).to receive(:named_log_path).with("cli").and_return(log_path)
 
-      exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["logs", "index_options", "--tail", "2"])
+      exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["logs", "cli", "--tail", "2"])
 
       expect(exit_code).to eq(0)
       expect(stdout.string).to eq("two\nthree\n")
     end
-  end
-
-  it "rejects removed positional run syntax" do
-    stdout = StringIO.new
-    stderr = StringIO.new
-
-    exit_code = described_class.new(stdout: stdout, stderr: stderr).call(["run", "options"])
-
-    expect(exit_code).to eq(1)
-    expect(stderr.string).to include("invalid option: options")
   end
 
   it "executes publish-staging command" do
