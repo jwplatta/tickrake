@@ -300,12 +300,9 @@ module Tickrake
 
       def build_intraday_publish_job!(config, schedule)
         raise Tickrake::Error, "intraday_publish job `#{@name}` requires an intraday_publish block" if @intraday_publish_builder.nil?
+        raise Tickrake::Error, "intraday_target is not configured in Tickrake config." if config.intraday_target.nil?
 
         settings = @intraday_publish_builder.build!
-        datastore_name = settings["datastore_name"]
-        unless config.datastores.key?(datastore_name)
-          raise Tickrake::Error, "intraday_publish job `#{@name}` datastore `#{datastore_name}` is not configured"
-        end
 
         Tickrake::ScheduledJobConfig.new(
           name: @name,
@@ -327,12 +324,9 @@ module Tickrake
 
       def build_staging_publish_job!(config, schedule)
         raise Tickrake::Error, "staging_publish job `#{@name}` requires a staging_publish block" if @staging_publish_builder.nil?
+        raise Tickrake::Error, "staging_target is not configured in Tickrake config." if config.staging_target.nil?
 
         settings = @staging_publish_builder.build!
-        datastore_name = settings["datastore_name"]
-        unless config.datastores.key?(datastore_name)
-          raise Tickrake::Error, "staging_publish job `#{@name}` datastore `#{datastore_name}` is not configured"
-        end
 
         Tickrake::ScheduledJobConfig.new(
           name: @name,

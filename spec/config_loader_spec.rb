@@ -18,34 +18,54 @@ RSpec.describe Tickrake::ConfigLoader do
     expect(config.import_job("spxw_massive_options").option_root).to eq("SPXW")
     expect(config.import_job("spxw_massive_options").paths).to include(/2025-10-01\.csv/)
     expect(config.universe("index_option_roots").option_roots).to eq(%w[SPXW SPY QQQ])
-    expect(config.datastores["minio_historical"].bucket).to eq("tickrake-historical")
-    expect(config.datastores["minio_historical"].type).to eq("minio")
+    expect(config.staging_target.bucket).to eq("tickrake-staging")
+    expect(config.staging_target.type).to eq("s3_compatible")
+    expect(config.intraday_target.bucket).to eq("tickrake-intraday")
+    expect(config.intraday_target.type).to eq("s3_compatible")
   end
 
-  it "loads datastores.s3_archive with defaults" do
+  it "loads staging_target and intraday_target with explicit values and ERB interpolation" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.yml")
+      env_file = File.join(dir, ".env")
+      File.write(env_file, <<~ENV)
+        TEST_STAGING_BUCKET=custom-staging
+        TEST_INTRADAY_BUCKET=custom-intraday
+      ENV
       File.write(path, <<~YAML)
         default_provider: schwab
         providers:
           schwab:
             adapter: schwab
-        datastores:
-          s3_archive:
-            type: s3
-            bucket: tickrake
+        database:
+          adapter: sqlite3
+          database: <%= ENV.fetch('CUSTOM_DB_PATH', '/tmp/custom.sqlite3') %>
+        staging_target:
+          type: s3
+          bucket: <%= ENV.fetch('TEST_STAGING_BUCKET') %>
+          region: us-east-1
+          prefix: staging/daily
+          storage_class: glacier
+        intraday_target:
+          type: s3_compatible
+          endpoint: http://127.0.0.1:9000
+          bucket: <%= ENV.fetch('TEST_INTRADAY_BUCKET') %>
       YAML
 
-      config = described_class.load(path)
+      config = described_class.load(path, env_file: env_file)
 
-      expect(config.s3_archive.bucket).to eq("tickrake")
-      expect(config.s3_archive.region).to be_nil
-      expect(config.s3_archive.prefix).to eq("")
-      expect(config.s3_archive.storage_class).to eq("STANDARD_IA")
+      expect(config.database.adapter).to eq("sqlite3")
+      expect(config.database.database).to eq("/tmp/custom.sqlite3")
+      expect(config.staging_target.bucket).to eq("custom-staging")
+      expect(config.staging_target.region).to eq("us-east-1")
+      expect(config.staging_target.prefix).to eq("staging/daily")
+      expect(config.staging_target.storage_class).to eq("GLACIER")
+      expect(config.intraday_target.bucket).to eq("custom-intraday")
+      expect(config.intraday_target.endpoint).to eq("http://127.0.0.1:9000")
     end
   end
 
-  it "loads datastores.s3_archive with explicit values" do
+  it "rejects staging_target without a bucket" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.yml")
       File.write(path, <<~YAML)
@@ -53,25 +73,16 @@ RSpec.describe Tickrake::ConfigLoader do
         providers:
           schwab:
             adapter: schwab
-        datastores:
-          s3_archive:
-            type: s3
-            bucket: tickrake
-            region: us-east-1
-            prefix: archive/daily
-            storage_class: glacier
+        staging_target:
+          type: s3
+          bucket:
       YAML
 
-      config = described_class.load(path)
-
-      expect(config.s3_archive.bucket).to eq("tickrake")
-      expect(config.s3_archive.region).to eq("us-east-1")
-      expect(config.s3_archive.prefix).to eq("archive/daily")
-      expect(config.s3_archive.storage_class).to eq("GLACIER")
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /staging_target bucket is required/)
     end
   end
 
-  it "rejects datastores.s3_archive without a bucket" do
+  it "rejects invalid staging_target storage_class values" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.yml")
       File.write(path, <<~YAML)
@@ -79,32 +90,13 @@ RSpec.describe Tickrake::ConfigLoader do
         providers:
           schwab:
             adapter: schwab
-        datastores:
-          s3_archive:
-            type: s3
-            bucket:
+        staging_target:
+          type: s3
+          bucket: tickrake
+          storage_class: frozen
       YAML
 
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /datastore `s3_archive` bucket is required/)
-    end
-  end
-
-  it "rejects invalid datastores.s3_archive.storage_class values" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "tickrake.yml")
-      File.write(path, <<~YAML)
-        default_provider: schwab
-        providers:
-          schwab:
-            adapter: schwab
-        datastores:
-          s3_archive:
-            type: s3
-            bucket: tickrake
-            storage_class: frozen
-      YAML
-
-      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /datastore `s3_archive` has invalid storage_class/)
+      expect { described_class.load(path) }.to raise_error(Tickrake::ConfigError, /staging_target has invalid storage_class/)
     end
   end
 

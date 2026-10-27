@@ -7,7 +7,7 @@ RSpec.describe "PostgreSQL backend and SQLite to PostgreSQL importer" do
   let(:pg_db_name) { "tickrake_test_#{Time.now.to_i}_#{rand(1000..9999)}" }
   let(:pg_config) do
     Tickrake::DatabaseConfig.new(
-      backend: "postgres",
+      adapter: "postgresql",
       database: pg_db_name,
       host: "localhost"
     )

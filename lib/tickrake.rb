@@ -25,6 +25,7 @@ end
 require_relative "tickrake/version"
 require_relative "tickrake/errors"
 require_relative "tickrake/core/path_support"
+require_relative "tickrake/core/env_loader"
 require_relative "tickrake/core/logger_factory"
 require_relative "tickrake/core/log_retention"
 require_relative "tickrake/core/lockfile"

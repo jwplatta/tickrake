@@ -9,15 +9,11 @@ module Tickrake
 
     def run
       settings = @scheduled_job.settings || {}
-      datastore_name = settings["datastore_name"]
       datasets = settings["datasets"]
       batch_size = settings["batch_size"]
       delete_after_upload = settings.fetch("delete_after_upload", true)
 
-      publisher = Storage::StagingPublisher.new(
-        runtime: @runtime,
-        datastore_name: datastore_name
-      )
+      publisher = Storage::StagingPublisher.new(runtime: @runtime)
       publisher.scan_and_publish(
         dataset_types: datasets,
         batch_size: batch_size,

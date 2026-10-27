@@ -91,7 +91,7 @@ module Tickrake
               }.compact
             end
           else
-            path = Tickrake::PathSupport.expand_path(db_config.sqlite_path || Tickrake::PathSupport.sqlite_path)
+            path = Tickrake::PathSupport.expand_path(db_config.sqlite_path)
             FileUtils.mkdir_p(File.dirname(path))
             {
               adapter: "sqlite3",
@@ -108,11 +108,11 @@ module Tickrake
           elsif config_or_path.respond_to?(:database) && config_or_path.database.is_a?(Tickrake::DatabaseConfig)
             config_or_path.database
           elsif config_or_path.is_a?(String)
-            Tickrake::DatabaseConfig.new(backend: "sqlite", sqlite_path: config_or_path)
+            Tickrake::DatabaseConfig.new(adapter: "sqlite3", database: config_or_path)
           elsif config_or_path.respond_to?(:sqlite_path) && config_or_path.sqlite_path
-            Tickrake::DatabaseConfig.new(backend: "sqlite", sqlite_path: config_or_path.sqlite_path)
+            Tickrake::DatabaseConfig.new(adapter: "sqlite3", database: config_or_path.sqlite_path)
           else
-            Tickrake::DatabaseConfig.new(backend: "sqlite", sqlite_path: Tickrake::PathSupport.sqlite_path)
+            Tickrake::DatabaseConfig.new(adapter: "sqlite3", database: Tickrake::PathSupport.sqlite_path)
           end
         end
       end

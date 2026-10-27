@@ -4,23 +4,22 @@ require "spec_helper"
 
 RSpec.describe Tickrake::Storage::StagingPublisher do
   let(:datastore_config) do
-    {
-      "type" => "s3",
-      "bucket" => "tickrake-staging",
-      "endpoint" => "http://localhost:9000",
-      "access_key_id" => "minioadmin",
-      "secret_access_key" => "minioadmin"
-    }
+    Tickrake::DatastoreConfig.new(
+      name: "staging_target",
+      type: "s3_compatible",
+      bucket: "tickrake-staging",
+      endpoint: "http://localhost:9000",
+      access_key_id: "minioadmin",
+      secret_access_key: "minioadmin"
+    )
   end
 
   let(:config) do
     instance_double(
       Tickrake::Config,
       data_dir: "/tmp/tickrake_data",
-      staging_datastore: "minio_staging"
-    ).tap do |c|
-      allow(c).to receive(:datastore).with("minio_staging").and_return(datastore_config)
-    end
+      staging_target: datastore_config
+    )
   end
   let(:logger) { instance_double(Logger, info: nil, warn: nil, error: nil) }
   let(:runtime) { instance_double(Tickrake::Runtime, config: config, logger: logger) }

@@ -17,11 +17,12 @@ module Tickrake
         "economic_events" => "**/*.ndjson"
       }.freeze
 
-      def initialize(runtime:, datastore_name: nil)
+      def initialize(runtime:, datastore_target: nil)
         @runtime = runtime
         @config = runtime.config
-        @datastore_name = datastore_name || @config.staging_datastore || "minio_staging"
-        @datastore_config = @config.datastore(@datastore_name)
+        @datastore_config = datastore_target || @config.staging_target
+        raise Tickrake::Error, "staging_target is not configured in Tickrake config." unless @datastore_config
+
         @store = Storage::S3Archive.new(@config, datastore_config: @datastore_config)
         @data_dir = Tickrake::PathSupport.expand_path(@config.data_dir)
       end

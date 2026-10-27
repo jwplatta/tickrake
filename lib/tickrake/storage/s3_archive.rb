@@ -11,9 +11,9 @@ module Tickrake
         end
       end
 
-      def initialize(config, archive_config: config.s3_archive, datastore_config: nil, s3_client: nil)
+      def initialize(config, archive_config: nil, datastore_config: nil, s3_client: nil)
         @config = config
-        @archive_config = datastore_config || archive_config
+        @archive_config = datastore_config || archive_config || (config.respond_to?(:staging_target) ? config.staging_target : nil)
         raise Tickrake::Error, "S3 archive is not configured." unless @archive_config
 
         @s3_client = s3_client

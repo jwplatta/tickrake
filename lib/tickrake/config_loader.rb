@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "erb"
 require "tzinfo"
 
 module Tickrake
@@ -8,21 +9,26 @@ module Tickrake
     VALID_IMPORT_TYPES = %w[options].freeze
     VALID_S3_STORAGE_CLASSES = %w[STANDARD STANDARD_IA GLACIER GLACIER_IR].freeze
     VALID_DATASTORE_TYPES = %w[s3 s3_compatible minio].freeze
+    VALID_DB_ADAPTERS = %w[sqlite3 postgresql].freeze
 
-    def self.load(path)
-      new(path).load
+    def self.load(path, env_file: nil)
+      new(path, env_file: env_file).load
     end
 
-    def initialize(path)
+    def initialize(path, env_file: nil)
       @path = File.expand_path(path)
+      @env_file = env_file
     end
 
     def load
-      data = YAML.safe_load(File.read(@path), permitted_classes: [Date], aliases: true) || {}
+      Tickrake::Core::EnvLoader.load!(@env_file)
+
+      raw_template = File.read(@path)
+      rendered = ERB.new(raw_template).result
+      data = YAML.safe_load(rendered, permitted_classes: [Date], aliases: true) || {}
 
       timezone = data.fetch("timezone", ENV.fetch("TZ", "America/Chicago"))
-      sqlite_path = Tickrake::PathSupport.expand_path(data.fetch("sqlite_path", Tickrake::PathSupport.sqlite_path))
-      database = load_database(data, default_sqlite_path: sqlite_path)
+      database = load_database(data)
       providers, default_provider_name = load_providers(data)
       options_config = data.fetch("options", {})
       option_root_tickers = load_option_root_tickers(options_config)
@@ -34,7 +40,8 @@ module Tickrake
       pending_metadata_dir = Tickrake::PathSupport.expand_path(
         dig(storage, "pending_metadata_dir", Tickrake::PathSupport.default_pending_metadata_dir(data_dir: data_dir))
       )
-      datastores = load_datastores(data.fetch("datastores", {}))
+      staging_target = load_datastore_target("staging_target", data["staging_target"])
+      intraday_target = load_datastore_target("intraday_target", data["intraday_target"])
       universes = load_universes(data.fetch("universes", {}))
       if data.key?("schedule")
         raise ConfigError, "Defining jobs in YAML configuration ('schedule') is no longer supported. Define jobs using the DSL instead."
@@ -45,15 +52,14 @@ module Tickrake
 
       config = Config.new(
         timezone: timezone,
-        sqlite_path: sqlite_path,
         database: database,
         providers: providers,
         default_provider_name: default_provider_name,
         option_root_tickers: option_root_tickers,
         option_snapshot_filename_timezone: option_snapshot_filename_timezone,
-        datastores: datastores,
+        staging_target: staging_target,
+        intraday_target: intraday_target,
         pending_metadata_dir: pending_metadata_dir,
-        staging_datastore: storage["staging_datastore"],
         universes: universes,
         data_dir: data_dir,
         candles_dir: candles_dir,
@@ -93,36 +99,37 @@ module Tickrake
       raise ConfigError, "max_workers must be positive." if config.max_workers <= 0
     end
 
-    def load_database(data, default_sqlite_path:)
+    def load_database(data)
       raw_db = data.fetch("database", nil)
       if raw_db.nil?
         return DatabaseConfig.new(
-          backend: "sqlite",
-          sqlite_path: default_sqlite_path
+          adapter: "sqlite3",
+          database: Tickrake::PathSupport.sqlite_path
         )
       end
 
       raise ConfigError, "database must be a mapping." unless raw_db.is_a?(Hash)
 
-      backend = raw_db.fetch("backend", "sqlite").to_s.strip.downcase
-      sqlite_path = if raw_db["sqlite_path"]
-                      Tickrake::PathSupport.expand_path(raw_db["sqlite_path"])
-                    else
-                      default_sqlite_path
-                    end
+      adapter = raw_db.fetch("adapter", "sqlite3").to_s.strip.downcase
 
-      url = raw_db["url"] || raw_db["connection_string"]
+      database = if raw_db["database"]
+                   raw_db["database"].to_s
+                 elsif adapter == "sqlite3"
+                   Tickrake::PathSupport.sqlite_path
+                 end
+
+      database = Tickrake::PathSupport.expand_path(database) if adapter == "sqlite3" && database
+
+      url = raw_db["url"]
       host = raw_db["host"]
       port = raw_db["port"]
-      database = raw_db["database"] || raw_db["dbname"]
       user = raw_db["user"] || raw_db["username"]
       password = raw_db["password"]
       sslmode = raw_db["sslmode"]
       connect_timeout = raw_db["connect_timeout"]
 
       DatabaseConfig.new(
-        backend: backend,
-        sqlite_path: sqlite_path,
+        adapter: adapter,
         url: url,
         host: host,
         port: port,
@@ -137,15 +144,12 @@ module Tickrake
     def validate_database!(database)
       return unless database
 
-      case database.backend
-      when "sqlite", ""
-        # SQLite is valid
-      when "postgres", "postgresql"
-        if database.url.to_s.empty? && database.database.to_s.empty?
-          raise ConfigError, "PostgreSQL backend requires `database` name or `url`."
-        end
-      else
-        raise ConfigError, "Unsupported database backend: #{database.backend}. Supported backends: sqlite, postgres."
+      unless VALID_DB_ADAPTERS.include?(database.adapter)
+        raise ConfigError, "Unsupported database adapter: #{database.adapter}. Supported adapters: sqlite3, postgresql."
+      end
+
+      if database.postgres? && database.url.to_s.empty? && database.database.to_s.empty?
+        raise ConfigError, "PostgreSQL adapter requires `database` name or `url`."
       end
     end
 
@@ -162,51 +166,47 @@ module Tickrake
       raise ConfigError, "Invalid options.snapshot_filename_timezone: #{raw_value}"
     end
 
-    def load_datastores(raw_datastores)
-      raise ConfigError, "datastores must be a mapping." unless raw_datastores.is_a?(Hash)
-      return {} if raw_datastores.empty?
+    def load_datastore_target(target_name, raw_ds)
+      return nil if raw_ds.nil?
+      raise ConfigError, "#{target_name} must be a mapping." unless raw_ds.is_a?(Hash)
 
-      raw_datastores.each_with_object({}) do |(name, raw_ds), result|
-        raise ConfigError, "datastore `#{name}` must be a mapping." unless raw_ds.is_a?(Hash)
+      type = raw_ds.fetch("type", "s3_compatible").to_s.strip
+      raise ConfigError, "#{target_name} type is required." if type.empty?
+      raise ConfigError, "#{target_name} has unsupported type: #{type}" unless VALID_DATASTORE_TYPES.include?(type)
 
-        type = raw_ds.fetch("type", "").to_s.strip
-        raise ConfigError, "datastore `#{name}` type is required (s3 or s3_compatible)." if type.empty?
-        raise ConfigError, "datastore `#{name}` has unsupported type: #{type}" unless VALID_DATASTORE_TYPES.include?(type)
+      bucket = raw_ds.fetch("bucket", "").to_s.strip
+      raise ConfigError, "#{target_name} bucket is required." if bucket.empty?
 
-        bucket = raw_ds.fetch("bucket", "").to_s.strip
-        raise ConfigError, "datastore `#{name}` bucket is required." if bucket.empty?
-
-        if type == "s3_compatible"
-          endpoint = raw_ds.fetch("endpoint", "").to_s.strip
-          raise ConfigError, "datastore `#{name}` endpoint is required for s3_compatible type." if endpoint.empty?
-        end
-
-        region = raw_ds.fetch("region", nil)&.to_s&.strip
-        prefix = raw_ds.fetch("prefix", "").to_s
-        raw_storage_class = raw_ds.fetch("storage_class", nil)
-        storage_class = if raw_storage_class
-                          raw_storage_class.to_s.strip.upcase.tap do |sc|
-                            unless VALID_S3_STORAGE_CLASSES.include?(sc)
-                              raise ConfigError, "datastore `#{name}` has invalid storage_class: #{sc}"
-                            end
-                          end
-                        elsif type == "s3"
-                          "STANDARD_IA"
-                        end
-
-        result[name.to_s] = DatastoreConfig.new(
-          name: name.to_s,
-          type: type,
-          bucket: bucket,
-          region: region.nil? || region.empty? ? nil : region,
-          prefix: prefix,
-          storage_class: storage_class,
-          endpoint: raw_ds["endpoint"]&.to_s&.strip,
-          access_key_id: raw_ds["access_key_id"]&.to_s,
-          secret_access_key: raw_ds["secret_access_key"]&.to_s,
-          force_path_style: !!raw_ds.fetch("force_path_style", false)
-        )
+      if %w[s3_compatible minio].include?(type)
+        endpoint = raw_ds.fetch("endpoint", "").to_s.strip
+        raise ConfigError, "#{target_name} endpoint is required for #{type} type." if endpoint.empty?
       end
+
+      region = raw_ds.fetch("region", nil)&.to_s&.strip
+      prefix = raw_ds.fetch("prefix", "").to_s
+      raw_storage_class = raw_ds.fetch("storage_class", nil)
+      storage_class = if raw_storage_class
+                        raw_storage_class.to_s.strip.upcase.tap do |sc|
+                          unless VALID_S3_STORAGE_CLASSES.include?(sc)
+                            raise ConfigError, "#{target_name} has invalid storage_class: #{sc}"
+                          end
+                        end
+                      elsif type == "s3"
+                        "STANDARD_IA"
+                      end
+
+      DatastoreConfig.new(
+        name: target_name,
+        type: type,
+        bucket: bucket,
+        region: region.nil? || region.empty? ? nil : region,
+        prefix: prefix,
+        storage_class: storage_class,
+        endpoint: raw_ds["endpoint"]&.to_s&.strip,
+        access_key_id: raw_ds["access_key_id"]&.to_s,
+        secret_access_key: raw_ds["secret_access_key"]&.to_s,
+        force_path_style: raw_ds.key?("force_path_style") ? !!raw_ds["force_path_style"] : (%w[s3_compatible minio].include?(type))
+      )
     end
 
     def load_universes(raw_universes)
@@ -227,7 +227,9 @@ module Tickrake
       path = File.expand_path(relative_path.to_s, File.dirname(@path))
       raise ConfigError, "universes file not found: #{path}" unless File.exist?(path)
 
-      data = YAML.safe_load(File.read(path), permitted_classes: [Date], aliases: true) || {}
+      raw_template = File.read(path)
+      rendered = ERB.new(raw_template).result
+      data = YAML.safe_load(rendered, permitted_classes: [Date], aliases: true) || {}
       raise ConfigError, "universes file must contain a mapping." unless data.is_a?(Hash)
 
       universes = data.key?("universes") ? data.fetch("universes") : data
@@ -256,7 +258,9 @@ module Tickrake
       path = File.expand_path(relative_path.to_s, File.dirname(@path))
       raise ConfigError, "universe `#{name}` file not found: #{path}" unless File.exist?(path)
 
-      data = YAML.safe_load(File.read(path), permitted_classes: [Date], aliases: true) || {}
+      raw_template = File.read(path)
+      rendered = ERB.new(raw_template).result
+      data = YAML.safe_load(rendered, permitted_classes: [Date], aliases: true) || {}
       raise ConfigError, "universe `#{name}` file must contain a mapping or array." unless data.is_a?(Hash) || data.is_a?(Array)
 
       data

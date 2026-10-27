@@ -1,14 +1,32 @@
 timezone: America/Chicago
-sqlite_path: ~/.tickrake/tickrake.sqlite3
-# database:
-#   backend: postgres # sqlite (default) or postgres
-#   host: localhost
-#   port: 5432
-#   database: tickrake
-#   user: postgres
-#   password: secret
-#   # Or connection url:
-#   # url: postgres://user:password@localhost:5432/tickrake
+
+# Database Configuration (Rails ActiveRecord convention)
+# adapter: sqlite3 or postgresql
+database:
+  adapter: <%= ENV.fetch('TICKRAKE_DB_ADAPTER', 'sqlite3') %>
+  database: <%= ENV.fetch('TICKRAKE_DB_DATABASE', Tickrake::PathSupport.sqlite_path) %>
+  # PostgreSQL options (when adapter is postgresql):
+  # host: <%= ENV.fetch('TICKRAKE_DB_HOST', 'localhost') %>
+  # port: <%= ENV.fetch('TICKRAKE_DB_PORT', 5432) %>
+  # user: <%= ENV.fetch('TICKRAKE_DB_USER', 'tickrake_user') %>
+  # password: <%= ENV.fetch('TICKRAKE_DB_PASSWORD', '') %>
+  # url: <%= ENV.fetch('DATABASE_URL', nil) %>
+
+# Target Datastores (MinIO or AWS S3)
+staging_target:
+  type: <%= ENV.fetch('STAGING_DATASTORE_TYPE', 's3_compatible') %>
+  endpoint: <%= ENV.fetch('MINIO_ENDPOINT', 'http://minio:9000') %>
+  bucket: <%= ENV.fetch('TICKRAKE_STAGING_BUCKET', 'tickrake-staging') %>
+  access_key_id: <%= ENV.fetch('MINIO_ACCESS_KEY', 'minioadmin') %>
+  secret_access_key: <%= ENV.fetch('MINIO_SECRET_KEY', 'minioadmin') %>
+
+intraday_target:
+  type: <%= ENV.fetch('INTRADAY_DATASTORE_TYPE', 's3_compatible') %>
+  endpoint: <%= ENV.fetch('MINIO_ENDPOINT', 'http://minio:9000') %>
+  bucket: <%= ENV.fetch('TICKRAKE_INTRADAY_BUCKET', 'tickrake-intraday') %>
+  access_key_id: <%= ENV.fetch('MINIO_ACCESS_KEY', 'minioadmin') %>
+  secret_access_key: <%= ENV.fetch('MINIO_SECRET_KEY', 'minioadmin') %>
+
 default_provider: schwab
 providers:
   schwab:
@@ -29,10 +47,12 @@ providers:
   massive:
     adapter: massive
     settings: {}
+
 options:
   snapshot_filename_timezone: utc
   root_tickers:
     SPXW: SPX
+
 imports:
   spxw_massive_options:
     type: options
@@ -41,33 +61,20 @@ imports:
     option_root: SPXW
     paths:
       - /Volumes/ext_docs/options_trader/polygon/minute_aggs_v1/2025/10/2025-10-01.csv
+
 storage:
-  data_dir: ~/.tickrake/data
-  history_dir: ~/.tickrake/data/history
+  data_dir: <%= ENV.fetch('TICKRAKE_DATA_DIR', '~/.tickrake/data') %>
+  candles_dir: ~/.tickrake/data/candles
   options_dir: ~/.tickrake/data/options
   pending_metadata_dir: ~/.tickrake/staging/pending_metadata
 
-datastores:
-  minio_historical:
-    type: minio
-    bucket: tickrake-historical
-    endpoint: http://minio:9000
-    access_key_id: minioadmin
-    secret_access_key: minioadmin
-    force_path_style: true
-  minio_intraday:
-    type: minio
-    bucket: intraday
-    endpoint: http://minio:9000
-    access_key_id: minioadmin
-    secret_access_key: minioadmin
-    force_path_style: true
 runtime:
   max_workers: 4
   retry_count: 2
   retry_delay_seconds: 2
   option_fetch_timeout_seconds: 30
   candle_fetch_timeout_seconds: 60
+
 universes:
   index_option_roots:
     file: universes/index_option_roots.yml

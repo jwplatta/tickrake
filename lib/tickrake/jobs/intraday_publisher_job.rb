@@ -9,8 +9,9 @@ module Tickrake
     end
 
     def run(now: Time.now)
-      datastore_name = @scheduled_job.settings.fetch("datastore_name")
-      datastore_config = @runtime.config.datastore(datastore_name)
+      datastore_config = @runtime.config.intraday_target
+      raise Tickrake::Error, "intraday_target is not configured in Tickrake config." unless datastore_config
+
       store = Storage::S3Archive.new(@runtime.config, datastore_config: datastore_config)
 
       check_daily_clear(store, now)
