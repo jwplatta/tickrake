@@ -15,7 +15,7 @@ module Tickrake
         @datastore_config = datastore_target || @config.staging_target
         raise Tickrake::Error, "staging_target is not configured in Tickrake config." unless @datastore_config
 
-        @store = Storage::S3Archive.new(@config, datastore_config: @datastore_config)
+        @store = Storage::ObjectStoreClient.new(@config, datastore_config: @datastore_config)
         @data_dir = Tickrake::PathSupport.expand_path(@config.data_dir)
       end
 

@@ -65,7 +65,7 @@ require_relative "tickrake/storage/candle_metadata"
 require_relative "tickrake/storage/candle_metadata_sync"
 require_relative "tickrake/storage/candles_scanner"
 require_relative "tickrake/storage/options_scanner"
-require_relative "tickrake/storage/s3_archive"
+require_relative "tickrake/storage/object_store_client"
 require_relative "tickrake/storage/staging_publisher"
 require_relative "tickrake/storage/staging_purger"
 

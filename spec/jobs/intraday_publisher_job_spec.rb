@@ -21,7 +21,7 @@ RSpec.describe Tickrake::IntradayPublisherJob do
                     settings: { "clear_at" => "00:00" })
   end
   let(:store) do
-    instance_double(Tickrake::Storage::S3Archive,
+    instance_double(Tickrake::Storage::ObjectStoreClient,
                     upload_file: nil, upload_content: nil,
                     list_keys: [], delete_keys: nil)
   end
@@ -29,7 +29,7 @@ RSpec.describe Tickrake::IntradayPublisherJob do
   subject(:job) { described_class.new(runtime, scheduled_job: scheduled_job) }
 
   before do
-    allow(Tickrake::Storage::S3Archive).to receive(:new).and_return(store)
+    allow(Tickrake::Storage::ObjectStoreClient).to receive(:new).and_return(store)
   end
 
   after { FileUtils.rm_rf(candles_dir) }

@@ -23,13 +23,13 @@ RSpec.describe Tickrake::Storage::StagingPublisher do
   end
   let(:logger) { instance_double(Logger, info: nil, warn: nil, error: nil) }
   let(:runtime) { instance_double(Tickrake::Runtime, config: config, logger: logger) }
-  let(:s3_archive) { instance_double(Tickrake::Storage::S3Archive) }
+  let(:object_store_client) { instance_double(Tickrake::Storage::ObjectStoreClient) }
 
-  let(:remote_obj) { Tickrake::Storage::S3Archive::RemoteObject.new(bucket: "tickrake-staging", key: "k", size: 10) }
+  let(:remote_obj) { Tickrake::Storage::ObjectStoreClient::RemoteObject.new(bucket: "tickrake-staging", key: "k", size: 10) }
 
   before do
-    allow(Tickrake::Storage::S3Archive).to receive(:new).and_return(s3_archive)
-    allow(s3_archive).to receive(:upload_file).and_return(remote_obj)
+    allow(Tickrake::Storage::ObjectStoreClient).to receive(:new).and_return(object_store_client)
+    allow(object_store_client).to receive(:upload_file).and_return(remote_obj)
   end
 
   describe "#scan_and_publish" do
@@ -50,8 +50,8 @@ RSpec.describe Tickrake::Storage::StagingPublisher do
         File.write(candle_file, "time,open,high,low,close,volume\n")
 
         # Expect uploads
-        expect(s3_archive).to receive(:upload_file).with(opt_file, key: "options/schwab/2026/10/18/SPY_exp2026-10-18.csv").and_return(remote_obj)
-        expect(s3_archive).to receive(:upload_file).with(candle_file, key: "candles/schwab/2026/10/18/day/SPY.csv").and_return(remote_obj)
+        expect(object_store_client).to receive(:upload_file).with(opt_file, key: "options/schwab/2026/10/18/SPY_exp2026-10-18.csv").and_return(remote_obj)
+        expect(object_store_client).to receive(:upload_file).with(candle_file, key: "candles/schwab/2026/10/18/day/SPY.csv").and_return(remote_obj)
 
         summary = publisher.scan_and_publish(delete_after_upload: true)
 
@@ -74,7 +74,7 @@ RSpec.describe Tickrake::Storage::StagingPublisher do
         ndjson_file = File.join(level_one_dir, "quotes_20261018.ndjson")
         File.write(ndjson_file, "{\"symbol\":\"SPY\"}\n")
 
-        expect(s3_archive).to receive(:upload_file).with(ndjson_file, key: "level_one/schwab/2026/10/quotes_20261018.ndjson").and_return(remote_obj)
+        expect(object_store_client).to receive(:upload_file).with(ndjson_file, key: "level_one/schwab/2026/10/quotes_20261018.ndjson").and_return(remote_obj)
 
         summary = publisher.scan_and_publish(delete_after_upload: false)
 
@@ -95,7 +95,7 @@ RSpec.describe Tickrake::Storage::StagingPublisher do
         tmp_file = File.join(opt_dir, "temp.csv.tmp")
         File.write(tmp_file, "temp")
 
-        expect(s3_archive).not_to receive(:upload_file)
+        expect(object_store_client).not_to receive(:upload_file)
 
         summary = publisher.scan_and_publish
         expect(summary[:files_scanned]).to eq(0)
@@ -124,9 +124,9 @@ RSpec.describe Tickrake::Storage::StagingPublisher do
         File.write(file17, "17")
 
         # Range: after: 2026-10-16 (inclusive), before: 2026-10-17 (exclusive) => only file16 matches
-        expect(s3_archive).to receive(:upload_file).with(file16, key: "options/schwab/2026/10/16/SPY_exp2026-10-16.csv").and_return(remote_obj)
-        expect(s3_archive).not_to receive(:upload_file).with(file15, any_args)
-        expect(s3_archive).not_to receive(:upload_file).with(file17, any_args)
+        expect(object_store_client).to receive(:upload_file).with(file16, key: "options/schwab/2026/10/16/SPY_exp2026-10-16.csv").and_return(remote_obj)
+        expect(object_store_client).not_to receive(:upload_file).with(file15, any_args)
+        expect(object_store_client).not_to receive(:upload_file).with(file17, any_args)
 
         summary = publisher.scan_and_publish(
           after: Date.new(2026, 10, 16),
@@ -152,7 +152,7 @@ RSpec.describe Tickrake::Storage::StagingPublisher do
         File.write(legacy_candle_file, "time,open\n")
 
         # Expect legacy unpartitioned candles to be completely ignored by staging publisher
-        expect(s3_archive).not_to receive(:upload_file)
+        expect(object_store_client).not_to receive(:upload_file)
         summary = publisher.scan_and_publish
         expect(summary[:files_scanned]).to eq(0)
         expect(summary[:files_uploaded]).to eq(0)
@@ -175,8 +175,8 @@ RSpec.describe Tickrake::Storage::StagingPublisher do
         File.write(file15, "time,open\n")
         File.write(file16, "time,open\n")
 
-        expect(s3_archive).to receive(:upload_file).with(file16, key: "candles/schwab/2026/10/16/1min/SPY.csv").and_return(remote_obj)
-        expect(s3_archive).not_to receive(:upload_file).with(file15, any_args)
+        expect(object_store_client).to receive(:upload_file).with(file16, key: "candles/schwab/2026/10/16/1min/SPY.csv").and_return(remote_obj)
+        expect(object_store_client).not_to receive(:upload_file).with(file15, any_args)
 
         summary = publisher.scan_and_publish(after: "2026-10-16", before: "2026-10-17")
         expect(summary[:files_scanned]).to eq(1)

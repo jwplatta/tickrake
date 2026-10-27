@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Tickrake::Storage::S3Archive do
+RSpec.describe Tickrake::Storage::ObjectStoreClient do
   def build_config(dir, prefix: "", storage_class: "GLACIER_IR")
     Tickrake::Config.new(
       timezone: "America/Chicago",

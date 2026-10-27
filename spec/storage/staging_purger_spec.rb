@@ -24,10 +24,10 @@ RSpec.describe Tickrake::Storage::StagingPurger do
 
   let(:logger) { instance_double(Logger, info: nil, warn: nil, error: nil) }
   let(:runtime) { instance_double(Tickrake::Runtime, config: config, logger: logger) }
-  let(:s3_archive) { instance_double(Tickrake::Storage::S3Archive, bucket: "tickrake-staging") }
+  let(:object_store_client) { instance_double(Tickrake::Storage::ObjectStoreClient, bucket: "tickrake-staging") }
 
   before do
-    allow(Tickrake::Storage::S3Archive).to receive(:new).and_return(s3_archive)
+    allow(Tickrake::Storage::ObjectStoreClient).to receive(:new).and_return(object_store_client)
   end
 
   describe "#purge" do
@@ -38,13 +38,13 @@ RSpec.describe Tickrake::Storage::StagingPurger do
         "order_book/schwab/2026/09/17/SPY.ndjson"
       ]
 
-      allow(s3_archive).to receive(:list_keys).with(prefix: "order_book/schwab/2026/09/16/").and_return(
+      allow(object_store_client).to receive(:list_keys).with(prefix: "order_book/schwab/2026/09/16/").and_return(
         [
           "order_book/schwab/2026/09/16/SPY.ndjson",
           "order_book/schwab/2026/09/16/QQQ.ndjson"
         ]
       )
-      allow(s3_archive).to receive(:delete_keys)
+      allow(object_store_client).to receive(:delete_keys)
 
       purger = described_class.new(runtime: runtime)
       summary = purger.purge(
@@ -55,7 +55,7 @@ RSpec.describe Tickrake::Storage::StagingPurger do
         purge_local: false
       )
 
-      expect(s3_archive).to have_received(:delete_keys).with([
+      expect(object_store_client).to have_received(:delete_keys).with([
         "order_book/schwab/2026/09/16/SPY.ndjson",
         "order_book/schwab/2026/09/16/QQQ.ndjson"
       ])
@@ -65,8 +65,8 @@ RSpec.describe Tickrake::Storage::StagingPurger do
     end
 
     it "respects dry_run mode without deleting remote keys" do
-      allow(s3_archive).to receive(:list_keys).and_return(["options/schwab/2026/10/18/SPY_exp2026-10-18.csv"])
-      allow(s3_archive).to receive(:delete_keys)
+      allow(object_store_client).to receive(:list_keys).and_return(["options/schwab/2026/10/18/SPY_exp2026-10-18.csv"])
+      allow(object_store_client).to receive(:delete_keys)
 
       purger = described_class.new(runtime: runtime)
       summary = purger.purge(
@@ -78,7 +78,7 @@ RSpec.describe Tickrake::Storage::StagingPurger do
         purge_local: false
       )
 
-      expect(s3_archive).not_to have_received(:delete_keys)
+      expect(object_store_client).not_to have_received(:delete_keys)
       expect(summary[:remote_keys_scanned]).to eq(1)
       expect(summary[:remote_keys_deleted]).to eq(0)
       expect(summary[:dry_run]).to be true
@@ -93,7 +93,7 @@ RSpec.describe Tickrake::Storage::StagingPurger do
         test_file = File.join(order_book_dir, "SPY.ndjson")
         File.write(test_file, '{"test":1}')
 
-        allow(s3_archive).to receive(:list_keys).and_return([])
+        allow(object_store_client).to receive(:list_keys).and_return([])
 
         purger = described_class.new(runtime: runtime)
         summary = purger.purge(
