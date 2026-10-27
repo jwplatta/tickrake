@@ -281,6 +281,44 @@ RSpec.describe Tickrake::Tracker do
     end
   end
 
+  it "raises DatabaseConnectionError with diagnostic details instead of migration error on connection failure" do
+    fake_pg_config = Tickrake::DatabaseConfig.new(
+      backend: "postgres",
+      host: "pg.internal.local",
+      port: 5432,
+      database: "tickrake_test",
+      user: "tickrake_user"
+    )
+
+    allow(Tickrake::DB::ConnectionManager).to receive(:establish_connection).and_raise(
+      Tickrake::DatabaseConnectionError,
+      "Database connection error (target: tickrake_user@pg.internal.local/tickrake_test): fe_sendauth: no password supplied"
+    )
+
+    expect do
+      described_class.new(fake_pg_config, migrate: false)
+    end.to raise_error(Tickrake::DatabaseConnectionError, /Database connection error.*tickrake_user@pg\.internal\.local.*no password supplied/)
+  end
+
+  it "raises DatabaseConnectionError when pending migration check encounters a database connection error" do
+    fake_pg_config = Tickrake::DatabaseConfig.new(
+      backend: "postgres",
+      host: "pg.internal.local",
+      port: 5432,
+      database: "tickrake_test",
+      user: "tickrake_user"
+    )
+
+    allow(Tickrake::DB::ConnectionManager).to receive(:establish_connection).and_return(double("conn"))
+    allow(Tickrake::DB::Migrator).to receive(:pending?).and_raise(
+      ActiveRecord::DatabaseConnectionError.new("There is an issue connecting with your hostname: pg.internal.local.")
+    )
+
+    expect do
+      described_class.new(fake_pg_config, migrate: false)
+    end.to raise_error(Tickrake::DatabaseConnectionError, /Database connection error \(target: tickrake_user@pg\.internal\.local\/tickrake_test\)/)
+  end
+
   it "records completed migration versions when migrated explicitly" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tickrake.sqlite3")

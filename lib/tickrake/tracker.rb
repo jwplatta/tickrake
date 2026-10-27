@@ -355,6 +355,10 @@ module Tickrake
     rescue StandardError => e
       raise e if e.is_a?(Tickrake::Error)
 
+      if Tickrake::DB::ConnectionManager.connection_error?(e)
+        raise Tickrake::DatabaseConnectionError, Tickrake::DB::ConnectionManager.format_connection_error(e, @db_config)
+      end
+
       raise Tickrake::Error, pending_migrations_message
     end
 

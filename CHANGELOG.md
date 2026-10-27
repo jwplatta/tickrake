@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - Added `byte_count` to candle `fetch_success` logs for data-volume dashboard metrics.
 
 ### Fixed
+- Fixed database connection errors (such as authentication or unreachable host failures) being erroneously reported as `"Database migrations are pending"`. Added `Tickrake::DatabaseConnectionError` and immediate connection validation on establishment.
 - Fixed symbol normalization in `Paths#candle_path` to consistently apply the provider's `symbol_map` (e.g., `/ES` -> `^ES`).
 - Fixed date extraction in `StagingPublisher` to support date-partitioned candle paths.
 - Fixed missing `install_signal_handlers`, `mark_iteration_success`, `in_window?`, and `log_iteration_failure` methods in `StagingPublisherSchedulerRunner`.
