@@ -3,6 +3,7 @@
 module Tickrake
   class Error < StandardError; end
   class ConfigError < Error; end
+  class DatabaseConnectionError < Error; end
   class LockError < Error; end
   class SchedulerRestartRequired < Error
     EXIT_STATUS = 75

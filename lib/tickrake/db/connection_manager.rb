@@ -12,8 +12,9 @@ module Tickrake
           spec = connection_spec(db_config)
           ActiveRecord::Base.establish_connection(spec)
 
+          conn = verify_connection!(db_config)
+
           if db_config.sqlite?
-            conn = ActiveRecord::Base.connection
             conn.execute("PRAGMA journal_mode = WAL") rescue nil
             conn.execute("PRAGMA wal_autocheckpoint = 0") rescue nil
             conn.execute("PRAGMA busy_timeout = 30000") rescue nil
@@ -21,7 +22,55 @@ module Tickrake
 
           ActiveRecord::Base.descendants.each(&:reset_column_information)
 
-          ActiveRecord::Base.connection
+          conn
+        end
+
+        def verify_connection!(db_config = nil)
+          ActiveRecord::Base.connection_pool.with_connection do |conn|
+            conn.execute("SELECT 1")
+            conn
+          end
+        rescue StandardError => e
+          if connection_error?(e)
+            raise Tickrake::DatabaseConnectionError, format_connection_error(e, db_config)
+          end
+          raise
+        end
+
+        def connection_error?(error)
+          return true if defined?(ActiveRecord::ConnectionNotEstablished) && error.is_a?(ActiveRecord::ConnectionNotEstablished)
+          return true if defined?(ActiveRecord::DatabaseConnectionError) && error.is_a?(ActiveRecord::DatabaseConnectionError)
+          return true if defined?(ActiveRecord::NoDatabaseError) && error.is_a?(ActiveRecord::NoDatabaseError)
+          return true if defined?(ActiveRecord::ConnectionFailed) && error.is_a?(ActiveRecord::ConnectionFailed)
+          return true if defined?(PG::Error) && (error.is_a?(PG::Error) || (error.respond_to?(:cause) && error.cause.is_a?(PG::Error)))
+          return true if defined?(PG::ConnectionBad) && (error.is_a?(PG::ConnectionBad) || (error.respond_to?(:cause) && error.cause.is_a?(PG::ConnectionBad)))
+
+          false
+        end
+
+        def format_connection_error(error, db_config = nil)
+          primary_msg = error.message.to_s.gsub(/\s+/, " ").strip
+          cause_msg = error.cause&.message.to_s.gsub(/\s+/, " ").strip if error.respond_to?(:cause) && error.cause
+
+          target_info = if db_config&.postgres?
+                          host = db_config.host || "default"
+                          db = db_config.database || "default"
+                          user = db_config.user || "default"
+                          " (target: #{user}@#{host}/#{db})"
+                        elsif db_config&.sqlite?
+                          path = db_config.sqlite_path || "sqlite"
+                          " (target: #{path})"
+                        else
+                          ""
+                        end
+
+          detail = if cause_msg && !cause_msg.empty? && !primary_msg.include?(cause_msg)
+                     "#{cause_msg} - #{primary_msg}"
+                   else
+                     primary_msg
+                   end
+
+          "Database connection error#{target_info}: #{detail}"
         end
 
         def connection_spec(db_config)
