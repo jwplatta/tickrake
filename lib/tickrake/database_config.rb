@@ -2,8 +2,7 @@
 
 module Tickrake
   DatabaseConfig = Struct.new(
-    :backend,
-    :sqlite_path,
+    :adapter,
     :url,
     :host,
     :port,
@@ -15,11 +14,15 @@ module Tickrake
     keyword_init: true
   ) do
     def sqlite?
-      backend.to_s.empty? || backend.to_s == "sqlite"
+      adapter.to_s.empty? || adapter.to_s == "sqlite3"
     end
 
     def postgres?
-      backend.to_s == "postgres" || backend.to_s == "postgresql"
+      adapter.to_s == "postgresql"
+    end
+
+    def sqlite_path
+      database || Tickrake::PathSupport.sqlite_path
     end
 
     def postgres_connection_params

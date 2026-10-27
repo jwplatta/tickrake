@@ -283,7 +283,7 @@ RSpec.describe Tickrake::Tracker do
 
   it "raises DatabaseConnectionError with diagnostic details instead of migration error on connection failure" do
     fake_pg_config = Tickrake::DatabaseConfig.new(
-      backend: "postgres",
+      adapter: "postgresql",
       host: "pg.internal.local",
       port: 5432,
       database: "tickrake_test",
@@ -302,7 +302,7 @@ RSpec.describe Tickrake::Tracker do
 
   it "raises DatabaseConnectionError when pending migration check encounters a database connection error" do
     fake_pg_config = Tickrake::DatabaseConfig.new(
-      backend: "postgres",
+      adapter: "postgresql",
       host: "pg.internal.local",
       port: 5432,
       database: "tickrake_test",

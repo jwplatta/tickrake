@@ -7,16 +7,15 @@ module Tickrake
     class StagingPurger
       VALID_DATASETS = StagingPublisher::VALID_DATASETS
 
-      attr_reader :store, :datastore_name
+      attr_reader :store
 
-      def initialize(runtime:, datastore_name: nil, datastore_config: nil)
+      def initialize(runtime:, datastore_target: nil)
         @runtime = runtime
         @config = runtime.config
-        @datastore_name = datastore_name || @config.staging_datastore || "minio_staging"
-        @datastore_config = datastore_config || @config.datastore(@datastore_name)
-        raise Tickrake::Error, "Datastore '#{@datastore_name}' not configured." unless @datastore_config
+        @datastore_config = datastore_target || @config.staging_target
+        raise Tickrake::Error, "staging_target is not configured in Tickrake config." unless @datastore_config
 
-        @store = Storage::S3Archive.new(@config, datastore_config: @datastore_config)
+        @store = Storage::ObjectStoreClient.new(@config, datastore_config: @datastore_config)
         @data_dir = Tickrake::PathSupport.expand_path(@config.data_dir)
       end
 

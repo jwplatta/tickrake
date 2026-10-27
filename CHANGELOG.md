@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+- Modernized configuration management to support automatic `.env` loading (`Dotenv.load` from explicit path `--env-file`, `TICKRAKE_ENV_FILE`, `./.env`, or `~/.tickrake/.env`) and ERB templating (`<%= ENV.fetch(...) %>`) in YAML configurations and universe files.
+- Aligned database configuration with Rails ActiveRecord conventions under `database:`, using `adapter: sqlite3` or `adapter: postgresql` and `database:` for database name/path. Removed `sqlite_path:` and replaced `backend:` with `adapter:`.
+- Replaced generic `datastores:` and obsolete `s3_archive` with top-level `staging_target:` and `intraday_target:` configurations.
+- Updated `StagingPublisher`, `StagingPurger`, and `IntradayPublisherJob` to use `staging_target` and `intraday_target` directly, removing `--datastore` CLI option.
 - Updated `DuckdbOptionCompactedWriter` to sort option sample Parquet files by `expiration_date, sampled_at, strike, contract_type, symbol` to optimize Parquet row-group pruning for expiration filters and preserve chain snapshot locality for backtesting.
 - Updated option sample Parquet compaction to use `ZSTD` compression (matching Apache Iceberg standards) and `ROW_GROUP_SIZE 50000`.
 

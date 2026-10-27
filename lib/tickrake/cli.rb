@@ -34,18 +34,19 @@ module Tickrake
 
     def dispatch(command, argv, common_options)
       config_path = common_options[:config_path]
+      env_file = common_options[:env_file]
 
       case command
       when "validate-config"
-        validate_config_command(argv, config_path)
+        validate_config_command(argv, config_path, env_file)
       when "migrate"
-        config = Tickrake::ConfigLoader.load(config_path)
+        config = Tickrake::ConfigLoader.load(config_path, env_file: env_file)
         migrate_command(argv, config)
       when "publish-staging"
-        config = Tickrake::ConfigLoader.load(config_path)
+        config = Tickrake::ConfigLoader.load(config_path, env_file: env_file)
         publish_staging_command(argv, config, common_options)
       when "purge-staging"
-        config = Tickrake::ConfigLoader.load(config_path)
+        config = Tickrake::ConfigLoader.load(config_path, env_file: env_file)
         purge_staging_command(argv, config, common_options)
       else
         @stderr.puts(usage)
@@ -53,10 +54,10 @@ module Tickrake
       end
     end
 
-    def validate_config_command(argv, config_path)
+    def validate_config_command(argv, config_path, env_file = nil)
       raise OptionParser::InvalidOption, argv.first if argv.any?
 
-      Tickrake::ConfigLoader.load(config_path)
+      Tickrake::ConfigLoader.load(config_path, env_file: env_file)
       @stdout.puts("Config valid: #{config_path}")
       0
     end
@@ -64,10 +65,16 @@ module Tickrake
     def migrate_command(argv, config)
       raise OptionParser::InvalidOption, argv.first if argv.any?
 
-      target = config.respond_to?(:database) && config.database ? config.database : config.sqlite_path
+      target = if config.respond_to?(:database) && config.database
+                 config.database
+               else
+                 config.respond_to?(:sqlite_path) ? config.sqlite_path : Tickrake::PathSupport.sqlite_path
+               end
       Tickrake::Tracker.migrate!(target)
       dest = if config.respond_to?(:database) && config.database&.postgres?
                "PostgreSQL database #{config.database.database || config.database.url}"
+             elsif config.respond_to?(:database) && config.database&.sqlite_path
+               "Tickrake database at #{config.database.sqlite_path}"
              else
                "Tickrake database at #{config.sqlite_path}"
              end
@@ -76,9 +83,8 @@ module Tickrake
     end
 
     def publish_staging_command(argv, config, common_options)
-      options = { datastore: nil, datasets: nil, batch_size: nil, delete_after_upload: true, after: nil, before: nil }
+      options = { datasets: nil, batch_size: nil, delete_after_upload: true, after: nil, before: nil }
       parser = OptionParser.new do |opts|
-        opts.on("--datastore NAME", "Staging datastore name from config") { |v| options[:datastore] = v }
         opts.on("--dataset TYPE", "Dataset to publish (options, candles, level_one, order_book, fundamentals, economic_events, or all)") do |v|
           options[:datasets] = v.split(",").map(&:strip)
         end
@@ -107,10 +113,7 @@ module Tickrake
         context: { job_name: "staging_publisher", job_type: "staging_publish" }
       )
 
-      publisher = Tickrake::Storage::StagingPublisher.new(
-        runtime: runtime,
-        datastore_name: options[:datastore]
-      )
+      publisher = Tickrake::Storage::StagingPublisher.new(runtime: runtime)
       summary = publisher.scan_and_publish(
         dataset_types: options[:datasets],
         batch_size: options[:batch_size],
@@ -124,7 +127,6 @@ module Tickrake
 
     def purge_staging_command(argv, config, common_options)
       options = {
-        datastore: nil,
         datasets: nil,
         date: nil,
         provider: nil,
@@ -140,7 +142,6 @@ module Tickrake
           options[:datasets] = v.split(",").map(&:strip)
         end
         opts.on("-p", "--provider NAME", "Provider name filter (e.g. schwab)") { |v| options[:provider] = v }
-        opts.on("--datastore NAME", "Staging datastore name from config") { |v| options[:datastore] = v }
         opts.on("--remote", "Purge from remote staging datastore") { options[:remote] = true }
         opts.on("--local", "Purge from local data directory") { options[:local] = true }
         opts.on("--all", "Purge from both remote datastore and local directory") do
@@ -168,10 +169,7 @@ module Tickrake
         context: { job_name: "staging_purger", job_type: "staging_purge" }
       )
 
-      purger = Tickrake::Storage::StagingPurger.new(
-        runtime: runtime,
-        datastore_name: options[:datastore]
-      )
+      purger = Tickrake::Storage::StagingPurger.new(runtime: runtime)
 
       summary = purger.purge(
         dataset_types: options[:datasets],
@@ -222,7 +220,7 @@ module Tickrake
     end
 
     def parse_common_options!(argv)
-      options = { config_path: Tickrake::PathSupport.config_path, verbose: false }
+      options = { config_path: Tickrake::PathSupport.config_path, env_file: nil, verbose: false }
 
       index = 0
       while index < argv.length
@@ -235,6 +233,15 @@ module Tickrake
           argv.slice!(index, 2)
         when /\A--config=(.+)\z/
           options[:config_path] = Regexp.last_match(1)
+          argv.delete_at(index)
+        when "--env-file"
+          value = argv[index + 1]
+          raise OptionParser::MissingArgument, "--env-file" if value.nil?
+
+          options[:env_file] = value
+          argv.slice!(index, 2)
+        when /\A--env-file=(.+)\z/
+          options[:env_file] = Regexp.last_match(1)
           argv.delete_at(index)
         when "--verbose"
           options[:verbose] = true
@@ -299,10 +306,10 @@ module Tickrake
       <<~TEXT
         Usage:
           tickrake init [--config path/to/tickrake.yml] [--force]
-          tickrake validate-config [--config path/to/tickrake.yml] [--verbose]
-          tickrake migrate [--config path/to/tickrake.yml]
-          tickrake publish-staging [--datastore NAME] [--dataset TYPE] [--after DATE] [--before DATE] [--batch-size N] [--no-delete] [--config path/to/tickrake.yml] [--verbose]
-          tickrake purge-staging --date YYYY-MM-DD [--dataset TYPE] [--provider NAME] [--datastore NAME] [--remote] [--local] [--all] [--dry-run] [--config path/to/tickrake.yml] [--verbose]
+          tickrake validate-config [--config path/to/tickrake.yml] [--env-file path/to/.env] [--verbose]
+          tickrake migrate [--config path/to/tickrake.yml] [--env-file path/to/.env]
+          tickrake publish-staging [--dataset TYPE] [--after DATE] [--before DATE] [--batch-size N] [--no-delete] [--config path/to/tickrake.yml] [--env-file path/to/.env] [--verbose]
+          tickrake purge-staging --date YYYY-MM-DD [--dataset TYPE] [--provider NAME] [--remote] [--local] [--all] [--dry-run] [--config path/to/tickrake.yml] [--env-file path/to/.env] [--verbose]
           tickrake logs [TARGET] [--tail N]
       TEXT
     end

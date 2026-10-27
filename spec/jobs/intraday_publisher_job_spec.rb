@@ -7,9 +7,7 @@ RSpec.describe Tickrake::IntradayPublisherJob do
   let(:candles_dir) { Dir.mktmpdir("candles") }
   let(:datastore_config) { double("datastore_config", bucket: "test-bucket") }
   let(:config) do
-    instance_double(Tickrake::Config, candles_dir: candles_dir).tap do |c|
-      allow(c).to receive(:datastore).with("minio_intraday").and_return(datastore_config)
-    end
+    instance_double(Tickrake::Config, candles_dir: candles_dir, intraday_target: datastore_config)
   end
   let(:tracker) do
     instance_double(Tickrake::Tracker,
@@ -20,10 +18,10 @@ RSpec.describe Tickrake::IntradayPublisherJob do
   let(:runtime) { instance_double(Tickrake::Runtime, config: config, logger: logger, tracker: tracker) }
   let(:scheduled_job) do
     instance_double(Tickrake::ScheduledJobConfig,
-                    settings: { "datastore_name" => "minio_intraday", "clear_at" => "00:00" })
+                    settings: { "clear_at" => "00:00" })
   end
   let(:store) do
-    instance_double(Tickrake::Storage::S3Archive,
+    instance_double(Tickrake::Storage::ObjectStoreClient,
                     upload_file: nil, upload_content: nil,
                     list_keys: [], delete_keys: nil)
   end
@@ -31,7 +29,7 @@ RSpec.describe Tickrake::IntradayPublisherJob do
   subject(:job) { described_class.new(runtime, scheduled_job: scheduled_job) }
 
   before do
-    allow(Tickrake::Storage::S3Archive).to receive(:new).and_return(store)
+    allow(Tickrake::Storage::ObjectStoreClient).to receive(:new).and_return(store)
   end
 
   after { FileUtils.rm_rf(candles_dir) }

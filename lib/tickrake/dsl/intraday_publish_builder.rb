@@ -4,12 +4,7 @@ module Tickrake
   module DSL
     class IntradayPublishBuilder
       def initialize
-        @datastore_name = nil
         @clear_at = "00:00"
-      end
-
-      def datastore(name)
-        @datastore_name = name.to_s
       end
 
       def clear_at(time)
@@ -17,10 +12,7 @@ module Tickrake
       end
 
       def build!
-        raise Tickrake::Error, "intraday_publish block requires datastore" if @datastore_name.nil?
-
         {
-          "datastore_name" => @datastore_name,
           "clear_at" => @clear_at
         }
       end

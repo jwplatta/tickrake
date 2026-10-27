@@ -25,19 +25,15 @@ RSpec.describe Tickrake::DSL::JobBuilder do
   let(:stock_universe)  { instance_double(Tickrake::UniverseConfig, entries: [aapl_entry, spy_entry], symbols: %w[AAPL SPY]) }
   let(:spx_universe)    { instance_double(Tickrake::UniverseConfig, entries: [spxw_entry]) }
 
-  let(:configured_datastores) do
-    {
-      "s3_archive" => double("s3_archive"),
-      "minio_intraday" => double("minio_intraday"),
-      "minio_staging" => double("minio_staging")
-    }
-  end
+  let(:staging_target) { Tickrake::DatastoreConfig.new(name: "staging_target", type: "s3_compatible", bucket: "tickrake-staging", endpoint: "http://minio:9000") }
+  let(:intraday_target) { Tickrake::DatastoreConfig.new(name: "intraday_target", type: "s3_compatible", bucket: "tickrake-intraday", endpoint: "http://minio:9000") }
 
   let(:config) do
     instance_double(Tickrake::Config).tap do |c|
       allow(c).to receive(:universe).with("stock_universe").and_return(stock_universe)
       allow(c).to receive(:universe).with("spx_symbols").and_return(spx_universe)
-      allow(c).to receive(:datastores).and_return(configured_datastores)
+      allow(c).to receive(:staging_target).and_return(staging_target)
+      allow(c).to receive(:intraday_target).and_return(intraday_target)
     end
   end
 
@@ -451,13 +447,12 @@ RSpec.describe Tickrake::DSL::JobBuilder do
           every 60.seconds
           weekdays from: "08:30", to: "15:30"
         end
-        intraday_publish { datastore :minio_intraday }
+        intraday_publish
       end
 
       expect(job.type).to eq("intraday_publish")
       expect(job.provider).to be_nil
       expect(job.interval_seconds).to eq(60)
-      expect(job.settings.fetch("datastore_name")).to eq("minio_intraday")
       expect(job.settings.fetch("clear_at")).to eq("00:00")
     end
 
@@ -465,7 +460,6 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       job = build_intraday_publish("intraday_publisher") do
         schedule { every 60.seconds; weekdays from: "08:30", to: "15:30" }
         intraday_publish do
-          datastore :minio_intraday
           clear_at "04:30"
         end
       end
@@ -478,29 +472,20 @@ RSpec.describe Tickrake::DSL::JobBuilder do
         build_intraday_publish("bad") do
           schedule { every 60.seconds; weekdays from: "08:30", to: "15:30" }
           intraday_publish do
-            datastore :minio_intraday
             clear_at "not-a-clock"
           end
         end
       end.to raise_error(Tickrake::Error, /Invalid clock value for clear_at/)
     end
 
-    it "raises without a datastore" do
+    it "raises when intraday_target is not configured in config" do
+      allow(config).to receive(:intraday_target).and_return(nil)
       expect do
         build_intraday_publish("bad") do
           schedule { every 60.seconds; weekdays from: "08:30", to: "15:30" }
-          intraday_publish {}
+          intraday_publish
         end
-      end.to raise_error(Tickrake::Error, /requires datastore/)
-    end
-
-    it "raises when the datastore is not configured" do
-      expect do
-        build_intraday_publish("bad") do
-          schedule { every 60.seconds; weekdays from: "08:30", to: "15:30" }
-          intraday_publish { datastore :unknown_store }
-        end
-      end.to raise_error(Tickrake::Error, /datastore `unknown_store` is not configured/)
+      end.to raise_error(Tickrake::Error, /intraday_target is not configured/)
     end
   end
 
@@ -517,7 +502,6 @@ RSpec.describe Tickrake::DSL::JobBuilder do
           every 300.seconds
         end
         staging_publish do
-          datastore :minio_staging
           datasets :all
           batch_size 50
         end
@@ -526,7 +510,6 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       expect(job.type).to eq("staging_publish")
       expect(job.provider).to be_nil
       expect(job.interval_seconds).to eq(300)
-      expect(job.settings.fetch("datastore_name")).to eq("minio_staging")
       expect(job.settings["datasets"]).to be_nil # :all maps to nil (all datasets)
       expect(job.settings.fetch("batch_size")).to eq(50)
       expect(job.settings.fetch("delete_after_upload")).to be(true)
@@ -535,7 +518,6 @@ RSpec.describe Tickrake::DSL::JobBuilder do
     it "supports specific datasets filter in DSL" do
       job = build_staging_publish("staging_publisher") do
         staging_publish do
-          datastore :minio_staging
           datasets :options, :candles
         end
       end
@@ -546,7 +528,6 @@ RSpec.describe Tickrake::DSL::JobBuilder do
     it "supports delete_after_upload option" do
       job = build_staging_publish("staging_publisher") do
         staging_publish do
-          datastore :minio_staging
           delete_after_upload false
         end
       end
@@ -558,27 +539,19 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       expect do
         build_staging_publish("bad") do
           staging_publish do
-            datastore :minio_staging
             datasets :invalid_ds
           end
         end
       end.to raise_error(Tickrake::Error, /Unknown dataset\(s\) in staging_publish: invalid_ds/)
     end
 
-    it "raises without a datastore" do
+    it "raises when staging_target is not configured in config" do
+      allow(config).to receive(:staging_target).and_return(nil)
       expect do
         build_staging_publish("bad") do
-          staging_publish {}
+          staging_publish
         end
-      end.to raise_error(Tickrake::Error, /requires datastore/)
-    end
-
-    it "raises when the datastore is not configured" do
-      expect do
-        build_staging_publish("bad") do
-          staging_publish { datastore :unknown_store }
-        end
-      end.to raise_error(Tickrake::Error, /datastore `unknown_store` is not configured/)
+      end.to raise_error(Tickrake::Error, /staging_target is not configured/)
     end
   end
 

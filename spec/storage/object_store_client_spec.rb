@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Tickrake::Storage::S3Archive do
+RSpec.describe Tickrake::Storage::ObjectStoreClient do
   def build_config(dir, prefix: "", storage_class: "GLACIER_IR")
     Tickrake::Config.new(
       timezone: "America/Chicago",
@@ -11,13 +11,11 @@ RSpec.describe Tickrake::Storage::S3Archive do
       default_provider_name: "schwab",
       option_root_tickers: { "SPXW" => "SPX" },
       option_snapshot_filename_timezone: "utc",
-      datastores: {
-        "s3_archive" => Tickrake::DatastoreConfig.new(
-          name: "s3_archive", type: "s3",
-          bucket: "tickrake", region: "us-east-1",
-          prefix: prefix, storage_class: storage_class
-        )
-      },
+      staging_target: Tickrake::DatastoreConfig.new(
+        name: "staging_target", type: "s3",
+        bucket: "tickrake", region: "us-east-1",
+        prefix: prefix, storage_class: storage_class
+      ),
       data_dir: File.join(dir, "data"),
       candles_dir: File.join(dir, "data", "candles"),
       options_dir: File.join(dir, "data", "options"),
