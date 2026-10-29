@@ -4,8 +4,8 @@ tags: [fundamentals, parquet, iceberg, schwab, dividends, dsl]
 title: Expand fundamentals schema and formalize once-daily Parquet ingestion for Iceberg
 description: Add missing dividend, borrow, and growth fields to FundamentalsJob and formalize the once-daily Parquet architecture for downstream Iceberg ingestion
 created: 2026-10-14
-updated: 2026-10-14
-status: completed
+updated: 2026-10-29
+status: complete
 priority: high
 source: antigravity/tickrake
 ---

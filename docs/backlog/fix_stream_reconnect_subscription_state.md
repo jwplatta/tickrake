@@ -4,8 +4,8 @@ tags: [streaming, schwab, reconnect, market-streams]
 title: Re-add active subscriptions after a Schwab stream reconnect
 description: Consolidated market streams reconnect without resubscribing after a stale connection, leaving the new socket idle until Schwab closes it.
 created: 2026-09-22
-updated: 2026-09-23
-status: done
+updated: 2026-10-29
+status: complete
 priority: high
 source: tickrake
 ---

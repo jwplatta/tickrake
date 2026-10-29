@@ -4,8 +4,8 @@ tags: [candles, streaming, symbol-map]
 title: /ES candle stream not using symbol map
 description: The candle stream for /ES writes to ES.csv instead of ^ES.csv, indicating the symbol map is not being applied
 created: 2026-09-21
-updated: 2026-09-21
-status: not-started
+updated: 2026-10-29
+status: complete
 priority: high
 source: claude/tickrake
 ---

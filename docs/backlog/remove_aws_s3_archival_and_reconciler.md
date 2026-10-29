@@ -4,8 +4,8 @@ tags: [storage, s3, minio, maintenance, reconciler]
 title: Remove AWS S3 cold archival, manifest reconciler, and obsolete S3 storage code
 description: Remove AWS S3 archival pipeline, reconciler job, and Glacier storage classes while preserving MinIO intraday publishing
 created: 2026-10-16
-updated: 2026-10-17
-status: completed
+updated: 2026-10-29
+status: complete
 priority: medium
 source: antigravity/tickrake
 ---
