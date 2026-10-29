@@ -4,8 +4,8 @@ tags: [streaming, schwab, level-one]
 title: Fix stream jobs in tickrake
 description: Level 1 stream jobs silently stall — no exception raised, websocket goes dead, data stops flowing
 created: 2026-09-21
-updated: 2026-09-21
-status: completed
+updated: 2026-10-29
+status: complete
 priority: high
 source: claude/tickrake
 ---

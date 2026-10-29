@@ -4,8 +4,8 @@ tags: [fundamentals, metadata-sync, postgres, sidecar]
 title: Make fundamentals fetch-run metadata ingestible by PostgreSQL
 description: Align fundamentals sidecar symbol metadata with the fetch_runs schema and recover pending null-symbol sidecars.
 created: 2026-10-15
-updated: 2026-10-15
-status: completed
+updated: 2026-10-29
+status: complete
 priority: high
 source: tickrake
 ---

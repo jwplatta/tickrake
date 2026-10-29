@@ -4,8 +4,8 @@ tags: [intraday, options, options-monitor, publishing, s3]
 title: Publish full time series of intraday option chain snapshots alongside latest
 description: Refactor intraday publishing to publish both latest (top of series) and full intraday history of option chain snapshots for options-monitor charts
 created: 2026-09-21
-updated: 2026-09-21
-status: completed
+updated: 2026-10-29
+status: complete
 priority: high
 source: antigravity/tickrake
 ---
