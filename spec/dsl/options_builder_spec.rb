@@ -27,9 +27,25 @@ RSpec.describe Tickrake::DSL::OptionsBuilder do
     end
   end
 
+  describe "#batch_size" do
+    it "defaults batch_size to 1" do
+      expect(builder.build![:batch_size]).to eq(1)
+    end
+
+    it "sets a custom positive integer batch_size" do
+      builder.batch_size(5)
+      expect(builder.build![:batch_size]).to eq(5)
+    end
+
+    it "raises ArgumentError when batch_size is less than 1" do
+      expect { builder.batch_size(0) }.to raise_error(ArgumentError, /batch_size must be a positive integer/)
+      expect { builder.batch_size(-2) }.to raise_error(ArgumentError, /batch_size must be a positive integer/)
+    end
+  end
+
   describe "#build!" do
-    it "returns empty dte_buckets by default" do
-      expect(builder.build![:dte_buckets]).to eq([])
+    it "returns empty dte_buckets and default batch_size of 1 by default" do
+      expect(builder.build!).to eq({ dte_buckets: [], batch_size: 1 })
     end
   end
 end

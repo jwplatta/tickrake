@@ -78,6 +78,24 @@ RSpec.describe Tickrake::DSL::JobBuilder do
       expect(job.dte_buckets).to eq((0..30).to_a)
     end
 
+    it "defaults batch_size to 1 in settings" do
+      expect(job.settings).to eq({ "batch_size" => 1 })
+    end
+
+    it "sets custom batch_size in settings when provided in options block" do
+      custom_job = build("batched_options") do
+        provider :schwab
+        type :options
+        universe "stock_universe"
+        schedule { every 30.minutes; weekdays from: "08:30", to: "15:05" }
+        options do
+          dte 0..10
+          batch_size 5
+        end
+      end
+      expect(custom_job.settings).to eq({ "batch_size" => 5 })
+    end
+
     it "expands universe to OptionSymbol objects" do
       expect(job.universe.length).to eq(2)
       expect(job.universe).to all(be_a(Tickrake::OptionSymbol))

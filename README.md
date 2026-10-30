@@ -107,11 +107,13 @@ Tickrake.job "spx_short_dated_options" do
 
   options do
     dte(1..10)
+    batch_size 5
   end
 end
 ```
 
 The `dte` method accepts a single value, a range, or an explicit array: `dte 0`, `dte(1..10)`, `dte [0, 1, 3, 7]`.
+The optional `batch_size` setting (default `1`) groups resolved consecutive expiration dates into balanced `from_date..to_date` batches per API request before splitting the response into individual per-expiration CSV snapshots.
 
 #### Candles
 
