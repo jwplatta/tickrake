@@ -33,13 +33,15 @@ module Tickrake
       return build_direct_queue(base_date) if @expiration_date
 
       buckets = selected_dte_buckets.uniq.sort
+      batch_size = selected_batch_size
 
       selected_universe.flat_map do |entry|
         provider_name = provider_name_for(entry)
-        rate_limiter_for(provider_name_for(entry))&.consume!
+        rate_limiter_for(provider_name)&.consume!
         expiration_chain = fetch_expiration_chain(client, entry.symbol)
 
-        buckets.filter_map do |bucket|
+        resolved_by_date = {}
+        buckets.each do |bucket|
           expiration = resolve_expiration(expiration_chain, bucket, entry.option_root)
           next unless expiration
 
@@ -48,12 +50,22 @@ module Tickrake
             "Resolved option expiration for #{entry.symbol} bucket=#{bucket} root=#{entry.option_root || '-'} to #{resolved_expiration}"
           )
 
+          item = (resolved_by_date[resolved_expiration] ||= {
+            expiration_date: resolved_expiration,
+            requested_buckets: []
+          })
+          item[:requested_buckets] << bucket
+        end
+
+        ordered_expirations = resolved_by_date.values.sort_by { |item| item[:expiration_date] }
+        partition_into_balanced_groups(ordered_expirations, batch_size).map do |group|
           {
             symbol: entry.symbol,
             option_root: entry.option_root,
             provider_name: provider_name,
-            expiration_date: resolved_expiration,
-            requested_buckets: [bucket]
+            from_date: group.first[:expiration_date],
+            to_date: group.last[:expiration_date],
+            expirations: group
           }
         end
       end
@@ -67,10 +79,34 @@ module Tickrake
           symbol: entry.symbol,
           option_root: entry.option_root,
           provider_name: provider_name_for(entry),
-          expiration_date: @expiration_date,
-          requested_buckets: [requested_bucket]
+          from_date: @expiration_date,
+          to_date: @expiration_date,
+          expirations: [
+            {
+              expiration_date: @expiration_date,
+              requested_buckets: [requested_bucket]
+            }
+          ]
         }
       end
+    end
+
+    def partition_into_balanced_groups(items, batch_size)
+      return [] if items.empty?
+
+      effective_batch_size = [batch_size.to_i, 1].max
+      group_count = (items.length.to_f / effective_batch_size).ceil
+      base_size = items.length / group_count
+      remainder = items.length % group_count
+
+      groups = []
+      offset = 0
+      group_count.times do |idx|
+        size = base_size + (idx < remainder ? 1 : 0)
+        groups << items[offset, size]
+        offset += size
+      end
+      groups
     end
 
     def fetch_expiration_chain(client, symbol)
@@ -163,65 +199,126 @@ module Tickrake
       @scheduled_job&.dte_buckets || @runtime.config.dte_buckets
     end
 
+    def selected_batch_size
+      raw = if @scheduled_job&.settings.is_a?(Hash)
+              @scheduled_job.settings["batch_size"] || @scheduled_job.settings[:batch_size]
+            else
+              first_options_job = @runtime.config.jobs_by_type("options").first
+              if first_options_job&.settings.is_a?(Hash)
+                first_options_job.settings["batch_size"] || first_options_job.settings[:batch_size]
+              end
+            end
+      [raw.to_i, 1].max
+    end
+
     def fetch_one(job, run_time, collection_id)
       symbol = job.fetch(:symbol)
-      expiration_date = job.fetch(:expiration_date)
+      from_date = job.fetch(:from_date)
+      to_date = job.fetch(:to_date)
+      expirations = job.fetch(:expirations)
       provider_name = job.fetch(:provider_name)
       option_root = job[:option_root]
-      requested_bucket = job.fetch(:requested_buckets).join(",")
-      @runtime.logger.info({ msg: "fetch_start", event: "fetch_start", symbol: symbol, option_root: option_root, bucket: requested_bucket, expiration_date: expiration_date.to_s, collection_id: collection_id })
+      exp_label = from_date == to_date ? from_date.to_s : "#{from_date}..#{to_date}"
+      requested_bucket = expirations.flat_map { |e| e.fetch(:requested_buckets) }.join(",")
+
+      @runtime.logger.info({
+        msg: "fetch_start",
+        event: "fetch_start",
+        symbol: symbol,
+        option_root: option_root,
+        bucket: requested_bucket,
+        expiration_date: exp_label,
+        collection_id: collection_id
+      })
       started_at = Time.now
       begin
-        result = with_retries("#{symbol} exp=#{expiration_date}", on_retry: ->(attempt, error) {
-          @runtime.logger.warn({ msg: "fetch_retry", event: "fetch_retry", symbol: symbol, expiration_date: expiration_date.to_s, attempt: attempt, error_class: error.class.name, error_message: error.message })
+        result = with_retries("#{symbol} exp=#{exp_label}", on_retry: ->(attempt, error) {
+          @runtime.logger.warn({ msg: "fetch_retry", event: "fetch_retry", symbol: symbol, expiration_date: exp_label, attempt: attempt, error_class: error.class.name, error_message: error.message })
         }) do
-          write_option_chain(
+          write_option_chains(
             client: client,
             provider_name: provider_name,
             symbol: symbol,
-            expiration_date: expiration_date,
+            from_date: from_date,
+            to_date: to_date,
+            expirations: expirations,
             timestamp: run_time,
             root: option_root
           )
         end
         elapsed_ms = ((Time.now - started_at) * 1000).round
-        @runtime.logger.info({
-          msg: "fetch_success",
-          event: "fetch_success",
-          data_type: "options",
-          provider: provider_name,
-          symbol: symbol,
-          option_root: option_root,
-          expiration_date: expiration_date.to_s,
-          market_date: market_date_for(run_time),
-          row_count: result.fetch(:row_count),
-          byte_count: result.fetch(:byte_count),
-          duration_ms: elapsed_ms,
-          path: result.fetch(:path),
-          collection_id: collection_id
-        })
-        write_sidecar(
-          job: job, run_time: run_time, collection_id: collection_id,
-          started_at: started_at, status: "success", output_path: result.fetch(:path),
-          row_count: result.fetch(:row_count)
-        )
-        @progress_reporter&.advance(title: option_progress_title(job))
+        is_chain_truncated = result.fetch(:is_chain_truncated)
+
+        if is_chain_truncated
+          @runtime.logger.warn({
+            msg: "option_chain_truncated",
+            event: "option_chain_truncated",
+            symbol: symbol,
+            option_root: option_root,
+            expiration_date: exp_label,
+            is_chain_truncated: true,
+            collection_id: collection_id
+          })
+        end
+
+        result.fetch(:outputs).each do |output|
+          exp_date = output.fetch(:expiration_date)
+          @runtime.logger.info({
+            msg: "fetch_success",
+            event: "fetch_success",
+            data_type: "options",
+            provider: provider_name,
+            symbol: symbol,
+            option_root: option_root,
+            expiration_date: exp_date.to_s,
+            market_date: market_date_for(run_time),
+            row_count: output.fetch(:row_count),
+            byte_count: output.fetch(:byte_count),
+            is_chain_truncated: is_chain_truncated,
+            duration_ms: elapsed_ms,
+            path: output.fetch(:path),
+            collection_id: collection_id
+          })
+          write_sidecar(
+            job: job.merge(
+              expiration_date: exp_date,
+              requested_buckets: output.fetch(:requested_buckets)
+            ),
+            run_time: run_time,
+            collection_id: collection_id,
+            started_at: started_at,
+            status: "success",
+            output_path: output.fetch(:path),
+            row_count: output.fetch(:row_count)
+          )
+          @progress_reporter&.advance(title: option_progress_title(symbol, option_root, exp_date))
+        end
         :success
       rescue StandardError, Timeout::ExitException => e
         elapsed_ms = ((Time.now - started_at) * 1000).round
         http_status = e.respond_to?(:response) ? e.response&.status : nil
-        @runtime.logger.error({ msg: "fetch_failed", event: "fetch_failed", symbol: symbol, option_root: option_root, expiration_date: expiration_date.to_s, error_class: e.class.name, error_message: e.message, http_status: http_status, duration_ms: elapsed_ms, collection_id: collection_id })
-        write_sidecar(
-          job: job, run_time: run_time, collection_id: collection_id,
-          started_at: started_at, status: "failed", error_message: "#{http_status ? "HTTP #{http_status} " : ""}#{e.message}".strip
-        )
-        @progress_reporter&.advance(title: "#{option_progress_title(job)} failed")
+        expirations.each do |exp_item|
+          exp_date = exp_item.fetch(:expiration_date)
+          @runtime.logger.error({ msg: "fetch_failed", event: "fetch_failed", symbol: symbol, option_root: option_root, expiration_date: exp_date.to_s, error_class: e.class.name, error_message: e.message, http_status: http_status, duration_ms: elapsed_ms, collection_id: collection_id })
+          write_sidecar(
+            job: job.merge(
+              expiration_date: exp_date,
+              requested_buckets: exp_item.fetch(:requested_buckets)
+            ),
+            run_time: run_time,
+            collection_id: collection_id,
+            started_at: started_at,
+            status: "failed",
+            error_message: "#{http_status ? "HTTP #{http_status} " : ""}#{e.message}".strip
+          )
+          @progress_reporter&.advance(title: "#{option_progress_title(symbol, option_root, exp_date)} failed")
+        end
         :failed
       end
     end
 
-    def option_progress_title(job)
-      [job.fetch(:symbol), job[:option_root], job.fetch(:expiration_date).iso8601].compact.reject(&:empty?).join(" ")
+    def option_progress_title(symbol, option_root, expiration_date)
+      [symbol, option_root, expiration_date.iso8601].compact.reject(&:empty?).join(" ")
     end
 
     def market_date_for(timestamp)
@@ -231,36 +328,59 @@ module Tickrake
       TZInfo::Timezone.get(tz_name).utc_to_local(timestamp.utc).to_date.iso8601
     end
 
-    def write_option_chain(client:, provider_name:, symbol:, expiration_date:, timestamp:, root:)
+    def write_option_chains(client:, provider_name:, symbol:, from_date:, to_date:, expirations:, timestamp:, root:)
       rate_limiter_for(provider_name)&.consume!
       chain = Timeout.timeout(@runtime.config.option_fetch_timeout_seconds) do
         client.get_option_chain(
           self.class.option_chain_api_symbol(symbol),
           contract_type: SchwabRb::Option::ContractTypes::ALL,
           strike_range: SchwabRb::Option::StrikeRanges::ALL,
-          from_date: expiration_date,
-          to_date: expiration_date
+          from_date: from_date,
+          to_date: to_date
         )
       end
-      raise Tickrake::Error, "Option chain request returned nil for #{symbol} exp=#{expiration_date}" if chain.nil?
+      exp_label = from_date == to_date ? from_date.to_s : "#{from_date}..#{to_date}"
+      raise Tickrake::Error, "Option chain request returned nil for #{symbol} exp=#{exp_label}" if chain.nil?
 
-      rows = option_sample_rows(chain, root, provider_name, symbol: symbol, timestamp: timestamp)
-      path = storage_paths.option_sample_path(
-        provider: provider_name,
-        symbol: symbol,
-        expiration_date: expiration_date,
-        timestamp: timestamp,
-        root: root
-      )
-      option_sample_writer.write(path: path, rows: rows)
-      byte_count = File.size(path)
+      is_chain_truncated = chain.respond_to?(:is_chain_truncated) ? (chain.is_chain_truncated == true) : false
+      single_expiration = expirations.length == 1
 
-      { path: path, row_count: rows.length, byte_count: byte_count }
+      outputs = expirations.map do |exp_item|
+        expiration_date = exp_item.fetch(:expiration_date)
+        rows = option_sample_rows(
+          chain,
+          root,
+          provider_name,
+          symbol: symbol,
+          timestamp: timestamp,
+          expiration_date: expiration_date,
+          single_expiration: single_expiration
+        )
+        path = storage_paths.option_sample_path(
+          provider: provider_name,
+          symbol: symbol,
+          expiration_date: expiration_date,
+          timestamp: timestamp,
+          root: root
+        )
+        option_sample_writer.write(path: path, rows: rows)
+        byte_count = File.size(path)
+
+        {
+          expiration_date: expiration_date,
+          requested_buckets: exp_item.fetch(:requested_buckets),
+          path: path,
+          row_count: rows.length,
+          byte_count: byte_count
+        }
+      end
+
+      { is_chain_truncated: is_chain_truncated, outputs: outputs }
     end
 
-    def option_sample_rows(chain, option_root, provider_name, symbol: nil, timestamp: Time.now.utc)
+    def option_sample_rows(chain, option_root, provider_name, symbol: nil, timestamp: Time.now.utc, expiration_date: nil, single_expiration: true)
       batch_time = timestamp.utc
-      filtered_options(chain, option_root).sort_by do |option|
+      filtered_options(chain, option_root, expiration_date: expiration_date, single_expiration: single_expiration).sort_by do |option|
         [
           option.expiration_date&.iso8601.to_s,
           option.put_call.to_s,
@@ -329,11 +449,22 @@ module Tickrake
       Time.at(ms.to_f / 1000.0).utc.iso8601
     end
 
-    def filtered_options(chain, option_root)
+    def filtered_options(chain, option_root, expiration_date: nil, single_expiration: true)
       options = Array(chain.call_opts) + Array(chain.put_opts)
-      return options if option_root.nil? || option_root.empty?
+      unless option_root.nil? || option_root.empty?
+        options = options.select { |option| option.option_root.to_s.upcase == option_root.to_s.upcase }
+      end
+      return options if expiration_date.nil?
 
-      options.select { |option| option.option_root.to_s.upcase == option_root.to_s.upcase }
+      options.select do |option|
+        opt_exp = option.respond_to?(:expiration_date) ? option.expiration_date : nil
+        if opt_exp.nil?
+          single_expiration
+        else
+          opt_date = opt_exp.is_a?(Date) ? opt_exp : Date.parse(opt_exp.to_s)
+          opt_date == expiration_date
+        end
+      end
     end
 
     def storage_paths

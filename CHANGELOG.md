@@ -17,6 +17,8 @@ All notable changes to this project will be documented in this file.
 - Removed support for defining scheduled jobs in YAML configuration (`schedule`). All jobs are now defined using the Ruby DSL (`Tickrake.job`). `ConfigLoader` now rejects YAML configuration containing a `schedule` mapping with an explicit error.
 
 ### Added
+- Added configurable `batch_size` (default `1`) to the `options` job DSL (`OptionsBuilder#batch_size`) and updated `OptionsJob` to partition resolved expiration dates into balanced consecutive date ranges (`from_date..to_date`) per request while still writing individual `<root>_exp<YYYY-MM-DD>_<timestamp>.csv` files and `.meta.json` sidecars.
+- Added `is_chain_truncated` logging to `OptionsJob` (`fetch_success` and `option_chain_truncated` warning events) and `LoggerFactory::TEXT_DETAIL_KEYS`.
 - Added `tickrake purge-staging` CLI command and `Tickrake::Storage::StagingPurger` to purge dataset files for a given date from the staging MinIO bucket and/or local buffer, supporting `--date`, `--dataset`, `--provider`, `--datastore`, `--remote`, `--local`, `--all`, and `--dry-run`.
 - Added `underlying_symbol` (e.g. `$SPX`) and `option_root` (e.g. `SPXW`) columns to option chain sample CSV files across live Schwab collection (`OptionsJob`) and historical Massive imports (`MassiveOptionsImporter`).
 - Added date-partitioned daily candle storage (`data/candles/<provider>/<YYYY>/<MM>/<DD>/<frequency>/<symbol>.csv`) across streaming (`StreamJob`, `ChartStreamJob`) and batch collection (`CandlesJob`) to support idempotent downstream Iceberg table ingestion.

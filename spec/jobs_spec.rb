@@ -1035,6 +1035,166 @@ RSpec.describe "job execution" do
     end
   end
 
+  it "batches consecutive resolved expirations into roughly equal groups based on batch_size and splits CSV/sidecar outputs" do
+    Dir.mktmpdir do |dir|
+      pending_dir = File.join(dir, "pending_metadata")
+      custom = config_with(
+        config,
+        options_dir: dir,
+        pending_metadata_dir: pending_dir,
+        max_workers: 1,
+        dte_buckets: [0, 1, 2, 3, 4],
+        options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")]
+      )
+      scheduled_job = Tickrake::ScheduledJobConfig.new(
+        name: "batched_spx_options",
+        type: "options",
+        provider: "schwab",
+        dte_buckets: [0, 1, 2, 3, 4],
+        universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")],
+        settings: { "batch_size" => 3 }
+      )
+
+      expiration_entry = Struct.new(:expiration_date, :days_to_expiration, :option_roots) do
+        def date_object = Date.iso8601(expiration_date)
+      end
+      option = Struct.new(
+        :put_call, :symbol, :description, :strike, :expiration_date, :mark, :bid, :bid_size, :ask, :ask_size,
+        :last, :last_size, :open_interest, :total_volume, :delta, :gamma, :theta, :vega, :rho, :volatility,
+        :theoretical_volatility, :theoretical_option_value, :intrinsic_value, :extrinsic_value, :option_root,
+        keyword_init: true
+      )
+
+      # 5 expirations with batch_size 3 -> 2 balanced groups of [3, 2]:
+      # Group 1: 2026-04-06 .. 2026-04-08 (3 dates)
+      # Group 2: 2026-04-09 .. 2026-04-10 (2 dates)
+      expiration_chain = instance_double(
+        "SchwabRb::DataObjects::OptionExpirationChain",
+        expiration_list: [
+          expiration_entry.new("2026-04-06", 0, "SPXW"),
+          expiration_entry.new("2026-04-07", 1, "SPXW"),
+          expiration_entry.new("2026-04-08", 2, "SPXW"),
+          expiration_entry.new("2026-04-09", 3, "SPXW"),
+          expiration_entry.new("2026-04-10", 4, "SPXW")
+        ]
+      )
+
+      build_opt = ->(date_str, strike) do
+        option.new(
+          put_call: "CALL",
+          symbol: "SPXW_#{date_str}_#{strike.to_i}",
+          description: "SPXW #{date_str}",
+          strike: strike,
+          expiration_date: Date.iso8601(date_str),
+          mark: 10.0, bid: 9.5, bid_size: 1, ask: 10.5, ask_size: 1, last: 10.0, last_size: 1,
+          open_interest: 10, total_volume: 5, delta: 0.5, gamma: 0.01, theta: -0.1, vega: 0.1, rho: 0.01,
+          volatility: 15.0, theoretical_volatility: 15.0, theoretical_option_value: 10.0,
+          intrinsic_value: 0.0, extrinsic_value: 10.0, option_root: "SPXW"
+        )
+      end
+
+      client = instance_double("client")
+      allow(client).to receive(:get_option_expiration_chain).with("$SPX").and_return(expiration_chain)
+      allow(client).to receive(:get_option_chain) do |_sym, **kwargs|
+        if kwargs[:from_date] == Date.new(2026, 4, 6) && kwargs[:to_date] == Date.new(2026, 4, 8)
+          Struct.new(:underlying_price, :is_chain_truncated, :call_opts, :put_opts).new(
+            5100.0,
+            false,
+            [
+              build_opt.call("2026-04-06", 5100.0),
+              build_opt.call("2026-04-07", 5105.0),
+              build_opt.call("2026-04-08", 5110.0)
+            ],
+            []
+          )
+        elsif kwargs[:from_date] == Date.new(2026, 4, 9) && kwargs[:to_date] == Date.new(2026, 4, 10)
+          Struct.new(:underlying_price, :is_chain_truncated, :call_opts, :put_opts).new(
+            5100.0,
+            false,
+            [
+              build_opt.call("2026-04-09", 5115.0),
+              build_opt.call("2026-04-10", 5120.0)
+            ],
+            []
+          )
+        else
+          raise "Unexpected date range: #{kwargs[:from_date]}..#{kwargs[:to_date]}"
+        end
+      end
+
+      logged_events = []
+      allow(logger).to receive(:info) { |payload| logged_events << payload }
+      runtime = Tickrake::Runtime.new(
+        config: custom,
+        tracker: tracker,
+        client_factory: instance_double(Tickrake::ClientFactory, build: client),
+        logger: logger
+      )
+
+      result = Tickrake::OptionsJob.new(runtime, scheduled_job: scheduled_job).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
+      expect(result).to be_successful
+      expect(client).to have_received(:get_option_chain).twice
+
+      %w[2026-04-06 2026-04-07 2026-04-08 2026-04-09 2026-04-10].each do |date_str|
+        csv_path = File.join(dir, "schwab", "2026", "04", "06", "SPXW_exp#{date_str}_2026-04-06_14-30-00.csv")
+        expect(File.exist?(csv_path)).to be(true), "Expected CSV for #{date_str} to exist"
+        rows = CSV.read(csv_path, headers: true)
+        expect(rows.length).to eq(1)
+        expect(rows.first["expiration_date"]).to eq(date_str)
+      end
+
+      sidecars = Dir.glob(File.join(pending_dir, "*.meta.json")).sort
+      expect(sidecars.length).to eq(5)
+
+      success_events = logged_events.select { |e| e.is_a?(Hash) && e[:event] == "fetch_success" }
+      expect(success_events.length).to eq(5)
+      expect(success_events.map { |e| e[:is_chain_truncated] }).to all(eq(false))
+    end
+  end
+
+  it "logs a warning and records is_chain_truncated=true when Schwab truncates the option chain" do
+    Dir.mktmpdir do |dir|
+      custom = config_with(
+        config,
+        options_dir: dir,
+        pending_metadata_dir: File.join(dir, "pending_metadata"),
+        options_universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")],
+        dte_buckets: [0]
+      )
+      client = instance_double("client")
+      truncated_chain = Struct.new(:underlying_price, :is_chain_truncated, :call_opts, :put_opts).new(
+        5100.0, true, [], []
+      )
+      allow(client).to receive(:get_option_chain).and_return(truncated_chain)
+
+      info_events = []
+      warn_events = []
+      allow(logger).to receive(:info) { |payload| info_events << payload }
+      allow(logger).to receive(:warn) { |payload| warn_events << payload }
+
+      runtime = Tickrake::Runtime.new(
+        config: custom,
+        tracker: tracker,
+        client_factory: instance_double(Tickrake::ClientFactory, build: client),
+        logger: logger
+      )
+
+      Tickrake::OptionsJob.new(
+        runtime,
+        universe: [Tickrake::OptionSymbol.new(symbol: "$SPX", option_root: "SPXW")],
+        expiration_date: Date.new(2026, 4, 6)
+      ).run(now: Time.utc(2026, 4, 6, 14, 30, 0))
+
+      trunc_warn = warn_events.find { |e| e.is_a?(Hash) && e[:event] == "option_chain_truncated" }
+      expect(trunc_warn).not_to be_nil
+      expect(trunc_warn[:is_chain_truncated]).to eq(true)
+
+      fetch_success = info_events.find { |e| e.is_a?(Hash) && e[:event] == "fetch_success" }
+      expect(fetch_success).not_to be_nil
+      expect(fetch_success[:is_chain_truncated]).to eq(true)
+    end
+  end
+
   it "uses the configured lookback window when a candle file already exists" do
     Dir.mktmpdir do |dir|
       candle_entry = Tickrake::CandleSymbol.new(

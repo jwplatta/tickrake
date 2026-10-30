@@ -36,7 +36,7 @@ module Tickrake
     TEXT_DETAIL_KEYS = %i[symbol option_root expiration_date row_count duration_ms
                           success_count failure_count reason pid event
                           error_class error_message path collection_id
-                          service task_count bucket].freeze
+                          service task_count bucket is_chain_truncated].freeze
 
     def self.text_formatter
       proc do |severity, datetime, _progname, message|

@@ -161,7 +161,7 @@ module Tickrake
           universe: universe,
           tasks: [],
           task: nil,
-          settings: {},
+          settings: { "batch_size" => opts[:batch_size] },
           manual: false
         )
       end
