@@ -9,8 +9,7 @@ module Tickrake
       last: "3",
       bid_size: "4",
       ask_size: "5",
-      volume: "8",
-      last_size: "9"
+      volume: "8"
     }.freeze
 
     # Service-specific field index overrides (including quote_time, trade_time, mark,
@@ -19,13 +18,13 @@ module Tickrake
       "LEVELONE_EQUITIES"        => { quote_time: "34", trade_time: "35", mark: "33" },
       "LEVELONE_OPTIONS"         => {
         bid: "2", ask: "3", last: "4", volume: "8",
-        bid_size: "16", ask_size: "17", last_size: "18",
+        bid_size: "16", ask_size: "17",
         mark: "37", quote_time: "38", trade_time: "39"
       },
       "LEVELONE_FUTURES"         => { quote_time: "10", trade_time: "11", mark: "24" },
       "LEVELONE_FUTURES_OPTIONS" => { quote_time: "10", trade_time: "11", mark: "19" },
       "LEVELONE_FOREX"           => {
-        volume: "6", last_size: "7",
+        volume: "6",
         quote_time: "8", trade_time: "9", mark: "29"
       }
     }.freeze
@@ -214,8 +213,7 @@ module Tickrake
         fields = extract_fields(entry, service)
         next if fields[:bid].nil? && fields[:ask].nil? && fields[:last].nil? &&
                 fields[:volume].nil? && fields[:mark].nil? &&
-                fields[:bid_size].nil? && fields[:ask_size].nil? &&
-                fields[:last_size].nil?
+                fields[:bid_size].nil? && fields[:ask_size].nil?
 
         @events_writer.write(
           "job_type"   => "level_one",
@@ -230,7 +228,6 @@ module Tickrake
           "last"       => fields[:last],
           "bid_size"   => fields[:bid_size],
           "ask_size"   => fields[:ask_size],
-          "last_size"  => fields[:last_size],
           "volume"     => fields[:volume],
           "mark"       => fields[:mark],
           "extra_json" => fields[:extra_json]
@@ -247,7 +244,6 @@ module Tickrake
       last      = entry[merged[:last]]&.to_f
       bid_size  = entry[merged[:bid_size]]&.to_i
       ask_size  = entry[merged[:ask_size]]&.to_i
-      last_size = entry[merged[:last_size]]&.to_i
       volume    = entry[merged[:volume]]&.to_i
       quote_time_raw = merged[:quote_time] ? entry[merged[:quote_time]] : nil
       quote_time = quote_time_raw ? Time.at(quote_time_raw.to_i / 1000.0).utc.iso8601 : nil
@@ -261,7 +257,7 @@ module Tickrake
 
       {
         bid: bid, ask: ask, last: last,
-        bid_size: bid_size, ask_size: ask_size, last_size: last_size, volume: volume,
+        bid_size: bid_size, ask_size: ask_size, volume: volume,
         quote_time: quote_time, trade_time: trade_time,
         mark: mark, extra_json: extra_json
       }

@@ -138,12 +138,12 @@ RSpec.describe Tickrake::LevelOneJob do
         expect(row["volume"]).to eq(1450)
         expect(row["bid_size"]).to eq(15)
         expect(row["ask_size"]).to eq(22)
-        expect(row["last_size"]).to eq(5)
         expect(row["mark"]).to eq(12.50)
         extra = JSON.parse(row["extra_json"])
         expect(extra["1"]).to eq("SPXW 09/21/2026 6000.00 C")
         expect(extra["9"]).to eq(8200)
         expect(extra["10"]).to eq(0.215)
+        expect(extra["18"]).to eq(5)
         expect(extra["28"]).to eq(0.512)
       end
     end

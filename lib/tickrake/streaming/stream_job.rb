@@ -330,8 +330,7 @@ module Tickrake
         fields = extract_level_one_fields(entry, service_str)
         if fields[:bid].nil? && fields[:ask].nil? && fields[:last].nil? &&
            fields[:volume].nil? && fields[:mark].nil? &&
-           fields[:bid_size].nil? && fields[:ask_size].nil? &&
-           fields[:last_size].nil?
+           fields[:bid_size].nil? && fields[:ask_size].nil?
           discarded_count += 1
           next
         end
@@ -349,7 +348,6 @@ module Tickrake
           "last"       => fields[:last],
           "bid_size"   => fields[:bid_size],
           "ask_size"   => fields[:ask_size],
-          "last_size"  => fields[:last_size],
           "volume"     => fields[:volume],
           "mark"       => fields[:mark],
           "extra_json" => fields[:extra_json]
@@ -369,7 +367,6 @@ module Tickrake
       last      = entry[merged[:last]]&.to_f
       bid_size  = entry[merged[:bid_size]]&.to_i
       ask_size  = entry[merged[:ask_size]]&.to_i
-      last_size = entry[merged[:last_size]]&.to_i
       volume    = entry[merged[:volume]]&.to_i
       quote_time_raw = merged[:quote_time] ? entry[merged[:quote_time]] : nil
       quote_time = quote_time_raw ? Time.at(quote_time_raw.to_i / 1000.0).utc.iso8601 : nil
@@ -383,7 +380,7 @@ module Tickrake
 
       {
         bid: bid, ask: ask, last: last,
-        bid_size: bid_size, ask_size: ask_size, last_size: last_size, volume: volume,
+        bid_size: bid_size, ask_size: ask_size, volume: volume,
         quote_time: quote_time, trade_time: trade_time,
         mark: mark, extra_json: extra_json
       }
