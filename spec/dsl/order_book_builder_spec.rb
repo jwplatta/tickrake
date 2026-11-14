@@ -52,6 +52,25 @@ RSpec.describe Tickrake::DSL::OrderBookBuilder do
     it "converts re_resolve_interval to seconds" do
       expect(config.re_resolve_interval_seconds).to eq(1800)
     end
+
+    it "supports atm_points and option_root in the contracts block" do
+      built = build(inline_symbols: []) do
+        services [:options_book]
+        contracts do
+          underlying "SPX"
+          option_root "SPXW"
+          atm_points 50
+          expirations front: 1
+          re_resolve_interval 5
+        end
+      end
+
+      expect(built.contracts.underlying).to eq("SPX")
+      expect(built.contracts.option_root).to eq("SPXW")
+      expect(built.contracts.atm_points).to eq(50.0)
+      expect(built.contracts.front_n).to eq(1)
+      expect(built.re_resolve_interval_seconds).to eq(300)
+    end
   end
 
   describe "validations" do

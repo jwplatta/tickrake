@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "csv"
+require "set"
 
 module Tickrake
   class StreamJob
@@ -35,8 +36,11 @@ module Tickrake
       @chart_buffer_mu = Mutex.new
       @storage_paths = Storage::Paths.new(runtime.config)
 
-      @active_subscriptions = {} # name => Set<symbols>
+      @active_subscriptions = {} # name => Array<String>
+      @last_resolved_at = {}     # name => Time
+      @registered_services = Set.new
       @active_mu = Mutex.new
+      @client = nil
       @stream = nil
 
       @stats_mu = Mutex.new
@@ -60,7 +64,11 @@ module Tickrake
 
         attempts += 1
         @stream = nil
-        @active_mu.synchronize { @active_subscriptions.clear }
+        @active_mu.synchronize do
+          @active_subscriptions.clear
+          @last_resolved_at.clear
+          @registered_services.clear
+        end
 
         begin
           @stream = build_stream_client
@@ -83,7 +91,11 @@ module Tickrake
           })
         ensure
           @stream&.stop rescue nil
-          @active_mu.synchronize { @active_subscriptions.clear }
+          @active_mu.synchronize do
+            @active_subscriptions.clear
+            @last_resolved_at.clear
+            @registered_services.clear
+          end
           close_writers_and_flush
         end
 
@@ -118,9 +130,11 @@ module Tickrake
         currently_active = @active_mu.synchronize { @active_subscriptions.key?(sub.name) }
 
         if in_win && !currently_active
-          activate_subscription(sub)
+          activate_subscription(sub, now)
         elsif !in_win && currently_active
           deactivate_subscription(sub)
+        elsif in_win && currently_active && sub.respond_to?(:dynamic_contracts?) && sub.dynamic_contracts?
+          refresh_dynamic_subscription(sub, now)
         end
       end
     end
@@ -128,33 +142,93 @@ module Tickrake
     private
 
     def build_stream_client
-      client = Tickrake::ClientFactory.new(@runtime.config).build
-      SchwabRb::Stream::Client.new(client)
+      @client = Tickrake::ClientFactory.new(@runtime.config).build
+      SchwabRb::Stream::Client.new(@client)
     end
 
-    def activate_subscription(sub)
-      @active_mu.synchronize { @active_subscriptions[sub.name] = sub.symbols.dup }
-      logger.info({ msg: "#{log_prefix} Activating #{sub.kind} subscription '#{sub.name}' for #{sub.symbols.join(", ")}", event: "subscription_add" })
+    def http_client
+      @client ||= Tickrake::ClientFactory.new(@runtime.config).build
+    end
+
+    def activate_subscription(sub, now = Time.now)
+      symbols = if sub.respond_to?(:dynamic_contracts?) && sub.dynamic_contracts?
+                  resolver = Tickrake::OrderBook::ContractResolver.new(http_client, sub.contracts)
+                  resolved = resolver.resolve.dup
+                  @active_mu.synchronize { @last_resolved_at[sub.name] = now }
+                  resolved
+                else
+                  sub.symbols.dup
+                end
+
+      @active_mu.synchronize { @active_subscriptions[sub.name] = symbols }
+      logger.info({ msg: "#{log_prefix} Activating #{sub.kind} subscription '#{sub.name}' for #{symbols.join(", ")}", event: "subscription_add" })
+
+      return if symbols.empty?
 
       sub_services = sub.settings.services
       sub_services.each do |service_sym|
         service_str = SchwabRb::Stream::Services::SYMBOL_TO_SERVICE[service_sym] || service_sym.to_s
         stream_service_sym = service_sym.to_s.downcase.to_sym
+        register_callback = @active_mu.synchronize { @registered_services.add?(stream_service_sym) }
 
-        @stream.add(stream_service_sym, symbols: sub.symbols, fields: :all) do |event|
-          handle_event(event, service_str: service_str, subscription: sub)
+        if register_callback
+          @stream.add(stream_service_sym, symbols: symbols, fields: :all) do |event|
+            handle_event(event, service_str: service_str, subscription: sub)
+          end
+        else
+          @stream.add(stream_service_sym, symbols: symbols, fields: :all)
+        end
+      end
+    end
+
+    def refresh_dynamic_subscription(sub, now = Time.now)
+      last_resolved = @active_mu.synchronize { @last_resolved_at[sub.name] }
+      interval = sub.re_resolve_interval_seconds
+      return if last_resolved && interval && (now - last_resolved) < interval
+
+      resolver = Tickrake::OrderBook::ContractResolver.new(http_client, sub.contracts)
+      new_symbols = resolver.resolve
+      added = @active_mu.synchronize do
+        current = @active_subscriptions[sub.name] || []
+        diff = new_symbols - current
+        @active_subscriptions[sub.name] = (current | diff) unless diff.empty?
+        @last_resolved_at[sub.name] = now
+        diff
+      end
+
+      return if added.empty?
+
+      logger.info({ msg: "#{log_prefix} Adding #{added.size} new contracts to '#{sub.name}' from re-resolution.", event: "subscription_add_contracts", subscription: sub.name, count: added.size })
+
+      sub.settings.services.each do |service_sym|
+        service_str = SchwabRb::Stream::Services::SYMBOL_TO_SERVICE[service_sym] || service_sym.to_s
+        stream_service_sym = service_sym.to_s.downcase.to_sym
+        register_callback = @active_mu.synchronize { @registered_services.add?(stream_service_sym) }
+
+        if register_callback
+          @stream.add(stream_service_sym, symbols: added, fields: :all) do |event|
+            handle_event(event, service_str: service_str, subscription: sub)
+          end
+        else
+          @stream.add(stream_service_sym, symbols: added, fields: :all)
         end
       end
     end
 
     def deactivate_subscription(sub)
-      @active_mu.synchronize { @active_subscriptions.delete(sub.name) }
-      logger.info({ msg: "#{log_prefix} Deactivating #{sub.kind} subscription '#{sub.name}' for #{sub.symbols.join(", ")}", event: "subscription_unsub" })
+      symbols_to_unsub = @active_mu.synchronize do
+        @last_resolved_at.delete(sub.name)
+        @active_subscriptions.delete(sub.name)
+      end || sub.symbols
 
-      sub_services = sub.settings.services
-      sub_services.each do |service_sym|
-        stream_service_sym = service_sym.to_s.downcase.to_sym
-        @stream.unsub(stream_service_sym, symbols: sub.symbols)
+      logger.info({ msg: "#{log_prefix} Deactivating #{sub.kind} subscription '#{sub.name}' for #{symbols_to_unsub.join(", ")}", event: "subscription_unsub" })
+
+      unless symbols_to_unsub.empty?
+        sub_services = sub.settings.services
+        sub_services.each do |service_sym|
+          stream_service_sym = service_sym.to_s.downcase.to_sym
+          @stream.unsub(stream_service_sym, symbols: symbols_to_unsub)
+        end
       end
 
       # Flush or rotate files for this deactivated subscription
@@ -256,7 +330,8 @@ module Tickrake
         fields = extract_level_one_fields(entry, service_str)
         if fields[:bid].nil? && fields[:ask].nil? && fields[:last].nil? &&
            fields[:volume].nil? && fields[:mark].nil? &&
-           fields[:bid_size].nil? && fields[:ask_size].nil?
+           fields[:bid_size].nil? && fields[:ask_size].nil? &&
+           fields[:last_size].nil?
           discarded_count += 1
           next
         end
@@ -274,6 +349,7 @@ module Tickrake
           "last"       => fields[:last],
           "bid_size"   => fields[:bid_size],
           "ask_size"   => fields[:ask_size],
+          "last_size"  => fields[:last_size],
           "volume"     => fields[:volume],
           "mark"       => fields[:mark],
           "extra_json" => fields[:extra_json]
@@ -286,27 +362,28 @@ module Tickrake
 
     def extract_level_one_fields(entry, service)
       indices = LevelOneJob::SERVICE_FIELD_INDICES[service] || {}
-      common = LevelOneJob::COMMON_FIELDS
+      merged  = LevelOneJob::COMMON_FIELDS.merge(indices)
 
-      bid       = entry[common[:bid]]&.to_f
-      ask       = entry[common[:ask]]&.to_f
-      last      = entry[common[:last]]&.to_f
-      bid_size  = entry[common[:bid_size]]&.to_i
-      ask_size  = entry[common[:ask_size]]&.to_i
-      volume    = entry[common[:volume]]&.to_i
-      quote_time_raw = indices[:quote_time] ? entry[indices[:quote_time]] : nil
+      bid       = entry[merged[:bid]]&.to_f
+      ask       = entry[merged[:ask]]&.to_f
+      last      = entry[merged[:last]]&.to_f
+      bid_size  = entry[merged[:bid_size]]&.to_i
+      ask_size  = entry[merged[:ask_size]]&.to_i
+      last_size = entry[merged[:last_size]]&.to_i
+      volume    = entry[merged[:volume]]&.to_i
+      quote_time_raw = merged[:quote_time] ? entry[merged[:quote_time]] : nil
       quote_time = quote_time_raw ? Time.at(quote_time_raw.to_i / 1000.0).utc.iso8601 : nil
-      trade_time_raw = indices[:trade_time] ? entry[indices[:trade_time]] : nil
+      trade_time_raw = merged[:trade_time] ? entry[merged[:trade_time]] : nil
       trade_time = trade_time_raw ? Time.at(trade_time_raw.to_i / 1000.0).utc.iso8601 : nil
-      mark          = indices[:mark]        ? entry[indices[:mark]]&.to_f        : nil
+      mark          = merged[:mark]        ? entry[merged[:mark]]&.to_f        : nil
 
-      extracted_keys = (common.values + indices.values + ["key"]).uniq
+      extracted_keys = (merged.values + ["key"]).uniq
       extra = entry.reject { |k, _| extracted_keys.include?(k.to_s) }
       extra_json = extra.empty? ? nil : JSON.dump(extra)
 
       {
         bid: bid, ask: ask, last: last,
-        bid_size: bid_size, ask_size: ask_size, volume: volume,
+        bid_size: bid_size, ask_size: ask_size, last_size: last_size, volume: volume,
         quote_time: quote_time, trade_time: trade_time,
         mark: mark, extra_json: extra_json
       }

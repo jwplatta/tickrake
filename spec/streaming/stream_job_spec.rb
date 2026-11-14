@@ -84,8 +84,8 @@ RSpec.describe Tickrake::StreamJob do
     end
 
     def add(service_sym, symbols:, fields:, &block)
-      @added_subscriptions << { service: service_sym, symbols: symbols, fields: fields }
-      @callbacks[service_sym] = block
+      @added_subscriptions << { service: service_sym, symbols: symbols, fields: fields, has_block: !block.nil? }
+      @callbacks[service_sym] = block if block
       self
     end
     alias on add
@@ -153,6 +153,81 @@ RSpec.describe Tickrake::StreamJob do
       expect(fake_stream.unsubbed_subscriptions.size).to eq(1)
       expect(fake_stream.unsubbed_subscriptions.first[:service]).to eq(:level_one_equities)
       expect(fake_stream.unsubbed_subscriptions.first[:symbols]).to eq(%w[SPY QQQ])
+    end
+
+    it "resolves dynamic contracts on window entry, adds new ATM contracts mid-session without duplicate callback blocks, and unsubscribes all accumulated contracts at window exit" do
+      contracts_cfg = Tickrake::OrderBookContractsConfig.new(
+        underlying: "SPX",
+        option_root: "SPXW",
+        atm_points: 50.0,
+        front_n: 1,
+        re_resolve_interval_minutes: 5
+      )
+      options_sub = Tickrake::StreamSubscription.new(
+        name: "spxw_0dte",
+        kind: :level_one,
+        symbols: [],
+        settings: Tickrake::LevelOneConfig.new(
+          services: [:level_one_options],
+          contracts: contracts_cfg
+        ),
+        windows: [
+          Tickrake::SchedulerWindow.new(
+            days: %w[mon tue wed thu fri],
+            start_time: [8, 30],
+            end_time: [15, 0]
+          )
+        ]
+      )
+      dyn_stream_config = Tickrake::StreamConfig.new(
+        subscriptions: [options_sub],
+        stale_timeout_seconds: 60
+      )
+      dyn_scheduled_job = instance_double(
+        Tickrake::ScheduledJobConfig,
+        name: "options_stream",
+        provider: "schwab",
+        settings: dyn_stream_config,
+        universe: []
+      )
+      dyn_job = described_class.new(runtime, scheduled_job: dyn_scheduled_job)
+      dyn_job.instance_variable_set(:@stream, fake_stream)
+
+      resolver1 = instance_double(Tickrake::OrderBook::ContractResolver, resolve: %w[SPXW_5950C SPXW_6000C])
+      resolver2 = instance_double(Tickrake::OrderBook::ContractResolver, resolve: %w[SPXW_6000C SPXW_6050C])
+      allow(Tickrake::OrderBook::ContractResolver).to receive(:new).and_return(resolver1, resolver2)
+
+      # 1. Window opens at 08:30 -> resolves initial contracts and registers callback block
+      t_open = Time.new(2026, 9, 21, 8, 30, 0, "-05:00")
+      dyn_job.sync_subscriptions(t_open)
+
+      expect(fake_stream.added_subscriptions.size).to eq(1)
+      expect(fake_stream.added_subscriptions[0]).to include(
+        service: :level_one_options,
+        symbols: %w[SPXW_5950C SPXW_6000C],
+        has_block: true
+      )
+
+      # 2. 2 minutes later (< 5 min interval) -> no re-resolution yet
+      dyn_job.sync_subscriptions(t_open + 120)
+      expect(fake_stream.added_subscriptions.size).to eq(1)
+
+      # 3. 5 minutes later -> re-resolves, adds only SPXW_6050C without a block, keeps SPXW_5950C
+      dyn_job.sync_subscriptions(t_open + 300)
+      expect(fake_stream.added_subscriptions.size).to eq(2)
+      expect(fake_stream.added_subscriptions[1]).to include(
+        service: :level_one_options,
+        symbols: %w[SPXW_6050C],
+        has_block: false
+      )
+
+      # 4. Window closes at 15:01 -> unsubscribes ALL accumulated contracts (5950C, 6000C, 6050C)
+      t_close = Time.new(2026, 9, 21, 15, 1, 0, "-05:00")
+      dyn_job.sync_subscriptions(t_close)
+
+      expect(fake_stream.unsubbed_subscriptions.size).to eq(1)
+      expect(fake_stream.unsubbed_subscriptions[0][:service]).to eq(:level_one_options)
+      expect(fake_stream.unsubbed_subscriptions[0][:symbols]).to eq(%w[SPXW_5950C SPXW_6000C SPXW_6050C])
     end
   end
 

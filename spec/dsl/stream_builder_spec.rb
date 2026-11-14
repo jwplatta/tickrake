@@ -110,5 +110,47 @@ RSpec.describe Tickrake::DSL::StreamBuilder do
         builder.build!(job_name: "bad_stream")
       }.to raise_error(Tickrake::Error, /Unknown level_one services/)
     end
+
+    it "supports dynamic contracts block in level_one and order_book subscriptions without explicit symbols" do
+      builder.level_one "spxw_0dte" do
+        services [:level_one_options]
+        contracts do
+          underlying "SPX"
+          option_root "SPXW"
+          atm_points 50
+          expirations front: 1
+          re_resolve_interval 5
+        end
+        schedule do
+          weekdays from: "08:30", to: "15:00"
+        end
+      end
+
+      builder.order_book "spxw_book" do
+        services [:options_book]
+        contracts do
+          underlying "SPX"
+          option_root "SPXW"
+          atm_strikes 5
+          expirations front: 1
+          re_resolve_interval 10
+        end
+      end
+
+      built = builder.build!(job_name: "options_stream")
+      expect(built.subscriptions.size).to eq(2)
+
+      l1_sub = built.subscriptions[0]
+      expect(l1_sub.dynamic_contracts?).to be(true)
+      expect(l1_sub.contracts.underlying).to eq("SPX")
+      expect(l1_sub.contracts.option_root).to eq("SPXW")
+      expect(l1_sub.contracts.atm_points).to eq(50.0)
+      expect(l1_sub.re_resolve_interval_seconds).to eq(300)
+
+      ob_sub = built.subscriptions[1]
+      expect(ob_sub.dynamic_contracts?).to be(true)
+      expect(ob_sub.contracts.atm_strikes).to eq(5)
+      expect(ob_sub.re_resolve_interval_seconds).to eq(600)
+    end
   end
 end

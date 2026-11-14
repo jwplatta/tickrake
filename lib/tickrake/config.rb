@@ -46,11 +46,17 @@ module Tickrake
 
   OrderBookContractsConfig = Struct.new(
     :underlying,
+    :option_root,
     :atm_strikes,
+    :atm_points,
     :front_n,
     :re_resolve_interval_minutes,
     keyword_init: true
-  )
+  ) do
+    def re_resolve_interval_seconds
+      (re_resolve_interval_minutes || 30) * 60
+    end
+  end
 
   OrderBookConfig = Struct.new(
     :services,
@@ -68,8 +74,17 @@ module Tickrake
 
   LevelOneConfig = Struct.new(
     :services,
+    :contracts,
     keyword_init: true
-  )
+  ) do
+    def options_contracts?
+      !contracts.nil?
+    end
+
+    def re_resolve_interval_seconds
+      (contracts&.re_resolve_interval_minutes || 30) * 60
+    end
+  end
 
   ChartStreamConfig = Struct.new(
     :services,

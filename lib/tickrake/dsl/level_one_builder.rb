@@ -19,13 +19,23 @@ module Tickrake
         @services = symbols
       end
 
+      def contracts(&block)
+        @contracts_builder = OrderBookContractsBuilder.new
+        @contracts_builder.instance_eval(&block)
+      end
+
       def build!(job_name:, inline_symbols:)
         services = @services || []
         raise Tickrake::Error, "level_one job `#{job_name}` requires at least one service" if services.empty?
-        raise Tickrake::Error, "level_one job `#{job_name}` requires symbols" if inline_symbols.empty?
+
+        contracts = @contracts_builder&.build!
+        if inline_symbols.empty? && contracts.nil?
+          raise Tickrake::Error, "level_one job `#{job_name}` requires symbols or a contracts block"
+        end
 
         Tickrake::LevelOneConfig.new(
-          services: services
+          services: services,
+          contracts: contracts
         )
       end
     end

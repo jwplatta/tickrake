@@ -30,6 +30,27 @@ RSpec.describe Tickrake::DSL::LevelOneBuilder do
     end
   end
 
+  describe "options contracts block" do
+    it "builds a LevelOneConfig with dynamic contracts when contracts block is given" do
+      config = build(inline_symbols: []) do
+        services [:level_one_options]
+        contracts do
+          underlying "SPX"
+          option_root "SPXW"
+          atm_points 50
+          expirations front: 1
+          re_resolve_interval 5
+        end
+      end
+
+      expect(config.options_contracts?).to be(true)
+      expect(config.contracts.underlying).to eq("SPX")
+      expect(config.contracts.option_root).to eq("SPXW")
+      expect(config.contracts.atm_points).to eq(50.0)
+      expect(config.re_resolve_interval_seconds).to eq(300)
+    end
+  end
+
   describe "validations" do
     it "raises with no services" do
       expect do

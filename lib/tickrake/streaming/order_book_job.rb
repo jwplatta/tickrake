@@ -85,9 +85,7 @@ module Tickrake
         unless added.empty?
           @runtime.logger.info("#{log_prefix} Adding #{added.size} new contracts from re-resolution.")
           @order_book_config.services.each do |service|
-            stream.on(service.downcase.to_sym, symbols: added, fields: :all) do |event|
-              handle_event(event, service: service)
-            end
+            stream.add(service.downcase.to_sym, symbols: added, fields: :all)
           end
           @subscribed_symbols |= added
         end

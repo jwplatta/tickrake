@@ -25,6 +25,20 @@ module Tickrake
         minutes >= start_minutes && minutes <= end_minutes
       end
     end
+
+    def contracts
+      settings.respond_to?(:contracts) ? settings.contracts : nil
+    end
+
+    def dynamic_contracts?
+      !contracts.nil?
+    end
+
+    def re_resolve_interval_seconds
+      return nil unless dynamic_contracts?
+
+      settings.respond_to?(:re_resolve_interval_seconds) ? settings.re_resolve_interval_seconds : ((contracts.re_resolve_interval_minutes || 30) * 60)
+    end
   end
 
   # Top-level config for a consolidated stream job.
