@@ -373,7 +373,8 @@ module Tickrake
         fields = extract_level_one_fields(entry, service_str)
         if fields[:bid].nil? && fields[:ask].nil? && fields[:last].nil? &&
            fields[:volume].nil? && fields[:mark].nil? &&
-           fields[:bid_size].nil? && fields[:ask_size].nil?
+           fields[:bid_size].nil? && fields[:ask_size].nil? &&
+           fields[:extra_json].nil?
           discarded_count += 1
           next
         end
