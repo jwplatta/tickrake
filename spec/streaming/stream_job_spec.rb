@@ -229,6 +229,73 @@ RSpec.describe Tickrake::StreamJob do
       expect(fake_stream.unsubbed_subscriptions[0][:service]).to eq(:level_one_options)
       expect(fake_stream.unsubbed_subscriptions[0][:symbols]).to eq(%w[SPXW_5950C SPXW_6000C SPXW_6050C])
     end
+
+    it "isolates contract resolution errors so other subscriptions keep running and retries on the next poll" do
+      contracts_cfg = Tickrake::OptionContractsConfig.new(
+        underlying: "SPX",
+        option_root: "SPXW",
+        atm_points: 50.0,
+        front_n: 1,
+        re_resolve_interval_minutes: 5
+      )
+      options_sub = Tickrake::StreamSubscription.new(
+        name: "spxw_0dte",
+        kind: :level_one,
+        symbols: [],
+        settings: Tickrake::LevelOneConfig.new(
+          services: [:level_one_options],
+          contracts: contracts_cfg
+        ),
+        windows: [
+          Tickrake::SchedulerWindow.new(
+            days: %w[mon tue wed thu fri],
+            start_time: [8, 30],
+            end_time: [15, 0]
+          )
+        ]
+      )
+      mixed_stream_config = Tickrake::StreamConfig.new(
+        subscriptions: [options_sub, futures_sub, equities_sub],
+        stale_timeout_seconds: 60
+      )
+      mixed_scheduled_job = instance_double(
+        Tickrake::ScheduledJobConfig,
+        name: "mixed_streams",
+        provider: "schwab",
+        settings: mixed_stream_config,
+        universe: ["/ES", "SPY", "QQQ"]
+      )
+      mixed_job = described_class.new(runtime, scheduled_job: mixed_scheduled_job)
+      mixed_job.instance_variable_set(:@stream, fake_stream)
+
+      failing_resolver = instance_double(Tickrake::Streaming::OptionContractResolver)
+      allow(failing_resolver).to receive(:resolve).and_raise(StandardError, "Schwab REST 503")
+      succeeding_resolver = instance_double(Tickrake::Streaming::OptionContractResolver, resolve: %w[SPXW_6000C])
+      allow(Tickrake::Streaming::OptionContractResolver).to receive(:new).and_return(failing_resolver, succeeding_resolver, failing_resolver)
+
+      # 1. Poll 1: options resolution raises, but futures and equities still activate cleanly
+      t_open = Time.new(2026, 9, 21, 9, 30, 0, "-05:00")
+      expect { mixed_job.sync_subscriptions(t_open) }.not_to raise_error
+
+      expect(logger).to have_received(:error).with(hash_including(
+        event: "contract_resolution_error",
+        subscription: "spxw_0dte"
+      ))
+      expect(fake_stream.added_subscriptions.map { |s| s[:service] }).to contain_exactly(:level_one_futures, :level_one_equities)
+
+      # 2. Poll 2 (10s later): options resolution retries and succeeds
+      mixed_job.sync_subscriptions(t_open + 10)
+      expect(fake_stream.added_subscriptions.map { |s| s[:service] }).to contain_exactly(
+        :level_one_futures, :level_one_equities, :level_one_options
+      )
+
+      # 3. Poll 3 (5m later): mid-session re-resolution raises, rescued without crashing
+      expect { mixed_job.sync_subscriptions(t_open + 310) }.not_to raise_error
+      expect(logger).to have_received(:error).with(hash_including(
+        event: "contract_resolution_error",
+        subscription: "spxw_0dte"
+      )).twice
+    end
   end
 
   describe "event routing and file writing" do
@@ -297,6 +364,17 @@ RSpec.describe Tickrake::StreamJob do
         entries: 2,
         accepted: 1,
         discarded: 1
+      ))
+    end
+
+    it "rescues unexpected errors in handle_event without raising to the WebSocket receive loop" do
+      allow(job).to receive(:handle_level_one_event).and_raise(StandardError, "disk error")
+
+      expect { fake_stream.fire(:level_one_futures, { "content" => [] }) }.not_to raise_error
+      expect(logger).to have_received(:error).with(hash_including(
+        event: "event_handler_error",
+        service: "LEVELONE_FUTURES",
+        subscription: "futures_l1"
       ))
     end
   end

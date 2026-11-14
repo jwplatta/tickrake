@@ -161,4 +161,41 @@ RSpec.describe Tickrake::Streaming::EventStreamWriter do
       expect(second_evt[:delta_bytes]).to eq(second_evt[:byte_count] - log_evt[:byte_count])
     end
   end
+
+  describe "open file handle LRU cap" do
+    subject(:writer) do
+      described_class.new(
+        config: config,
+        logger: logger,
+        dataset_type: "level_one",
+        provider: "schwab",
+        provider_definition: provider_def,
+        max_open_files: 3
+      )
+    end
+
+    it "evicts the least-recently-used file handle when max_open_files is exceeded while preserving appends and stats" do
+      %w[SYM1 SYM2 SYM3 SYM4 SYM5].each do |sym|
+        writer.write("symbol" => sym, "bid" => 10.0)
+      end
+
+      open_files = writer.instance_variable_get(:@open_files)
+      expect(open_files.size).to eq(3)
+      expect(open_files.keys.map(&:last)).to eq(%w[SYM3 SYM4 SYM5])
+
+      # Re-writing to SYM1 re-opens it in append mode and evicts SYM3
+      writer.write("symbol" => "SYM1", "bid" => 11.0)
+      expect(open_files.size).to eq(3)
+      expect(open_files.keys.map(&:last)).to eq(%w[SYM4 SYM5 SYM1])
+
+      writer.close
+
+      today_str = Time.now.utc.strftime("%Y-%m-%d")
+      date_path = Time.now.utc.strftime("%Y/%m/%d")
+      sym1_file = File.join(tmpdir, "level_one", "schwab", date_path, "SYM1.ndjson")
+      sym1_lines = File.readlines(sym1_file).map { |l| JSON.parse(l) }
+      expect(sym1_lines.map { |l| l["bid"] }).to eq([10.0, 11.0])
+      expect(writer.stats[[today_str, "SYM1"]][:event_count]).to eq(2)
+    end
+  end
 end

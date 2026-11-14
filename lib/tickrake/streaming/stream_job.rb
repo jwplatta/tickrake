@@ -151,14 +151,35 @@ module Tickrake
     end
 
     def activate_subscription(sub, now = Time.now)
-      symbols = if sub.respond_to?(:dynamic_contracts?) && sub.dynamic_contracts?
-                  resolver = Tickrake::Streaming::OptionContractResolver.new(http_client, sub.contracts)
-                  resolved = resolver.resolve.dup
-                  @active_mu.synchronize { @last_resolved_at[sub.name] = now }
-                  resolved
+      dynamic = sub.respond_to?(:dynamic_contracts?) && sub.dynamic_contracts?
+      symbols = if dynamic
+                  begin
+                    resolver = Tickrake::Streaming::OptionContractResolver.new(http_client, sub.contracts)
+                    resolved = resolver.resolve.dup
+                    @active_mu.synchronize { @last_resolved_at[sub.name] = now }
+                    resolved
+                  rescue => e
+                    logger.error({
+                      msg: "#{log_prefix} Failed to resolve contracts for '#{sub.name}': #{e.class}: #{e.message}",
+                      event: "contract_resolution_error",
+                      subscription: sub.name,
+                      error_class: e.class.name,
+                      error_message: e.message
+                    })
+                    return
+                  end
                 else
                   sub.symbols.dup
                 end
+
+      if dynamic && symbols.empty?
+        logger.warn({
+          msg: "#{log_prefix} Resolved 0 contracts for '#{sub.name}'; will retry.",
+          event: "contract_resolution_empty",
+          subscription: sub.name
+        })
+        return
+      end
 
       @active_mu.synchronize { @active_subscriptions[sub.name] = symbols }
       logger.info({ msg: "#{log_prefix} Activating #{sub.kind} subscription '#{sub.name}' for #{symbols.join(", ")}", event: "subscription_add" })
@@ -186,8 +207,21 @@ module Tickrake
       interval = sub.re_resolve_interval_seconds
       return if last_resolved && interval && (now - last_resolved) < interval
 
-      resolver = Tickrake::Streaming::OptionContractResolver.new(http_client, sub.contracts)
-      new_symbols = resolver.resolve
+      begin
+        resolver = Tickrake::Streaming::OptionContractResolver.new(http_client, sub.contracts)
+        new_symbols = resolver.resolve
+      rescue => e
+        @active_mu.synchronize { @last_resolved_at[sub.name] = now }
+        logger.error({
+          msg: "#{log_prefix} Failed to re-resolve contracts for '#{sub.name}': #{e.class}: #{e.message}",
+          event: "contract_resolution_error",
+          subscription: sub.name,
+          error_class: e.class.name,
+          error_message: e.message
+        })
+        return
+      end
+
       added = @active_mu.synchronize do
         current = @active_subscriptions[sub.name] || []
         diff = new_symbols - current
@@ -303,6 +337,15 @@ module Tickrake
       when :chart_stream
         handle_chart_event(event, service_str: service_str, subscription: subscription)
       end
+    rescue => e
+      logger.error({
+        msg: "#{log_prefix} Error handling #{service_str} event for '#{subscription.name}': #{e.class}: #{e.message}",
+        event: "event_handler_error",
+        service: service_str,
+        subscription: subscription.name,
+        error_class: e.class.name,
+        error_message: e.message
+      })
     end
 
     # Each Level One event carries up to three distinct timestamps:

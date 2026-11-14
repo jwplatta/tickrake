@@ -80,16 +80,26 @@ module Tickrake
         elapsed = Time.now - @last_resolved_at
         next unless elapsed >= @order_book_config.re_resolve_interval_seconds
 
-        new_symbols = resolver.resolve
-        added = new_symbols - @subscribed_symbols
-        unless added.empty?
-          @runtime.logger.info("#{log_prefix} Adding #{added.size} new contracts from re-resolution.")
-          @order_book_config.services.each do |service|
-            stream.add(service.downcase.to_sym, symbols: added, fields: :all)
+        begin
+          new_symbols = resolver.resolve
+          added = new_symbols - @subscribed_symbols
+          unless added.empty?
+            @runtime.logger.info("#{log_prefix} Adding #{added.size} new contracts from re-resolution.")
+            @order_book_config.services.each do |service|
+              stream.add(service.downcase.to_sym, symbols: added, fields: :all)
+            end
+            @subscribed_symbols |= added
           end
-          @subscribed_symbols |= added
+        rescue => e
+          @runtime.logger.error({
+            msg: "#{log_prefix} Failed to re-resolve contracts: #{e.class}: #{e.message}",
+            event: "contract_resolution_error",
+            error_class: e.class.name,
+            error_message: e.message
+          })
+        ensure
+          @last_resolved_at = Time.now
         end
-        @last_resolved_at = Time.now
       end
     end
 
@@ -119,6 +129,14 @@ module Tickrake
           "asks_json"   => extract_json(entry["3"] || entry[:asks])
         )
       end
+    rescue => e
+      @runtime.logger.error({
+        msg: "#{log_prefix} Error handling #{service} event: #{e.class}: #{e.message}",
+        event: "event_handler_error",
+        service: service,
+        error_class: e.class.name,
+        error_message: e.message
+      })
     end
 
     def extract_json(data)
