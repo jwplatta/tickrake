@@ -20,7 +20,7 @@ module Tickrake
       end
 
       def contracts(&block)
-        @contracts_builder = OrderBookContractsBuilder.new
+        @contracts_builder = OptionContractsBuilder.new
         @contracts_builder.instance_eval(&block)
       end
 

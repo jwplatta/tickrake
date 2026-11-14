@@ -43,7 +43,7 @@ RSpec.describe Tickrake::DSL::OrderBookBuilder do
     end
 
     it "builds a contracts config" do
-      expect(config.contracts).to be_a(Tickrake::OrderBookContractsConfig)
+      expect(config.contracts).to be_a(Tickrake::OptionContractsConfig)
       expect(config.contracts.underlying).to eq("SPXW")
       expect(config.contracts.atm_strikes).to eq(5)
       expect(config.contracts.front_n).to eq(2)

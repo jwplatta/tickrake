@@ -3,8 +3,8 @@
 require "set"
 
 module Tickrake
-  module OrderBook
-    class ContractResolver
+  module Streaming
+    class OptionContractResolver
       def initialize(client, contracts_config)
         @client = client
         @underlying = contracts_config.underlying
@@ -83,5 +83,9 @@ module Tickrake
         expirations.flat_map { |exp| exp.calls.map(&:symbol) + exp.puts.map(&:symbol) }
       end
     end
+  end
+
+  module OrderBook
+    ContractResolver = Streaming::OptionContractResolver
   end
 end

@@ -44,7 +44,7 @@ module Tickrake
     end
   end
 
-  OrderBookContractsConfig = Struct.new(
+  OptionContractsConfig = Struct.new(
     :underlying,
     :option_root,
     :atm_strikes,
@@ -57,6 +57,7 @@ module Tickrake
       (re_resolve_interval_minutes || 30) * 60
     end
   end
+  OrderBookContractsConfig = OptionContractsConfig
 
   OrderBookConfig = Struct.new(
     :services,

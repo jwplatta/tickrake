@@ -2,7 +2,7 @@
 
 module Tickrake
   module DSL
-    class OrderBookContractsBuilder
+    class OptionContractsBuilder
       def underlying(sym)
         @underlying = sym.to_s
       end
@@ -38,7 +38,7 @@ module Tickrake
           raise Tickrake::Error, "contracts `atm_strikes` must be positive"
         end
 
-        Tickrake::OrderBookContractsConfig.new(
+        Tickrake::OptionContractsConfig.new(
           underlying: @underlying,
           option_root: @option_root.to_s.empty? ? nil : @option_root,
           atm_strikes: @atm_points ? @atm_strikes : (@atm_strikes || 5),
@@ -48,5 +48,6 @@ module Tickrake
         )
       end
     end
+    OrderBookContractsBuilder = OptionContractsBuilder
   end
 end

@@ -156,7 +156,7 @@ RSpec.describe Tickrake::StreamJob do
     end
 
     it "resolves dynamic contracts on window entry, adds new ATM contracts mid-session without duplicate callback blocks, and unsubscribes all accumulated contracts at window exit" do
-      contracts_cfg = Tickrake::OrderBookContractsConfig.new(
+      contracts_cfg = Tickrake::OptionContractsConfig.new(
         underlying: "SPX",
         option_root: "SPXW",
         atm_points: 50.0,
@@ -193,9 +193,9 @@ RSpec.describe Tickrake::StreamJob do
       dyn_job = described_class.new(runtime, scheduled_job: dyn_scheduled_job)
       dyn_job.instance_variable_set(:@stream, fake_stream)
 
-      resolver1 = instance_double(Tickrake::OrderBook::ContractResolver, resolve: %w[SPXW_5950C SPXW_6000C])
-      resolver2 = instance_double(Tickrake::OrderBook::ContractResolver, resolve: %w[SPXW_6000C SPXW_6050C])
-      allow(Tickrake::OrderBook::ContractResolver).to receive(:new).and_return(resolver1, resolver2)
+      resolver1 = instance_double(Tickrake::Streaming::OptionContractResolver, resolve: %w[SPXW_5950C SPXW_6000C])
+      resolver2 = instance_double(Tickrake::Streaming::OptionContractResolver, resolve: %w[SPXW_6000C SPXW_6050C])
+      allow(Tickrake::Streaming::OptionContractResolver).to receive(:new).and_return(resolver1, resolver2)
 
       # 1. Window opens at 08:30 -> resolves initial contracts and registers callback block
       t_open = Time.new(2026, 9, 21, 8, 30, 0, "-05:00")

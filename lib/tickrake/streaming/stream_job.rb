@@ -152,7 +152,7 @@ module Tickrake
 
     def activate_subscription(sub, now = Time.now)
       symbols = if sub.respond_to?(:dynamic_contracts?) && sub.dynamic_contracts?
-                  resolver = Tickrake::OrderBook::ContractResolver.new(http_client, sub.contracts)
+                  resolver = Tickrake::Streaming::OptionContractResolver.new(http_client, sub.contracts)
                   resolved = resolver.resolve.dup
                   @active_mu.synchronize { @last_resolved_at[sub.name] = now }
                   resolved
@@ -186,7 +186,7 @@ module Tickrake
       interval = sub.re_resolve_interval_seconds
       return if last_resolved && interval && (now - last_resolved) < interval
 
-      resolver = Tickrake::OrderBook::ContractResolver.new(http_client, sub.contracts)
+      resolver = Tickrake::Streaming::OptionContractResolver.new(http_client, sub.contracts)
       new_symbols = resolver.resolve
       added = @active_mu.synchronize do
         current = @active_subscriptions[sub.name] || []

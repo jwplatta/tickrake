@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe Tickrake::OrderBook::ContractResolver do
+RSpec.describe Tickrake::Streaming::OptionContractResolver do
   let(:client) { instance_double("SchwabRb::Client") }
 
   def make_option(symbol:, strike:, exp_date:, put_call:, root: "SPXW")
@@ -52,7 +52,7 @@ RSpec.describe Tickrake::OrderBook::ContractResolver do
     end
 
     it "filters by option_root, front_n expirations, and atm_points around underlying_price" do
-      contracts_config = Tickrake::OrderBookContractsConfig.new(
+      contracts_config = Tickrake::OptionContractsConfig.new(
         underlying: "SPX",
         option_root: "SPXW",
         atm_points: 50.0,
@@ -75,7 +75,7 @@ RSpec.describe Tickrake::OrderBook::ContractResolver do
     end
 
     it "supports atm_strikes when atm_points is not specified" do
-      contracts_config = Tickrake::OrderBookContractsConfig.new(
+      contracts_config = Tickrake::OptionContractsConfig.new(
         underlying: "SPX",
         option_root: "SPXW",
         atm_strikes: 1,

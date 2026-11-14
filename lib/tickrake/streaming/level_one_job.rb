@@ -128,7 +128,7 @@ module Tickrake
       stream = SchwabRb::Stream::Client.new(client)
 
       if @level_one_config.respond_to?(:options_contracts?) && @level_one_config.options_contracts?
-        @resolver = Tickrake::OrderBook::ContractResolver.new(client, @level_one_config.contracts)
+        @resolver = Tickrake::Streaming::OptionContractResolver.new(client, @level_one_config.contracts)
         @subscribed_symbols = @resolver.resolve.dup
         @last_resolved_at = Time.now
         logger.info("#{log_prefix} Resolved #{@subscribed_symbols.size} initial contracts: #{@subscribed_symbols.first(5).join(", ")}...")

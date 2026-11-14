@@ -32,7 +32,7 @@ module Tickrake
       stream = SchwabRb::Stream::Client.new(client)
 
       if @order_book_config.options_book?
-        resolver = Tickrake::OrderBook::ContractResolver.new(client, @order_book_config.contracts)
+        resolver = Tickrake::Streaming::OptionContractResolver.new(client, @order_book_config.contracts)
         initial_symbols = resolver.resolve
         @subscribed_symbols = initial_symbols.dup
         @last_resolved_at = Time.now
