@@ -165,16 +165,26 @@ module Tickrake
 
         if @resolver && @last_resolved_at &&
            (Time.now - @last_resolved_at) >= @level_one_config.re_resolve_interval_seconds
-          new_symbols = @resolver.resolve
-          added = new_symbols - @subscribed_symbols
-          unless added.empty?
-            logger.info("#{log_prefix} Adding #{added.size} new contracts from re-resolution.")
-            @level_one_config.services.each do |service_sym|
-              stream.add(service_sym, symbols: added, fields: :all)
+          begin
+            new_symbols = @resolver.resolve
+            added = new_symbols - @subscribed_symbols
+            unless added.empty?
+              logger.info("#{log_prefix} Adding #{added.size} new contracts from re-resolution.")
+              @level_one_config.services.each do |service_sym|
+                stream.add(service_sym, symbols: added, fields: :all)
+              end
+              @subscribed_symbols |= added
             end
-            @subscribed_symbols |= added
+          rescue => e
+            logger.error({
+              msg: "#{log_prefix} Failed to re-resolve contracts: #{e.class}: #{e.message}",
+              event: "contract_resolution_error",
+              error_class: e.class.name,
+              error_message: e.message
+            })
+          ensure
+            @last_resolved_at = Time.now
           end
-          @last_resolved_at = Time.now
         end
 
         last = @last_event_mu.synchronize { @last_event_at }
@@ -233,6 +243,14 @@ module Tickrake
           "extra_json" => fields[:extra_json]
         )
       end
+    rescue => e
+      logger.error({
+        msg: "#{log_prefix} Error handling #{service} event: #{e.class}: #{e.message}",
+        event: "event_handler_error",
+        service: service,
+        error_class: e.class.name,
+        error_message: e.message
+      })
     end
 
     def extract_fields(entry, service)

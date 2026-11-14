@@ -8,10 +8,11 @@ module Tickrake
   module Streaming
     class EventStreamWriter
       DEFAULT_PROGRESS_LOG_INTERVAL = 30 # seconds
+      DEFAULT_MAX_OPEN_FILES = 64
 
       attr_reader :stats
 
-      def initialize(config:, logger:, dataset_type:, provider:, provider_definition: nil, log_interval: DEFAULT_PROGRESS_LOG_INTERVAL)
+      def initialize(config:, logger:, dataset_type:, provider:, provider_definition: nil, log_interval: DEFAULT_PROGRESS_LOG_INTERVAL, max_open_files: DEFAULT_MAX_OPEN_FILES)
         @config = config
         @logger = logger
         @dataset_type = dataset_type.to_s
@@ -19,6 +20,7 @@ module Tickrake
         @provider_definition = provider_definition
         @paths = Tickrake::Storage::Paths.new(config)
         @log_interval = log_interval
+        @max_open_files = max_open_files
         @lock = Monitor.new
         @open_files = {} # [date_str, symbol] => File
         @stats = {} # [date_str, symbol] => { event_count: int, byte_count: int, last_logged_bytes: int, last_logged_events: int, last_logged_at: Time }
@@ -71,13 +73,22 @@ module Tickrake
 
       def get_or_open_file(date_str, symbol, now)
         key = [date_str, symbol]
-        return @open_files[key] if @open_files[key] && !@open_files[key].closed?
+        if @open_files[key] && !@open_files[key].closed?
+          file = @open_files.delete(key)
+          @open_files[key] = file
+          return file
+        end
 
         # Close files from prior dates if date rolled over
         stale_keys = @open_files.keys.select { |d, _| d != date_str }
         stale_keys.each do |stale_key|
           @open_files[stale_key].close rescue nil
           @open_files.delete(stale_key)
+        end
+
+        while @open_files.size >= @max_open_files
+          _, oldest_file = @open_files.shift
+          oldest_file.close rescue nil
         end
 
         target_path = resolve_target_path(symbol, now)

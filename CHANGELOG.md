@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 - Added `byte_count` to candle `fetch_success` logs for data-volume dashboard metrics.
 
 ### Fixed
+- Isolated dynamic option contract resolution and event handler errors in `StreamJob`, `LevelOneJob`, and `OrderBookJob` so transient Schwab REST failures or malformed events cannot crash the streaming session or disrupt other subscriptions, and added a 64-file LRU open-handle cap in `EventStreamWriter` to prevent file descriptor exhaustion when streaming large option contract universes.
 - Fixed database connection errors (such as authentication or unreachable host failures) being erroneously reported as `"Database migrations are pending"`. Added `Tickrake::DatabaseConnectionError` and immediate connection validation on establishment.
 - Fixed symbol normalization in `Paths#candle_path` to consistently apply the provider's `symbol_map` (e.g., `/ES` -> `^ES`).
 - Fixed date extraction in `StagingPublisher` to support date-partitioned candle paths.
