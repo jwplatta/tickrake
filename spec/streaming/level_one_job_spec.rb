@@ -148,10 +148,28 @@ RSpec.describe Tickrake::LevelOneJob do
       end
     end
 
-    it "skips entries that carry no price fields" do
+    it "skips entries that carry no price fields or extra_json" do
       empty_event = { "content" => [{ "key" => "/ES" }] }
       job.send(:handle_event, empty_event, service: "LEVELONE_FUTURES")
       expect(writer).not_to have_received(:write)
+    end
+
+    it "preserves delta entries that only update extra_json fields such as Greeks or IV" do
+      greek_delta_event = {
+        "content" => [{
+          "key" => "SPXW  260921C06000000",
+          "10"  => 0.221,
+          "28"  => 0.508
+        }]
+      }
+      job.send(:handle_event, greek_delta_event, service: "LEVELONE_OPTIONS")
+      expect(writer).to have_received(:write).with(hash_including(
+        "symbol"     => "SPXW  260921C06000000",
+        "service"    => "LEVELONE_OPTIONS",
+        "bid"        => nil,
+        "ask"        => nil,
+        "extra_json" => JSON.dump({ "10" => 0.221, "28" => 0.508 })
+      ))
     end
 
     it "skips entries with no key" do
