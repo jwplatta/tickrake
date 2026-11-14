@@ -104,7 +104,7 @@ require_relative "tickrake/streaming/chart_stream_job"
 require_relative "tickrake/streaming/chart_stream_runner"
 require_relative "tickrake/streaming/order_book_job"
 require_relative "tickrake/streaming/order_book_runner"
-require_relative "tickrake/streaming/order_book/contract_resolver"
+require_relative "tickrake/streaming/option_contract_resolver"
 
 # Batch Jobs & Runners
 require_relative "tickrake/jobs/candles_job"

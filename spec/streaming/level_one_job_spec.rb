@@ -106,6 +106,48 @@ RSpec.describe Tickrake::LevelOneJob do
       ))
     end
 
+    it "correctly maps LEVELONE_OPTIONS field indices including bid, ask, last, sizes, volume, mark, and extra_json" do
+      option_event = {
+        "content" => [{
+          "key" => "SPXW  260921C06000000",
+          "1"   => "SPXW 09/21/2026 6000.00 C",
+          "2"   => 12.40,
+          "3"   => 12.60,
+          "4"   => 12.50,
+          "8"   => 1450,
+          "9"   => 8200,
+          "10"  => 0.215,
+          "16"  => 15,
+          "17"  => 22,
+          "18"  => 5,
+          "28"  => 0.512,
+          "37"  => 12.50,
+          "38"  => 1_695_000_000_000,
+          "39"  => 1_695_000_000_000
+        }]
+      }
+
+      job.send(:handle_event, option_event, service: "LEVELONE_OPTIONS")
+
+      expect(writer).to have_received(:write) do |row|
+        expect(row["symbol"]).to eq("SPXW  260921C06000000")
+        expect(row["service"]).to eq("LEVELONE_OPTIONS")
+        expect(row["bid"]).to eq(12.40)
+        expect(row["ask"]).to eq(12.60)
+        expect(row["last"]).to eq(12.50)
+        expect(row["volume"]).to eq(1450)
+        expect(row["bid_size"]).to eq(15)
+        expect(row["ask_size"]).to eq(22)
+        expect(row["last_size"]).to eq(5)
+        expect(row["mark"]).to eq(12.50)
+        extra = JSON.parse(row["extra_json"])
+        expect(extra["1"]).to eq("SPXW 09/21/2026 6000.00 C")
+        expect(extra["9"]).to eq(8200)
+        expect(extra["10"]).to eq(0.215)
+        expect(extra["28"]).to eq(0.512)
+      end
+    end
+
     it "skips entries that carry no price fields" do
       empty_event = { "content" => [{ "key" => "/ES" }] }
       job.send(:handle_event, empty_event, service: "LEVELONE_FUTURES")

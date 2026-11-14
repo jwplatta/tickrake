@@ -11,6 +11,7 @@ module Tickrake
         @symbols = []
         @universe_name = nil
         @services = []
+        @contracts_builder = nil
         @rotation_interval_seconds = nil
         @flush_interval_seconds = nil
         @schedule_builder = nil
@@ -26,6 +27,11 @@ module Tickrake
 
       def services(list)
         @services = Array(list)
+      end
+
+      def contracts(&block)
+        @contracts_builder = OptionContractsBuilder.new
+        @contracts_builder.instance_eval(&block)
       end
 
       def flush_interval(seconds)
@@ -48,7 +54,11 @@ module Tickrake
                              []
                            end
 
-        raise Tickrake::Error, "stream subscription `#{@name}` requires symbols or universe" if resolved_symbols.empty?
+        contracts = @contracts_builder&.build!
+
+        if resolved_symbols.empty? && contracts.nil?
+          raise Tickrake::Error, "stream subscription `#{@name}` requires symbols or universe (or a contracts block)"
+        end
         raise Tickrake::Error, "stream subscription `#{@name}` requires services" if @services.empty?
 
         schedule = @schedule_builder&.build! || {}
@@ -61,7 +71,8 @@ module Tickrake
                      raise Tickrake::Error, "Unknown level_one services in `#{@name}`: #{unknown.join(", ")}" unless unknown.empty?
 
                      Tickrake::LevelOneConfig.new(
-                       services: symbols_sym
+                       services: symbols_sym,
+                       contracts: contracts
                      )
                    when :order_book
                      normalized = @services.map { |s| s.to_s.upcase }
@@ -71,7 +82,7 @@ module Tickrake
 
                      Tickrake::OrderBookConfig.new(
                        services: normalized,
-                       contracts: nil
+                       contracts: contracts
                      )
                    when :chart_stream
                      symbols_sym = @services.map(&:to_sym)
