@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Added dynamic ATM option contract resolution (`contracts do ... end` with `underlying`, `option_root`, `atm_points` or `atm_strikes`, `expirations front: N`, and `re_resolve_interval`) to `level_one` and `order_book` subscriptions across standalone and consolidated `stream` jobs, with additive mid-session contract rolling, single callback registration per service, and full end-of-window unsubscription.
 - Added `last_size` to Level 1 event records and fixed `LEVELONE_OPTIONS` field index extraction (`bid`, `ask`, `last`, `bid_size`, `ask_size`, `last_size`, `volume`, `mark`, `quote_time`, `trade_time`, and `extra_json`).
+- Upgraded `schwab_rb` dependency to `>= 1.0.6`.
 - Added configurable `batch_size` (default `1`) to the `options` job DSL (`OptionsBuilder#batch_size`) and updated `OptionsJob` to partition resolved expiration dates into balanced consecutive date ranges (`from_date..to_date`) per request while still writing individual `<root>_exp<YYYY-MM-DD>_<timestamp>.csv` files and `.meta.json` sidecars.
 - Added `is_chain_truncated` logging to `OptionsJob` (`fetch_success` and `option_chain_truncated` warning events) and `LoggerFactory::TEXT_DETAIL_KEYS`.
 - Added `tickrake purge-staging` CLI command and `Tickrake::Storage::StagingPurger` to purge dataset files for a given date from the staging MinIO bucket and/or local buffer, supporting `--date`, `--dataset`, `--provider`, `--datastore`, `--remote`, `--local`, `--all`, and `--dry-run`.
