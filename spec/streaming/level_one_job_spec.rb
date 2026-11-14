@@ -148,6 +148,14 @@ RSpec.describe Tickrake::LevelOneJob do
       end
     end
 
+    it "writes options updates containing only extra fields" do
+      event = { "content" => [{ "key" => "SPXW  261019C03200000", "18" => 5, "28" => 0.5 }] }
+      job.send(:handle_event, event, service: "LEVELONE_OPTIONS")
+      expect(writer).to have_received(:write) do |row|
+        expect(JSON.parse(row.fetch("extra_json"))).to include("18" => 5, "28" => 0.5)
+      end
+    end
+
     it "skips entries that carry no price fields" do
       empty_event = { "content" => [{ "key" => "/ES" }] }
       job.send(:handle_event, empty_event, service: "LEVELONE_FUTURES")

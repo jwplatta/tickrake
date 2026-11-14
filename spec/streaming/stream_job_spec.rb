@@ -267,6 +267,13 @@ RSpec.describe Tickrake::StreamJob do
       expect(parsed["trade_time"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
     end
 
+    it "writes level one updates containing only extra fields" do
+      fake_stream.fire(:level_one_futures, { "content" => [{ "key" => "/ES", "9" => 5 }] })
+      job.close
+      file = Dir.glob(File.join(data_dir, "level_one", "schwab", "**", "*.ndjson")).first
+      expect(JSON.parse(JSON.parse(File.read(file)).fetch("extra_json"))).to include("9" => 5)
+    end
+
     it "tracks per-service delivery counters, accepted/discarded records, and last_event_at" do
       valid_entry = {
         "key" => "/ES",
