@@ -74,6 +74,40 @@ RSpec.describe Tickrake::Streaming::OptionContractResolver do
       ])
     end
 
+    it "bounds get_option_chain by from_date and to_date when get_option_expiration_chain is available" do
+      contracts_config = Tickrake::OptionContractsConfig.new(
+        underlying: "SPX",
+        option_root: "SPXW",
+        atm_points: 50.0,
+        front_n: 1
+      )
+
+      exp_entry1 = double("Exp1", days_to_expiration: 0, option_roots: ["SPXW"], date_object: exp1, expiration_date: exp1.to_s)
+      exp_entry2 = double("Exp2", days_to_expiration: 1, option_roots: ["SPXW"], date_object: exp2, expiration_date: exp2.to_s)
+      exp_chain = double("ExpirationChain", expiration_list: [exp_entry1, exp_entry2])
+
+      allow(client).to receive(:respond_to?).with(:get_option_expiration_chain).and_return(true)
+      expect(client).to receive(:get_option_expiration_chain).with("$SPX").and_return(exp_chain)
+      expect(client).to receive(:get_option_chain).with(
+        "$SPX",
+        include_underlying_quote: true,
+        from_date: exp1,
+        to_date: exp1
+      ).and_return(chain)
+
+      resolver = described_class.new(client, contracts_config)
+      symbols = resolver.resolve
+
+      expect(symbols).to eq([
+        "SPXW  260921C05950000",
+        "SPXW  260921C06000000",
+        "SPXW  260921C06050000",
+        "SPXW  260921P05950000",
+        "SPXW  260921P06000000",
+        "SPXW  260921P06050000"
+      ])
+    end
+
     it "supports atm_strikes when atm_points is not specified" do
       contracts_config = Tickrake::OptionContractsConfig.new(
         underlying: "SPX",

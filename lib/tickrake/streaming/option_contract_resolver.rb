@@ -21,6 +21,12 @@ module Tickrake
           params[:strike_count] = @atm_strikes * 2
         end
 
+        target_dates = resolve_target_expiration_dates(api_sym)
+        if target_dates.any?
+          params[:from_date] = target_dates.first
+          params[:to_date] = target_dates.last
+        end
+
         chain = @client.get_option_chain(api_sym, **params)
         return [] if chain.nil?
 
@@ -52,6 +58,40 @@ module Tickrake
       end
 
       private
+
+      def resolve_target_expiration_dates(api_sym)
+        return [] unless @client.respond_to?(:get_option_expiration_chain)
+
+        exp_chain = @client.get_option_expiration_chain(api_sym)
+        return [] unless exp_chain.respond_to?(:expiration_list)
+
+        matching = Array(exp_chain.expiration_list).select do |exp|
+          next false if exp.respond_to?(:days_to_expiration) && exp.days_to_expiration.to_i < 0
+          next true if @option_root.nil? || @option_root.to_s.empty?
+
+          extract_roots(exp).include?(@option_root.to_s.upcase)
+        end
+
+        matching.filter_map do |exp|
+          if exp.respond_to?(:date_object) && exp.date_object
+            exp.date_object
+          elsif exp.respond_to?(:expiration_date)
+            normalize_date(exp.expiration_date)
+          end
+        end.uniq.sort.first(@front_n)
+      end
+
+      def extract_roots(exp_entry)
+        roots = exp_entry.respond_to?(:option_roots) ? exp_entry.option_roots : nil
+        case roots
+        when Array
+          roots.map { |r| r.to_s.strip.upcase }
+        when String
+          roots.split(",").map { |r| r.strip.upcase }
+        else
+          []
+        end
+      end
 
       def filter_atm_options(options, spot)
         if @atm_points && spot && spot > 0
