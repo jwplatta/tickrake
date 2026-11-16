@@ -265,9 +265,9 @@ module Tickrake
       ask_size  = entry[merged[:ask_size]]&.to_i
       volume    = entry[merged[:volume]]&.to_i
       quote_time_raw = merged[:quote_time] ? entry[merged[:quote_time]] : nil
-      quote_time = quote_time_raw ? Time.at(quote_time_raw.to_i / 1000.0).utc.iso8601(3) : nil
+      quote_time = quote_time_raw ? Time.at(0, quote_time_raw.to_i, :millisecond).utc.iso8601(3) : nil
       trade_time_raw = merged[:trade_time] ? entry[merged[:trade_time]] : nil
-      trade_time = trade_time_raw ? Time.at(trade_time_raw.to_i / 1000.0).utc.iso8601(3) : nil
+      trade_time = trade_time_raw ? Time.at(0, trade_time_raw.to_i, :millisecond).utc.iso8601(3) : nil
       mark          = merged[:mark]        ? entry[merged[:mark]]&.to_f        : nil
 
       extracted_keys = (merged.values + ["key"]).uniq

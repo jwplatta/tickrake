@@ -116,7 +116,7 @@ module Tickrake
         next unless symbol
 
         book_time_raw = entry["1"] || entry[:book_time]
-        book_time = book_time_raw ? Time.at(book_time_raw.to_i / 1000.0).utc.iso8601(3) : nil
+        book_time = book_time_raw ? Time.at(0, book_time_raw.to_i, :millisecond).utc.iso8601(3) : nil
 
         @events_writer.write(
           "job_type"    => "order_book",

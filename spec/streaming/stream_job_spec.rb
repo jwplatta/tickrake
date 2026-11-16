@@ -312,8 +312,8 @@ RSpec.describe Tickrake::StreamJob do
           "1"   => 4500.0,
           "2"   => 4501.0,
           "3"   => 4500.5,
-          "10"  => 1_695_000_000_000,
-          "11"  => 1_695_000_000_000
+          "10"  => 1_794_607_199_870,
+          "11"  => 1_794_607_199_870
         }]
       }
 
@@ -330,8 +330,8 @@ RSpec.describe Tickrake::StreamJob do
       expect(parsed["symbol"]).to eq("/ES")
       expect(parsed["bid"]).to eq(4500.0)
       expect(parsed["received_at"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
-      expect(parsed["quote_time"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
-      expect(parsed["trade_time"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      expect(parsed["quote_time"]).to eq("2026-11-13T21:59:59.870Z")
+      expect(parsed["trade_time"]).to eq("2026-11-13T21:59:59.870Z")
     end
 
     it "tracks per-service delivery counters, accepted/discarded records, and last_event_at" do
