@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+- Updated streaming event timestamps (`received_at`, `quote_time`, `trade_time`, and `book_time`) in `StreamJob`, `LevelOneJob`, and `OrderBookJob` to preserve millisecond precision (`iso8601(3)`).
 - Modernized configuration management to support automatic `.env` loading (`Dotenv.load` from explicit path `--env-file`, `TICKRAKE_ENV_FILE`, `./.env`, or `~/.tickrake/.env`) and ERB templating (`<%= ENV.fetch(...) %>`) in YAML configurations and universe files.
 - Aligned database configuration with Rails ActiveRecord conventions under `database:`, using `adapter: sqlite3` or `adapter: postgresql` and `database:` for database name/path. Removed `sqlite_path:` and replaced `backend:` with `adapter:`.
 - Replaced generic `datastores:` and obsolete `s3_archive` with top-level `staging_target:` and `intraday_target:` configurations.

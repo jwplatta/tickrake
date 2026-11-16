@@ -319,7 +319,7 @@ module Tickrake
     end
 
     def handle_event(event, service_str:, subscription:)
-      received_at = Time.now.utc.iso8601
+      received_at = Time.now.utc.iso8601(3)
       event_now = Time.now
       @last_event_mu.synchronize { @last_event_at = event_now }
 
@@ -413,9 +413,9 @@ module Tickrake
       ask_size  = entry[merged[:ask_size]]&.to_i
       volume    = entry[merged[:volume]]&.to_i
       quote_time_raw = merged[:quote_time] ? entry[merged[:quote_time]] : nil
-      quote_time = quote_time_raw ? Time.at(quote_time_raw.to_i / 1000.0).utc.iso8601 : nil
+      quote_time = quote_time_raw ? Time.at(quote_time_raw.to_i / 1000.0).utc.iso8601(3) : nil
       trade_time_raw = merged[:trade_time] ? entry[merged[:trade_time]] : nil
-      trade_time = trade_time_raw ? Time.at(trade_time_raw.to_i / 1000.0).utc.iso8601 : nil
+      trade_time = trade_time_raw ? Time.at(trade_time_raw.to_i / 1000.0).utc.iso8601(3) : nil
       mark          = merged[:mark]        ? entry[merged[:mark]]&.to_f        : nil
 
       extracted_keys = (merged.values + ["key"]).uniq
@@ -445,7 +445,7 @@ module Tickrake
         end
 
         book_time_raw = entry["1"] || entry[:book_time]
-        book_time = book_time_raw ? Time.at(book_time_raw.to_i / 1000.0).utc.iso8601 : nil
+        book_time = book_time_raw ? Time.at(book_time_raw.to_i / 1000.0).utc.iso8601(3) : nil
 
         writer.write(
           "job_type"    => "order_book",

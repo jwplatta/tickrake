@@ -56,8 +56,8 @@ RSpec.describe Tickrake::OrderBookJob do
         "provider"    => "schwab",
         "symbol"      => "SPY",
         "service"     => "TOTAL_VIEW",
-        "received_at" => match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
-        "book_time"   => "2024-10-18T14:30:00Z"
+        "received_at" => match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+        "book_time"   => "2024-10-18T14:30:00.000Z"
       ))
     end
   end

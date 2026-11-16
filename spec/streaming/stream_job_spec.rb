@@ -329,9 +329,9 @@ RSpec.describe Tickrake::StreamJob do
       parsed = JSON.parse(lines.first)
       expect(parsed["symbol"]).to eq("/ES")
       expect(parsed["bid"]).to eq(4500.0)
-      expect(parsed["received_at"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
-      expect(parsed["quote_time"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
-      expect(parsed["trade_time"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+      expect(parsed["received_at"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      expect(parsed["quote_time"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      expect(parsed["trade_time"]).to match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
     end
 
     it "tracks per-service delivery counters, accepted/discarded records, and last_event_at" do

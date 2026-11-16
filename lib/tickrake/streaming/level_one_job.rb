@@ -211,7 +211,7 @@ module Tickrake
     # - trade_time: timestamp attached to the last-trade info. Nil indicates absent trade info
     #   in that message, not that the symbol never traded.
     def handle_event(event, service:)
-      received_at = Time.now.utc.iso8601
+      received_at = Time.now.utc.iso8601(3)
       @last_event_mu.synchronize { @last_event_at = Time.now }
 
       entries = Array(event["content"] || event[:content] || [event])
@@ -265,9 +265,9 @@ module Tickrake
       ask_size  = entry[merged[:ask_size]]&.to_i
       volume    = entry[merged[:volume]]&.to_i
       quote_time_raw = merged[:quote_time] ? entry[merged[:quote_time]] : nil
-      quote_time = quote_time_raw ? Time.at(quote_time_raw.to_i / 1000.0).utc.iso8601 : nil
+      quote_time = quote_time_raw ? Time.at(quote_time_raw.to_i / 1000.0).utc.iso8601(3) : nil
       trade_time_raw = merged[:trade_time] ? entry[merged[:trade_time]] : nil
-      trade_time = trade_time_raw ? Time.at(trade_time_raw.to_i / 1000.0).utc.iso8601 : nil
+      trade_time = trade_time_raw ? Time.at(trade_time_raw.to_i / 1000.0).utc.iso8601(3) : nil
       mark          = merged[:mark]        ? entry[merged[:mark]]&.to_f        : nil
 
       extracted_keys = (merged.values + ["key"]).uniq
