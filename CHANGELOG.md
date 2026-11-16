@@ -32,6 +32,7 @@ All notable changes to this project will be documented in this file.
 - Added `byte_count` to candle `fetch_success` logs for data-volume dashboard metrics.
 
 ### Fixed
+- Fixed `StreamJob#deactivate_subscription` to remove a service from `@registered_services` when no other active subscription uses it and to key `EventStreamWriter` instances by subscription kind (`:level_one`, `:order_book`), ensuring multi-window subscriptions cleanly re-register their callback block when entering subsequent windows.
 - Preserved `level_one` streaming delta updates in `StreamJob` and `LevelOneJob` when `extra_json` is present (e.g., option Greek/IV or `last_size` delta updates) even if top-level quote/trade price fields did not change on that tick.
 - Isolated dynamic option contract resolution and event handler errors in `StreamJob`, `LevelOneJob`, and `OrderBookJob` so transient Schwab REST failures or malformed events cannot crash the streaming session or disrupt other subscriptions, and added a 64-file LRU open-handle cap in `EventStreamWriter` to prevent file descriptor exhaustion when streaming large option contract universes.
 - Fixed database connection errors (such as authentication or unreachable host failures) being erroneously reported as `"Database migrations are pending"`. Added `Tickrake::DatabaseConnectionError` and immediate connection validation on establishment.

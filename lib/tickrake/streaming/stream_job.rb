@@ -262,6 +262,13 @@ module Tickrake
         sub_services.each do |service_sym|
           stream_service_sym = service_sym.to_s.downcase.to_sym
           @stream.unsub(stream_service_sym, symbols: symbols_to_unsub)
+          still_active_for_service = @active_mu.synchronize do
+            @stream_config.subscriptions.any? do |other|
+              @active_subscriptions.key?(other.name) &&
+                other.settings.services.any? { |s| s.to_s.downcase.to_sym == stream_service_sym }
+            end
+          end
+          @active_mu.synchronize { @registered_services.delete(stream_service_sym) } unless still_active_for_service
         end
       end
 
@@ -269,9 +276,15 @@ module Tickrake
       if sub.kind == :chart_stream
         flush_chart_buffer(sub)
       else
-        writer = @writers_mu.synchronize { @writers[sub.name] }
-        writer&.close
-        @writers_mu.synchronize { @writers.delete(sub.name) }
+        still_active_for_kind = @active_mu.synchronize do
+          @stream_config.subscriptions.any? do |other|
+            @active_subscriptions.key?(other.name) && other.kind == sub.kind
+          end
+        end
+        unless still_active_for_kind
+          writer = @writers_mu.synchronize { @writers.delete(sub.kind) }
+          writer&.close
+        end
       end
     end
 
@@ -607,7 +620,7 @@ module Tickrake
 
     def get_or_create_writer(subscription)
       @writers_mu.synchronize do
-        @writers[subscription.name] ||= begin
+        @writers[subscription.kind] ||= begin
           provider_def = @runtime.config.provider_definition(@provider)
           dataset_type = subscription.kind.to_s
           Tickrake::Streaming::EventStreamWriter.new(
