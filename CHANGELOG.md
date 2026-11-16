@@ -4,23 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Changed
-- Updated streaming event timestamps (`received_at`, `quote_time`, `trade_time`, and `book_time`) in `StreamJob`, `LevelOneJob`, and `OrderBookJob` to preserve millisecond precision (`iso8601(3)`).
-- Modernized configuration management to support automatic `.env` loading (`Dotenv.load` from explicit path `--env-file`, `TICKRAKE_ENV_FILE`, `./.env`, or `~/.tickrake/.env`) and ERB templating (`<%= ENV.fetch(...) %>`) in YAML configurations and universe files.
-- Aligned database configuration with Rails ActiveRecord conventions under `database:`, using `adapter: sqlite3` or `adapter: postgresql` and `database:` for database name/path. Removed `sqlite_path:` and replaced `backend:` with `adapter:`.
-- Replaced generic `datastores:` and obsolete `s3_archive` with top-level `staging_target:` and `intraday_target:` configurations.
-- Updated `StagingPublisher`, `StagingPurger`, and `IntradayPublisherJob` to use `staging_target` and `intraday_target` directly, removing `--datastore` CLI option.
-- Updated `DuckdbOptionCompactedWriter` to sort option sample Parquet files by `expiration_date, sampled_at, strike, contract_type, symbol` to optimize Parquet row-group pruning for expiration filters and preserve chain snapshot locality for backtesting.
-- Updated option sample Parquet compaction to use `ZSTD` compression (matching Apache Iceberg standards) and `ROW_GROUP_SIZE 50000`.
-
-### Removed
-- Removed legacy CLI commands `tickrake run`, `tickrake start`, `tickrake stop`, `tickrake restart`, and `tickrake status`. Scheduled jobs are defined via Ruby DSL files (`TICKRAKE_JOB_FILE`) and orchestrated via system/container process runners.
-- Removed support for defining scheduled jobs in YAML configuration (`schedule`). All jobs are now defined using the Ruby DSL (`Tickrake.job`). `ConfigLoader` now rejects YAML configuration containing a `schedule` mapping with an explicit error.
+## [0.4.0] - 2026-11-16
 
 ### Added
 - Added dynamic ATM option contract resolution (`contracts do ... end` with `underlying`, `option_root`, `atm_points` or `atm_strikes`, `expirations front: N`, and `re_resolve_interval`) to `level_one` and `order_book` subscriptions across standalone and consolidated `stream` jobs, with additive mid-session contract rolling, single callback registration per service, and full end-of-window unsubscription.
-- Fixed `LEVELONE_OPTIONS` field index extraction (`bid`, `ask`, `last`, `bid_size`, `ask_size`, `volume`, `mark`, `quote_time`, `trade_time`, and `extra_json`).
-- Upgraded `schwab_rb` dependency to `>= 1.0.6`.
 - Added configurable `batch_size` (default `1`) to the `options` job DSL (`OptionsBuilder#batch_size`) and updated `OptionsJob` to partition resolved expiration dates into balanced consecutive date ranges (`from_date..to_date`) per request while still writing individual `<root>_exp<YYYY-MM-DD>_<timestamp>.csv` files and `.meta.json` sidecars.
 - Added `is_chain_truncated` logging to `OptionsJob` (`fetch_success` and `option_chain_truncated` warning events) and `LoggerFactory::TEXT_DETAIL_KEYS`.
 - Added `tickrake purge-staging` CLI command and `Tickrake::Storage::StagingPurger` to purge dataset files for a given date from the staging MinIO bucket and/or local buffer, supporting `--date`, `--dataset`, `--provider`, `--datastore`, `--remote`, `--local`, `--all`, and `--dry-run`.
@@ -30,23 +17,6 @@ All notable changes to this project will be documented in this file.
 - Added standalone migration script `scripts/rewrite_options_parquet.rb` to re-encode and re-sort existing option sample Parquet files in-place with atomic verification.
 - Added per-service delivery counters, accepted/discarded record metrics, and last-event timestamps to `StreamJob` to prevent chart traffic from masking silent Level One feeds.
 - Added `byte_count` to candle `fetch_success` logs for data-volume dashboard metrics.
-
-### Fixed
-- Fixed `StreamJob#deactivate_subscription` to remove a service from `@registered_services` when no other active subscription uses it and to key `EventStreamWriter` instances by subscription kind (`:level_one`, `:order_book`), ensuring multi-window subscriptions cleanly re-register their callback block when entering subsequent windows.
-- Preserved `level_one` streaming delta updates in `StreamJob` and `LevelOneJob` when `extra_json` is present (e.g., option Greek/IV or `last_size` delta updates) even if top-level quote/trade price fields did not change on that tick.
-- Isolated dynamic option contract resolution and event handler errors in `StreamJob`, `LevelOneJob`, and `OrderBookJob` so transient Schwab REST failures or malformed events cannot crash the streaming session or disrupt other subscriptions, and added a 64-file LRU open-handle cap in `EventStreamWriter` to prevent file descriptor exhaustion when streaming large option contract universes.
-- Fixed database connection errors (such as authentication or unreachable host failures) being erroneously reported as `"Database migrations are pending"`. Added `Tickrake::DatabaseConnectionError` and immediate connection validation on establishment.
-- Fixed symbol normalization in `Paths#candle_path` to consistently apply the provider's `symbol_map` (e.g., `/ES` -> `^ES`).
-- Fixed date extraction in `StagingPublisher` to support date-partitioned candle paths.
-- Fixed missing `install_signal_handlers`, `mark_iteration_success`, `in_window?`, and `log_iteration_failure` methods in `StagingPublisherSchedulerRunner`.
-
-- Removed dead AWS S3 cold archival pipeline, AWS Glacier storage classes, S3 manifest writers, and S3 manifest reconciler (`ReconcilerJob`, `ReconcilerRunner`, `DSL::ReconcileBuilder`, `Maintenance::Candles::Archiver`, `Maintenance::Candles::ManifestWriter`, `Maintenance::OptionSamples::ArtifactArchiver`, `Maintenance::OptionSamples::ManifestWriter`, `Maintenance::OptionSamples::LocalArtifactManager`).
-- Removed obsolete S3 manifest guards from `SourceSampleCleaner`, keeping local raw CSV pruning safely managed by compaction validation.
-- Removed dead S3 upload method and datastore option from `EventsIngestorJob` and `EventsIngestBuilder`.
-- Removed `archive` task from `MaintenanceBuilder` and updated `ConfigLoader` to reject legacy `archive` tasks.
-- Removed obsolete scripts `scripts/backfill_manifests.rb` and `scripts/rearchive_candles_to_s3.rb`.
-
-### Added
 - Added local file retention policy and immediate deletion management to `HistoricalPublisher` (`retain_days`, `delete_after_upload`), supporting automated local cleanup while strictly exempting `candles` files to prevent backfill regressions.
 - Added migration `003_add_local_deleted_at_to_historical_file_ledger.rb` and `HistoricalFileLedger` scopes (`locally_retained`, `eligible_for_retention_cleanup`) and `mark_locally_deleted!` method to track pruned local files while maintaining the complete audit trail.
 - Added `--delete-after-upload` and `--retain-days` flags to `tickrake publish-historical` CLI command and DSL `historical_publish` block, unifying `retain_days: 0` with immediate post-upload deletion.
@@ -68,7 +38,7 @@ All notable changes to this project will be documented in this file.
 - Added `storage_byte_delta` signed integer field to successful finalized Parquet write events (`parquet_written`) across candle compaction, option sample compaction, event stream ingestion (`level_one` and `order_book`), economic events, and fundamentals to accurately measure net durable storage added.
 - Added intraday options time series and top-of-series publishing to `IntradayPublisherJob`, with incremental uploads, structured `latest` and `series` sections in per-root index JSON, and a daily `clear_at` eviction parameter in the DSL.
 - Added consolidated `stream` job type (`StreamJob`, `StreamRunner`, `DSL::StreamBuilder`, `StreamConfig`): allows combining multiple streaming services (Level 1 equities/futures/options, Level 2 order books, and candle chart streams) over a single Schwab WebSocket connection. Dynamically adds (`ADD`) and removes (`UNSUBS`) subscriptions as their individual schedule windows open and close.
-- Upgraded `schwab_rb` dependency to `>= 1.0.4`.
+- Upgraded `schwab_rb` dependency to `>= 1.0.6`.
 - Added diagnostic logging to all runners: structured start/stop events with PID, shutdown reason tracking (SIGTERM, SIGINT, clean_exit), and optional Schwab/tickrake database open events in `ClientFactory` and `DB.connection`.
 - Added `start_date` and `end_date` support to maintenance DSL jobs for explicit date-range-scoped maintenance runs.
 - Added one-shot job execution: omitting the `schedule` block from a DSL job runs it once and exits. Batch jobs like `metadata_sync` loop until drained. Streaming jobs (`level_one`, `order_book`) require a schedule.
@@ -76,31 +46,6 @@ All notable changes to this project will be documented in this file.
 - Added size-based staging file rotation (`rotation_size`, `rotation_size_mb`) to `EventsWriter` and DSL streaming jobs (`level_one`, `order_book`, `stream`), enabling files to rotate when either file size exceeds a threshold or the rotation interval elapses.
 - Added structured `byte_count` emission for market-data write boundaries across option snapshot CSV finalization, stream NDJSON staging rotation, stream ingestion Parquet writes, and compacted/direct Parquet files (option samples, candles, economic events, and fundamentals).
 - Added `universe` support to `stream` job subscriptions (`StreamSubscriptionBuilder`), allowing subscriptions like `level_one`, `order_book`, and `chart_stream` to resolve symbols directly from configured universe files instead of requiring inline symbol lists.
-
-### Changed
-- Disabled S3 uploads across maintenance jobs, events ingestion, and reconciler, keeping Tickrake focused on local collection and compaction while preserving MinIO intraday publishing.
-- Unified `SqliteRateLimiter` and `PostgresRateLimiter` into a single, model-backed `Tickrake::RateLimiter` using transactional locking.
-- Replaced custom SQL database adapters (`Tickrake::DB::Adapters`) and hand-rolled SQL migration runner with `Tickrake::DB::ConnectionManager` and ActiveRecord's `MigrationContext`.
-- Streamlined `Tickrake::Tracker` to delegate all persistence and querying to ActiveRecord models while maintaining full compatibility with existing public APIs.
-- Defaulted option sample compaction to Parquet only (`artifacts: %w[parquet]`). Compacting to CSV is now optional and can be explicitly requested via `artifacts: [:csv, :parquet]` or `artifacts: [:csv]` in the maintenance DSL or configuration.
-- Updated `DuckdbOptionCompactedWriter` to accept optional `csv_path` and `parquet_path`, and updated `Validator` to validate against compacted Parquet files directly using DuckDB when CSV is not present.
-- Changed option sample maintenance archival to archive only compacted Parquet files (`artifacts: [parquet]`) to remote S3 storage by default, omitting compacted CSV uploads.
-
-### Removed
-- Removed legacy incremental SQLite migration files (001-014) and duplicate PostgreSQL schema script in favor of unified ActiveRecord migrations.
-- Removed custom `SqliteAdapter`, `PostgresAdapter`, `Adapters`, and separate `sqlite_rate_limiter.rb` / `postgres_rate_limiter.rb`.
-
-### Fixed
-- Fixed `FundamentalsJob` sidecars writing `fetch_run.symbol` as `null`, which caused PostgreSQL `NOT NULL` constraint violations in `MetadataSyncJob`. Stored the literal `none` sentinel on new fundamentals fetch runs, normalized legacy pending null-symbol sidecars to `none` during metadata sync ingestion, and added fallback handling in `Tracker#insert_fetch_runs` and `Tracker#record_start`.
-- Fixed option compaction aborting on mixed legacy and expanded CSV headers within the same day (`OptionCompactionDataset` and `DuckdbOptionCompactedWriter`), enabling seamless compaction across schema deployment boundaries while rejecting unsupported or duplicate headers and preserving raw snapshot safety.
-- Fixed `OptionsJob#fetch_success` events to assign `market_date` from the collection/sample date in Tickrake's configured market timezone rather than the option expiration date, while retaining `expiration_date` as its own field.
-- Fixed `StreamJob` reconnect subscription state: cleared `@active_subscriptions` on session reconnect and teardown so all in-window subscriptions are re-subscribed on the replacement client.
-- Fixed `LevelOneJob` stream stall: added a liveness watchdog that tracks `last_event_at` by local receipt time, logs a `stream_stale` event when no data arrives within a configurable timeout (default 60s), stops the dead stream, and reconnects with exponential backoff (up to 10 attempts, capped at 120s delay).
-- Fixed `JobRunner` routing so daily-scheduled jobs (`at` + `weekdays`) are dispatched to scheduler runners instead of running once and exiting. Previously only interval-windowed jobs were treated as scheduled.
-- Fixed order book event handler to use direct hash access (`event["content"]`, numeric field indices) instead of `.try()` which depends on ActiveSupport and silently swallows missing keys.
-- Fixed `ScheduledRunResult#successful?` to treat zero-task runs (`success_count=0, failure_count=0`) as successful instead of degraded. This prevents holiday or off-hours iterations from triggering the consecutive failure counter when no option expirations are available.
-
-### Added
 - Added `collection_id` to `fetch_runs` and `file_metadata_cache` (migration 008) so all fetches from one `OptionsJob` iteration are grouped by a single stamped identifier (e.g. `options-20260823T154210Z`). (#61)
 - Added index builder infrastructure: `RootIndexBuilder`, `TickersIndexBuilder`, `Publisher`, `AtomicJsonWriter`, `WriteLock`, and `UriBuilder` for generating and safely writing per-root `ROOT.json` and provider-level `tickers.json` index files. (#62)
 - Added historical index publishing: `MaintenanceJob` now calls `Publisher#publish` after each successful archive step, writing updated `ROOT.json` and `tickers.json` locally and uploading both to S3. (#63)
@@ -123,10 +68,58 @@ All notable changes to this project will be documented in this file.
 - Added SQLite-backed token bucket rate limiter (`SqliteRateLimiter`) consuming one token per Schwab API call, coordinated across containers via WAL-mode SQLite. Rate limit capacity and refill rate are fully configured via `rate_limit_max_requests` and `rate_limit_interval_seconds` on the provider definition.
 - Added reusable maintenance universes loaded from config or separate YAML files so one maintenance job can target many option roots.
 
+### Changed
+- Updated streaming event timestamps (`received_at`, `quote_time`, `trade_time`, and `book_time`) in `StreamJob`, `LevelOneJob`, and `OrderBookJob` to preserve millisecond precision (`iso8601(3)`).
+- Modernized configuration management to support automatic `.env` loading (`Dotenv.load` from explicit path `--env-file`, `TICKRAKE_ENV_FILE`, `./.env`, or `~/.tickrake/.env`) and ERB templating (`<%= ENV.fetch(...) %>`) in YAML configurations and universe files.
+- Aligned database configuration with Rails ActiveRecord conventions under `database:`, using `adapter: sqlite3` or `adapter: postgresql` and `database:` for database name/path. Removed `sqlite_path:` and replaced `backend:` with `adapter:`.
+- Replaced generic `datastores:` and obsolete `s3_archive` with top-level `staging_target:` and `intraday_target:` configurations.
+- Updated `StagingPublisher`, `StagingPurger`, and `IntradayPublisherJob` to use `staging_target` and `intraday_target` directly, removing `--datastore` CLI option.
+- Updated `DuckdbOptionCompactedWriter` to sort option sample Parquet files by `expiration_date, sampled_at, strike, contract_type, symbol` to optimize Parquet row-group pruning for expiration filters and preserve chain snapshot locality for backtesting.
+- Updated option sample Parquet compaction to use `ZSTD` compression (matching Apache Iceberg standards) and `ROW_GROUP_SIZE 50000`.
+- Disabled S3 uploads across maintenance jobs, events ingestion, and reconciler, keeping Tickrake focused on local collection and compaction while preserving MinIO intraday publishing.
+- Unified `SqliteRateLimiter` and `PostgresRateLimiter` into a single, model-backed `Tickrake::RateLimiter` using transactional locking.
+- Replaced custom SQL database adapters (`Tickrake::DB::Adapters`) and hand-rolled SQL migration runner with `Tickrake::DB::ConnectionManager` and ActiveRecord's `MigrationContext`.
+- Streamlined `Tickrake::Tracker` to delegate all persistence and querying to ActiveRecord models while maintaining full compatibility with existing public APIs.
+- Defaulted option sample compaction to Parquet only (`artifacts: %w[parquet]`). Compacting to CSV is now optional and can be explicitly requested via `artifacts: [:csv, :parquet]` or `artifacts: [:csv]` in the maintenance DSL or configuration.
+- Updated `DuckdbOptionCompactedWriter` to accept optional `csv_path` and `parquet_path`, and updated `Validator` to validate against compacted Parquet files directly using DuckDB when CSV is not present.
+- Changed option sample maintenance archival to archive only compacted Parquet files (`artifacts: [parquet]`) to remote S3 storage by default, omitting compacted CSV uploads.
+- Updated contributor and agent documentation.
+- Switched daily option-sample compaction to DuckDB-backed CSV ingest and artifact export for faster compacted CSV/parquet generation.
+- Reworked option snapshot storage into dated provider folders and added a one-off migration script for legacy flat paths.
+- Normalized S&P 500 index storage around `ticker_id` foreign keys and `ticker_aliases` rows keyed by the current accepted ticker.
+- Changed Tickrake to require explicit database migrations instead of running them automatically when the tracker opens the SQLite database.
+- Moved Tickrake logs into `~/.tickrake/logs/` and added 14-day log-family retention on top of size-based rotation with 5 files per log family.
+- Reworked maintenance jobs from single `task/settings` entries into ordered `tasks:` pipelines with `compact` and `archive` steps for option-sample maintenance.
+
 ### Removed
+- Removed legacy CLI commands `tickrake run`, `tickrake start`, `tickrake stop`, `tickrake restart`, and `tickrake status`. Scheduled jobs are defined via Ruby DSL files (`TICKRAKE_JOB_FILE`) and orchestrated via system/container process runners.
+- Removed support for defining scheduled jobs in YAML configuration (`schedule`). All jobs are now defined using the Ruby DSL (`Tickrake.job`). `ConfigLoader` now rejects YAML configuration containing a `schedule` mapping with an explicit error.
+- Removed dead AWS S3 cold archival pipeline, AWS Glacier storage classes, S3 manifest writers, and S3 manifest reconciler (`ReconcilerJob`, `ReconcilerRunner`, `DSL::ReconcileBuilder`, `Maintenance::Candles::Archiver`, `Maintenance::Candles::ManifestWriter`, `Maintenance::OptionSamples::ArtifactArchiver`, `Maintenance::OptionSamples::ManifestWriter`, `Maintenance::OptionSamples::LocalArtifactManager`).
+- Removed obsolete S3 manifest guards from `SourceSampleCleaner`, keeping local raw CSV pruning safely managed by compaction validation.
+- Removed dead S3 upload method and datastore option from `EventsIngestorJob` and `EventsIngestBuilder`.
+- Removed `archive` task from `MaintenanceBuilder` and updated `ConfigLoader` to reject legacy `archive` tasks.
+- Removed obsolete scripts `scripts/backfill_manifests.rb` and `scripts/rearchive_candles_to_s3.rb`.
+- Removed legacy incremental SQLite migration files (001-014) and duplicate PostgreSQL schema script in favor of unified ActiveRecord migrations.
+- Removed custom `SqliteAdapter`, `PostgresAdapter`, `Adapters`, and separate `sqlite_rate_limiter.rb` / `postgres_rate_limiter.rb`.
 - Removed `serialize_scheduled_jobs` provider setting and flock-based provider iteration lock (`with_provider_iteration_locks`), which did not work across Docker containers on macOS Docker Desktop. Replaced by the SQLite rate limiter.
 
 ### Fixed
+- Fixed `LEVELONE_OPTIONS` field index extraction (`bid`, `ask`, `last`, `bid_size`, `ask_size`, `volume`, `mark`, `quote_time`, `trade_time`, and `extra_json`).
+- Fixed `StreamJob#deactivate_subscription` to remove a service from `@registered_services` when no other active subscription uses it and to key `EventStreamWriter` instances by subscription kind (`:level_one`, `:order_book`), ensuring multi-window subscriptions cleanly re-register their callback block when entering subsequent windows.
+- Preserved `level_one` streaming delta updates in `StreamJob` and `LevelOneJob` when `extra_json` is present (e.g., option Greek/IV or `last_size` delta updates) even if top-level quote/trade price fields did not change on that tick.
+- Isolated dynamic option contract resolution and event handler errors in `StreamJob`, `LevelOneJob`, and `OrderBookJob` so transient Schwab REST failures or malformed events cannot crash the streaming session or disrupt other subscriptions, and added a 64-file LRU open-handle cap in `EventStreamWriter` to prevent file descriptor exhaustion when streaming large option contract universes.
+- Fixed database connection errors (such as authentication or unreachable host failures) being erroneously reported as `"Database migrations are pending"`. Added `Tickrake::DatabaseConnectionError` and immediate connection validation on establishment.
+- Fixed symbol normalization in `Paths#candle_path` to consistently apply the provider's `symbol_map` (e.g., `/ES` -> `^ES`).
+- Fixed date extraction in `StagingPublisher` to support date-partitioned candle paths.
+- Fixed missing `install_signal_handlers`, `mark_iteration_success`, `in_window?`, and `log_iteration_failure` methods in `StagingPublisherSchedulerRunner`.
+- Fixed `FundamentalsJob` sidecars writing `fetch_run.symbol` as `null`, which caused PostgreSQL `NOT NULL` constraint violations in `MetadataSyncJob`. Stored the literal `none` sentinel on new fundamentals fetch runs, normalized legacy pending null-symbol sidecars to `none` during metadata sync ingestion, and added fallback handling in `Tracker#insert_fetch_runs` and `Tracker#record_start`.
+- Fixed option compaction aborting on mixed legacy and expanded CSV headers within the same day (`OptionCompactionDataset` and `DuckdbOptionCompactedWriter`), enabling seamless compaction across schema deployment boundaries while rejecting unsupported or duplicate headers and preserving raw snapshot safety.
+- Fixed `OptionsJob#fetch_success` events to assign `market_date` from the collection/sample date in Tickrake's configured market timezone rather than the option expiration date, while retaining `expiration_date` as its own field.
+- Fixed `StreamJob` reconnect subscription state: cleared `@active_subscriptions` on session reconnect and teardown so all in-window subscriptions are re-subscribed on the replacement client.
+- Fixed `LevelOneJob` stream stall: added a liveness watchdog that tracks `last_event_at` by local receipt time, logs a `stream_stale` event when no data arrives within a configurable timeout (default 60s), stops the dead stream, and reconnects with exponential backoff (up to 10 attempts, capped at 120s delay).
+- Fixed `JobRunner` routing so daily-scheduled jobs (`at` + `weekdays`) are dispatched to scheduler runners instead of running once and exiting. Previously only interval-windowed jobs were treated as scheduled.
+- Fixed order book event handler to use direct hash access (`event["content"]`, numeric field indices) instead of `.try()` which depends on ActiveSupport and silently swallows missing keys.
+- Fixed `ScheduledRunResult#successful?` to treat zero-task runs (`success_count=0, failure_count=0`) as successful instead of degraded. This prevents holiday or off-hours iterations from triggering the consecutive failure counter when no option expirations are available.
 - Fixed intraday index to show the most recent file per expiration date across multiple job iterations in the same day, rather than listing all files from the most recent collection. (#65)
 - Fixed `ClientFactory#build` to construct a new Schwab client on every call so that refreshed OAuth tokens are always picked up, rather than reusing a stale client instance across scheduler iterations. (#66)
 - Fixed IBKR provider hangs on early-date fetches and improved symbol period resolution.
@@ -136,15 +129,6 @@ All notable changes to this project will be documented in this file.
 - Fixed option-compaction validation flows to require an explicit provider instead of falling back to `default_provider`.
 - Fixed compacted option parquet artifacts to persist numeric and timestamp columns with typed parquet schemas instead of writing every field as a string.
 - Fixed maintenance safety so raw source CSVs are only deleted after compaction validation succeeds, and local compacted artifacts are only deleted after successful archive verification for that artifact.
-
-### Changed
-- Updated contributor and agent documentation.
-- Switched daily option-sample compaction to DuckDB-backed CSV ingest and artifact export for faster compacted CSV/parquet generation.
-- Reworked option snapshot storage into dated provider folders and added a one-off migration script for legacy flat paths.
-- Normalized S&P 500 index storage around `ticker_id` foreign keys and `ticker_aliases` rows keyed by the current accepted ticker.
-- Changed Tickrake to require explicit database migrations instead of running them automatically when the tracker opens the SQLite database.
-- Moved Tickrake logs into `~/.tickrake/logs/` and added 14-day log-family retention on top of size-based rotation with 5 files per log family.
-- Reworked maintenance jobs from single `task/settings` entries into ordered `tasks:` pipelines with `compact` and `archive` steps for option-sample maintenance.
 
 ## [0.3.0] - 2026-04-26
 
