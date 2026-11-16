@@ -4,7 +4,7 @@
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/jwplatta/tickrake/actions/workflows/ci.yml)
 [![Lint](https://img.shields.io/badge/lint-passing-brightgreen.svg)](https://github.com/jwplatta/tickrake/actions/workflows/ci.yml)
 
-Scheduled market-data collection for options, candles, and streaming quotes. Jobs are defined as Ruby DSL scripts and run as Docker containers or standalone processes.
+Scheduled market-data collection for options chains, historical and streaming candles, Level 1 quotes, Level 2 order books, corporate fundamentals, and economic events, with local filesystem buffering, SQLite/PostgreSQL metadata tracking, and S3-compatible / MinIO staging and intraday publishing. Jobs are defined as Ruby DSL scripts and run as Docker containers or standalone processes.
 
 ## Install
 
@@ -12,11 +12,11 @@ Scheduled market-data collection for options, candles, and streaming quotes. Job
 gem install tickrake
 ```
 
-Requires Ruby 3.1+, `schwab_rb >= 1.0.4`, and optionally `ib-api ~> 972.5` for IBKR.
+Requires Ruby 3.1+, `schwab_rb >= 1.0.6`, and optionally `ib-api ~> 972.5` for IBKR.
 
 ## Setup
 
-Initialize Tickrake's home directory and config:
+Initialize Tickrake's home directory, validate configuration, and run database migrations:
 
 ```bash
 tickrake init
@@ -24,15 +24,15 @@ tickrake validate-config
 tickrake migrate
 ```
 
-Edit `~/.tickrake/tickrake.yml` to configure providers, universes, storage paths, and timezone.
+Edit `~/.tickrake/tickrake.yml` to configure database settings, target datastores, providers, universes, storage paths, and timezone. Tickrake automatically loads environment variables via `Dotenv` (from `--env-file`, `TICKRAKE_ENV_FILE`, `./.env`, or `~/.tickrake/.env`) and interpolates ERB (`<%= ENV.fetch(...) %>`) in both `tickrake.yml` and universe YAML files.
 
 ### Database Backend
 
-Tickrake uses SQLite by default (`~/.tickrake/tickrake.sqlite3`). You can optionally select PostgreSQL as the backend:
+Tickrake uses ActiveRecord with SQLite by default (`~/.tickrake/tickrake.sqlite3`) and supports PostgreSQL:
 
 ```yaml
 database:
-  backend: postgres # or sqlite
+  adapter: postgresql # or sqlite3
   host: localhost
   port: 5432
   database: tickrake
@@ -59,6 +59,7 @@ bundle exec ruby scripts/import_sqlite_to_postgres.rb
 | `SCHWAB_APP_SECRET` | Yes | Schwab API secret |
 | `SCHWAB_APP_CALLBACK_URL` | Auth only | Only needed for initial login or token refresh |
 | `TICKRAKE_CONFIG` | No | Path to config file (default: `~/.tickrake/tickrake.yml`) |
+| `TICKRAKE_ENV_FILE` | No | Path to `.env` file loaded before parsing config |
 | `TICKRAKE_JOB_FILE` | Docker | Path to a DSL job file for the container to run |
 | `TICKRAKE_LOG_STDOUT` | No | Set to `1` to also send logs to stdout |
 
@@ -87,7 +88,7 @@ Tickrake.job "drain_metadata" do
 end
 ```
 
-For batch jobs like `metadata_sync`, one-shot mode loops until all pending work is drained. Streaming jobs (`level_one`, `order_book`) require a schedule.
+For batch jobs like `metadata_sync`, one-shot mode loops until all pending work is drained. Streaming jobs (`level_one`, `order_book`, `chart_stream`, `stream`) require a schedule.
 
 ### Job Types
 
@@ -117,7 +118,7 @@ The optional `batch_size` setting (default `1`) groups resolved consecutive expi
 
 #### Candles
 
-Fetch historical price candles. Requires a provider, symbols, frequencies, and a start date.
+Fetch historical price candles into date-partitioned daily CSVs. Requires a provider, symbols or universe, frequencies, and a start date.
 
 ```ruby
 Tickrake.job "futures_candles" do
@@ -139,112 +140,133 @@ end
 
 Supported frequencies: `1min`, `5min`, `10min`, `15min`, `30min`, `day`, `week`, `month`.
 
-The `lookback` controls the recurring request window for existing files. If no file exists yet, the configured `start_date` is used.
-
-#### Streaming (Level One / Order Book)
-
-Stream real-time quotes or order book data via Schwab's websocket API. Events are staged as NDJSON files and later ingested by an events ingest job.
-
-```ruby
-Tickrake.job "es_level_one" do
-  provider :schwab
-  symbols "/ES", "/NQ"
-
-  schedule do
-    every 1.seconds
-    weekdays from: "08:30", to: "15:00"
-  end
-
-  level_one do
-    services [:LEVELONE_FUTURES]
-    rotation_interval 900
-  end
-end
-```
-
-Available level one services: `LEVELONE_EQUITIES`, `LEVELONE_OPTIONS`, `LEVELONE_FUTURES`, `LEVELONE_FUTURES_OPTIONS`, `LEVELONE_FOREX`.
-
-Order book jobs follow the same pattern with `order_book do ... end` and services like `NYSE_BOOK`, `NASDAQ_BOOK`, or `OPTIONS_BOOK`.
+The `lookback` controls the recurring request window for existing symbols. If no data exists yet, the configured `start_date` is used.
 
 #### Consolidated Stream (Multiplexed)
 
-Schwab allows only **one WebSocket streamer connection per account**. To avoid connection conflicts across containers, define a single `stream` job combining multiple services, symbols, and schedule windows over one shared connection:
+Schwab allows only **one WebSocket streamer connection per account**. Define a consolidated `stream` job combining multiple Level 1, Level 2 order book, and chart candle subscriptions over a single shared WebSocket connection:
 
 ```ruby
 Tickrake.job "market_streams" do
   provider :schwab
-  stale_timeout 60
 
-  level_one "equities" do
-    symbols "SPY", "QQQ", "IWM"
-    services [:level_one_equities]
-    rotation_interval 300
-    schedule do
-      weekdays from: "08:30", to: "15:00"
+  stream do
+    stale_timeout 60
+
+    level_one "equity_level_one" do
+      universe "equity_symbols"
+      services [:level_one_equities]
+      schedule { weekdays from: "08:30", to: "15:00" }
     end
-  end
 
-  level_one "futures" do
-    symbols "/ES"
-    services [:level_one_futures]
-    rotation_interval 300
-    schedule do
-      days %w[sun mon tue wed thu], from: "17:00", to: "23:59"
-      days %w[mon tue wed thu fri], from: "00:00", to: "16:00"
+    order_book "equity_order_book" do
+      universe "equity_symbols"
+      services [:NYSE_BOOK, :NASDAQ_BOOK]
+      schedule { weekdays from: "08:30", to: "15:00" }
     end
-  end
 
-  order_book "equity_books" do
-    symbols "SPY", "QQQ", "IWM"
-    services [:nyse_book, :nasdaq_book]
-    rotation_interval 300
-    rotation_size_mb 50
-    schedule do
-      weekdays from: "08:30", to: "15:00"
+    level_one "spxw_0dte_level_one" do
+      services [:level_one_options]
+      contracts do
+        underlying "SPX"
+        option_root "SPXW"
+        atm_points 50
+        expirations front: 1
+        re_resolve_interval 5
+      end
+      schedule do
+        weekdays from: "06:30", to: "08:20"
+        weekdays from: "08:30", to: "15:00"
+      end
     end
-  end
 
-  chart_stream "futures_candles" do
-    symbols "/ES"
-    services [:chart_futures]
-    flush_interval 60
-    schedule do
-      days %w[sun mon tue wed thu], from: "17:00", to: "23:59"
-      days %w[mon tue wed thu fri], from: "00:00", to: "16:00"
+    order_book "spxw_0dte_order_book" do
+      services [:OPTIONS_BOOK]
+      contracts do
+        underlying "SPX"
+        option_root "SPXW"
+        atm_points 50
+        expirations front: 1
+        re_resolve_interval 5
+      end
+      schedule { weekdays from: "08:30", to: "15:00" }
+    end
+
+    level_one "futures_level_one" do
+      symbols "/ES", "/NQ", "/RTY"
+      services [:level_one_futures]
+      schedule do
+        days %w[sun mon tue wed thu], from: "17:00", to: "23:59"
+        days %w[mon tue wed thu fri], from: "00:00", to: "16:00"
+      end
+    end
+
+    chart_stream "futures_chart_streams" do
+      symbols "/ES", "/NQ", "/RTY"
+      services [:chart_futures]
+      flush_interval 120
+      schedule do
+        days %w[sun mon tue wed thu], from: "17:00", to: "23:59"
+        days %w[mon tue wed thu fri], from: "00:00", to: "16:00"
+      end
     end
   end
 end
 ```
 
-The runner keeps the connection open while any subscription is in-window, dynamically sending `ADD` when a subscription's window opens and `UNSUBS` when it closes without dropping the stream.
+The runner keeps the connection open while any subscription is in-window, dynamically sending `ADD` when a subscription's window opens (or when dynamic ATM option contracts roll into new strikes) and `UNSUBS` when it closes without dropping the stream.
 
-#### Events Ingest
+Dynamic option contracts (`contracts do ... end`) support:
+- `underlying`: Underlying ticker (e.g. `"SPX"`, `"SPY"`, `"QQQ"`)
+- `option_root`: Optional explicit root filter (e.g. `"SPXW"` when underlying is `"SPX"`)
+- `atm_points` or `atm_strikes`: Strike window around spot price (in index/price points or strike count)
+- `expirations front: N`: Number of nearest non-expired expirations to include
+- `re_resolve_interval`: Minutes between mid-session ATM contract re-resolutions (additive `ADD` during the window, full `UNSUBS` on window exit)
 
-Reads staged NDJSON event files from streaming jobs, converts them to Parquet, and uploads to a configured datastore.
+Standalone `level_one`, `order_book`, and `chart_stream` job blocks are also supported when running a single-service stream.
+
+#### Fundamentals & Economic Events
+
+Collect corporate fundamentals (`fundamentals`) and economic/earnings/FOMC calendar events (`economic_events`):
 
 ```ruby
-Tickrake.job "events_ingestor" do
+Tickrake.job "fundamentals" do
+  provider :schwab
+  universe "fundamentals_symbols"
+
   schedule do
-    every 60.seconds
-    every_day from: "08:00", to: "17:30"
+    at "17:00"
+    weekdays
   end
 
-  events_ingest do
-    batch_size 20
-    datastore :s3_archive
+  fundamentals do
+    batch_size 50
+  end
+end
+
+Tickrake.job "economic_events" do
+  schedule do
+    at "06:00"
+    weekdays
+  end
+
+  economic_events do
+    lookback_days 30
+    lookahead_days 90
+    categories "economic", "earnings", "fomc"
   end
 end
 ```
 
 #### Metadata Sync
 
-Processes pending metadata written by collection jobs and upserts it into the SQLite metadata cache.
+Processes pending `.meta.json` sidecar files written by collection jobs and upserts them into the database metadata cache (`fetch_runs` and `file_metadata_cache`).
 
 ```ruby
 Tickrake.job "metadata_sync" do
   schedule do
     every 30.seconds
-    weekdays from: "08:00", to: "16:00"
+    weekdays from: "06:00", to: "16:00"
   end
 
   metadata_sync do
@@ -255,62 +277,39 @@ end
 
 #### Intraday Publisher
 
-Publishes the latest option chain samples as CSV files and JSON indexes to a datastore (typically Minio) for downstream consumers.
+Publishes the latest option chain snapshots and per-root intraday time-series JSON indexes to the configured `intraday_target` bucket (MinIO/S3) for live dashboards and consumers.
 
 ```ruby
 Tickrake.job "intraday_publisher" do
   schedule do
-    every 60.seconds
-    weekdays from: "08:30", to: "15:30"
+    every 30.seconds
+    weekdays from: "06:30", to: "15:30"
   end
 
   intraday_publish do
-    datastore :minio_intraday
+    clear_at "05:00"
   end
 end
 ```
 
-#### Reconciler
+#### Staging Publisher
 
-Validates that collected data matches expectations and reports gaps.
+Scans completed raw dataset files (`options`, `candles`, `level_one`, `order_book`, `fundamentals`, `economic_events`) and uploads them to the configured `staging_target` bucket (MinIO/S3) for downstream lakehouse/Iceberg ingestion.
 
 ```ruby
-Tickrake.job "reconciler" do
+Tickrake.job "staging_publisher" do
   schedule do
-    at "16:00"
+    at "17:30"
     weekdays
   end
 
-  reconcile do
-    providers :schwab
+  staging_publish do
+    datasets :all
+    batch_size 500
+    delete_after_upload true
   end
 end
 ```
-
-#### Archival
-
-Compacts raw option sample CSVs into single-day files and archives them to S3. Runs post-close to consolidate the day's snapshots into compacted CSV and Parquet artifacts, upload them to long-term storage, and clean up local source files.
-
-```ruby
-Tickrake.job "postclose_archival" do
-  provider :schwab
-
-  schedule do
-    at "18:05"
-    weekdays
-  end
-
-  maintenance do
-    compact :option_samples, universe: "index_option_roots", delete_sources: true
-    archive :option_samples, universe: "index_option_roots",
-            to: :s3_archive,
-            artifacts: [:parquet],
-            retain: { csv: false, parquet: true }
-  end
-end
-```
-
-Raw source CSVs are never deleted unless compaction validation succeeds. Local artifacts are never deleted unless their archive upload and remote verification succeeds.
 
 ### Scheduling
 
@@ -320,8 +319,9 @@ The `schedule` block supports two styles:
 
 ```ruby
 schedule do
-  every 5.seconds
-  weekdays from: "08:30", to: "15:00"
+  every 30.seconds
+  weekdays from: "06:30", to: "08:20"
+  weekdays from: "08:30", to: "15:10"
 end
 ```
 
@@ -338,7 +338,7 @@ Available window helpers:
 - `weekdays` / `weekdays from: "HH:MM", to: "HH:MM"`
 - `weekends` / `weekends from: "HH:MM", to: "HH:MM"`
 - `every_day` / `every_day from: "HH:MM", to: "HH:MM"`
-- `days [:mon, :wed, :fri], from: "HH:MM", to: "HH:MM"`
+- `days %w[sun mon tue wed thu], from: "HH:MM", to: "HH:MM"`
 
 Duration helpers: `5.seconds`, `30.seconds`, `1.minutes`, `30.minutes`, `1.hours`, `90.days`.
 
@@ -346,10 +346,10 @@ Times are interpreted in the timezone configured in `tickrake.yml`.
 
 ### Universes
 
-Universes are named lists of symbols defined in `tickrake.yml`. Jobs reference them by name:
+Universes are named lists of symbols defined in `tickrake.yml` or external YAML files. Jobs reference them by name:
 
 ```ruby
-universe "spx_symbols"
+universe "index_symbols"
 ```
 
 Or define symbols inline for simpler jobs:
@@ -367,30 +367,9 @@ universe do
 end
 ```
 
-## Running Jobs
+## Running Jobs & CLI Commands
 
-### With Docker
-
-Each job runs as its own container. Set `TICKRAKE_JOB_FILE` to the path of the DSL script inside the container:
-
-```yaml
-# docker-compose.yml
-services:
-  spx_0dte_options:
-    image: tickrake:latest
-    env_file:
-      - env/secrets.env
-      - env/prod.env
-    environment:
-      TICKRAKE_JOB_FILE: /jobs/spx_0dte_options.rb
-    volumes:
-      - ./jobs:/jobs:ro
-      - ~/.tickrake:/root/.tickrake
-      - ~/.schwab_rb:/root/.schwab_rb
-    restart: unless-stopped
-```
-
-### Without Docker
+### Running DSL Jobs
 
 Run a job file directly:
 
@@ -398,48 +377,90 @@ Run a job file directly:
 ruby jobs/spx_0dte_options.rb
 ```
 
-Or use the CLI for one-off runs:
+Or in Docker Compose by setting `TICKRAKE_JOB_FILE` to the path of the DSL script inside the container:
 
-```bash
-tickrake run --type options --provider schwab --ticker '$SPX' --expiration-date 2026-04-11 --option-root SPXW
-tickrake run --type candles --provider schwab --ticker SPY --start-date 2026-04-01 --end-date 2026-04-11 --frequency 30min
+```yaml
+services:
+  market_streams:
+    image: tickrake:latest
+    env_file:
+      - envs/secrets.env
+      - envs/prod.env
+    environment:
+      TICKRAKE_CONFIG: /config/tickrake.yml
+      TICKRAKE_JOB_FILE: /jobs/prod/market_streams.rb
+    volumes:
+      - ./services/tickrake/jobs:/jobs:ro
+      - ./services/tickrake/config/prod:/config:ro
+      - ~/.schwab_rb:/root/.schwab_rb
+    restart: unless-stopped
 ```
 
-## Storage
+### CLI Commands
+
+```bash
+# Initialize ~/.tickrake and config template
+tickrake init [--config path/to/tickrake.yml] [--force]
+
+# Validate tickrake.yml and referenced universe files
+tickrake validate-config [--config path/to/tickrake.yml] [--env-file path/to/.env] [--verbose]
+
+# Run pending ActiveRecord database migrations
+tickrake migrate [--config path/to/tickrake.yml] [--env-file path/to/.env]
+
+# Publish completed local dataset files to staging_target
+tickrake publish-staging [--dataset TYPE] [--after DATE] [--before DATE] [--batch-size N] [--no-delete]
+
+# Purge dataset files for a specific date from staging_target and/or local disk
+tickrake purge-staging --date YYYY-MM-DD [--dataset TYPE] [--provider NAME] [--remote] [--local] [--all] [--dry-run]
+
+# Inspect job or CLI logs
+tickrake logs [TARGET] [--tail N]
+```
+
+## Storage Layout
 
 ```
 ~/.tickrake/
-├── tickrake.yml                    # config
-├── tickrake.sqlite3                # metadata cache
-├── logs/                           # per-job rotating logs
-│   ├── spx_0dte_options.log
-│   └── stock_options.log
+├── tickrake.yml
+├── tickrake.sqlite3
+├── logs/
+│   ├── market_streams.log
+│   └── 0-4dte_options.log
+├── staging/
+│   └── pending_metadata/*.meta.json
 └── data/
-    ├── history/<provider>/         # candle CSVs
-    │   └── SPY_day.csv
-    └── options/<provider>/YYYY/MM/DD/
-        ├── SPXW_exp2026-04-11_2026-04-11_10-30-00.csv   # raw snapshots
-        ├── SPXW_samples_2026-04-11.csv                   # compacted
-        └── SPXW_samples_2026-04-11.parquet               # compacted
-```
-
-Configure storage in `tickrake.yml`:
-
-```yaml
-storage:
-  data_dir: ~/.tickrake/data
-  s3_archive:
-    bucket: tickrake
-    region: us-east-1
-    prefix:
-    storage_class: GLACIER_IR
+    ├── candles/<provider>/<YYYY>/<MM>/<DD>/<frequency>/<symbol>.csv
+    ├── options/<provider>/<YYYY>/<MM>/<DD>/<root>_exp<YYYY-MM-DD>_<timestamp>.csv
+    ├── level_one/<provider>/<YYYY>/<MM>/<DD>/<symbol>.ndjson
+    ├── order_book/<provider>/<YYYY>/<MM>/<DD>/<symbol>.ndjson
+    ├── fundamentals/<provider>/<YYYY>/<MM>/<DD>.ndjson
+    └── economic_events/<source>/<category>/<YYYY>/<MM>/<DD>.ndjson
 ```
 
 ## Configuration Reference
 
-### Providers
-
 ```yaml
+timezone: America/Chicago
+
+database:
+  adapter: <%= ENV.fetch('TICKRAKE_DB_ADAPTER', 'sqlite3') %>
+  database: <%= ENV.fetch('TICKRAKE_DB_DATABASE', Tickrake::PathSupport.sqlite_path) %>
+
+staging_target:
+  type: s3_compatible
+  endpoint: <%= ENV.fetch('MINIO_ENDPOINT', 'http://minio:9000') %>
+  bucket: <%= ENV.fetch('TICKRAKE_STAGING_BUCKET', 'tickrake-staging') %>
+  access_key_id: <%= ENV.fetch('MINIO_ACCESS_KEY', 'minioadmin') %>
+  secret_access_key: <%= ENV.fetch('MINIO_SECRET_KEY', 'minioadmin') %>
+
+intraday_target:
+  type: s3_compatible
+  endpoint: <%= ENV.fetch('MINIO_ENDPOINT', 'http://minio:9000') %>
+  bucket: <%= ENV.fetch('TICKRAKE_INTRADAY_BUCKET', 'tickrake-intraday') %>
+  access_key_id: <%= ENV.fetch('MINIO_ACCESS_KEY', 'minioadmin') %>
+  secret_access_key: <%= ENV.fetch('MINIO_SECRET_KEY', 'minioadmin') %>
+
 default_provider: schwab
 providers:
   schwab:
@@ -449,22 +470,17 @@ providers:
       rate_limit_interval_seconds: 60
       restart_after_consecutive_failures: 3
       restart_cooldown_seconds: 30
-  ibkr-paper:
-    adapter: ibkr
-    settings:
-      host: 127.0.0.1
-      port: 4002
-      client_id: 1001
+    symbol_map:
+      /ES: ^ES
+      /NQ: ^NQ
+      /RTY: ^RTY
+
+storage:
+  data_dir: <%= ENV.fetch('TICKRAKE_DATA_DIR', '~/.tickrake/data') %>
+  candles_dir: ~/.tickrake/data/candles
+  options_dir: ~/.tickrake/data/options
+  pending_metadata_dir: ~/.tickrake/staging/pending_metadata
 ```
-
-### Provider Precedence
-
-When multiple providers are configured, resolution order is:
-
-1. CLI `--provider` flag
-2. Per-symbol `provider:` in the universe
-3. Job-level `provider`
-4. Global `default_provider`
 
 ### Logging
 
