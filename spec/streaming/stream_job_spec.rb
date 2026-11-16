@@ -296,6 +296,52 @@ RSpec.describe Tickrake::StreamJob do
         subscription: "spxw_0dte"
       )).twice
     end
+
+    it "re-registers the service callback block when a multi-window subscription deactivates and later re-enters a second window" do
+      multi_win_sub = Tickrake::StreamSubscription.new(
+        name: "spxw_0dte_l1",
+        kind: :level_one,
+        symbols: ["SPXW_7500C"],
+        settings: Tickrake::LevelOneConfig.new(services: [:level_one_options]),
+        windows: [
+          Tickrake::SchedulerWindow.new(days: %w[mon tue wed thu fri], start_time: [6, 30], end_time: [8, 20]),
+          Tickrake::SchedulerWindow.new(days: %w[mon tue wed thu fri], start_time: [8, 30], end_time: [15, 0])
+        ]
+      )
+      spy_sub = Tickrake::StreamSubscription.new(
+        name: "spy_0dte_l1",
+        kind: :level_one,
+        symbols: ["SPY_750C"],
+        settings: Tickrake::LevelOneConfig.new(services: [:level_one_options]),
+        windows: [
+          Tickrake::SchedulerWindow.new(days: %w[mon tue wed thu fri], start_time: [8, 30], end_time: [15, 0])
+        ]
+      )
+      mw_config = Tickrake::StreamConfig.new(subscriptions: [multi_win_sub, spy_sub], stale_timeout_seconds: 60)
+      mw_scheduled = instance_double(
+        Tickrake::ScheduledJobConfig,
+        name: "multi_window_streams",
+        provider: "schwab",
+        settings: mw_config,
+        universe: []
+      )
+      mw_job = described_class.new(runtime, scheduled_job: mw_scheduled)
+      mw_job.instance_variable_set(:@stream, fake_stream)
+
+      # 1. Window 1 (06:30 CT) -> activates with callback block
+      mw_job.sync_subscriptions(Time.new(2026, 9, 21, 6, 30, 0, "-05:00"))
+      expect(fake_stream.added_subscriptions.last).to include(service: :level_one_options, has_block: true)
+
+      # 2. Break between windows (08:25 CT) -> deactivates and clears service registration
+      mw_job.sync_subscriptions(Time.new(2026, 9, 21, 8, 25, 0, "-05:00"))
+      expect(fake_stream.unsubbed_subscriptions.size).to eq(1)
+
+      # 3. Window 2 (08:30 CT) -> spxw re-registers callback block once, spy adds symbols without overriding callback
+      mw_job.sync_subscriptions(Time.new(2026, 9, 21, 8, 30, 0, "-05:00"))
+      expect(fake_stream.added_subscriptions.size).to eq(3)
+      expect(fake_stream.added_subscriptions[1]).to include(service: :level_one_options, symbols: ["SPXW_7500C"], has_block: true)
+      expect(fake_stream.added_subscriptions[2]).to include(service: :level_one_options, symbols: ["SPY_750C"], has_block: false)
+    end
   end
 
   describe "event routing and file writing" do
