@@ -39,11 +39,11 @@ RSpec.describe Tickrake::OrderBookJob do
       allow(Tickrake::Streaming::EventStreamWriter).to receive(:new).and_return(writer)
     end
 
-    it "writes an order_book row with UTC ISO 8601 timestamps" do
+    it "writes an order_book row with exact UTC ISO 8601 millisecond timestamps" do
       event = {
         "content" => [{
           "key" => "SPY",
-          "1"   => 1_729_261_800_000,
+          "1"   => 1_794_607_199_870,
           "2"   => [{ "0" => 585.12, "1" => 100 }],
           "3"   => [{ "0" => 585.14, "1" => 150 }]
         }]
@@ -56,8 +56,8 @@ RSpec.describe Tickrake::OrderBookJob do
         "provider"    => "schwab",
         "symbol"      => "SPY",
         "service"     => "TOTAL_VIEW",
-        "received_at" => match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
-        "book_time"   => "2024-10-18T14:30:00Z"
+        "received_at" => match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+        "book_time"   => "2026-11-13T21:59:59.870Z"
       ))
     end
   end

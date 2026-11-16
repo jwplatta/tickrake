@@ -67,15 +67,15 @@ RSpec.describe Tickrake::LevelOneJob do
     end
   end
 
-  def futures_event(symbol: "/ES", bid: 4500.0, ask: 4501.0)
+  def futures_event(symbol: "/ES", bid: 4500.0, ask: 4501.0, ts_ms: 1_794_607_199_870)
     {
       "content" => [{
         "key"  => symbol,
         "1"    => bid,
         "2"    => ask,
         "3"    => 4500.5,
-        "10"   => (Time.now.to_f * 1000).to_i,
-        "11"   => (Time.now.to_f * 1000).to_i
+        "10"   => ts_ms,
+        "11"   => ts_ms
       }]
     }
   end
@@ -91,7 +91,7 @@ RSpec.describe Tickrake::LevelOneJob do
       allow(Tickrake::Streaming::EventStreamWriter).to receive(:new).and_return(writer)
     end
 
-    it "writes a level_one row for a valid LEVELONE_FUTURES event" do
+    it "writes a level_one row for a valid LEVELONE_FUTURES event with exact integer millisecond timestamps" do
       job.send(:handle_event, futures_event, service: "LEVELONE_FUTURES")
 
       expect(writer).to have_received(:write).with(hash_including(
@@ -100,9 +100,9 @@ RSpec.describe Tickrake::LevelOneJob do
         "service"  => "LEVELONE_FUTURES",
         "bid"      => 4500.0,
         "ask"      => 4501.0,
-        "received_at" => match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
-        "quote_time"  => match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
-        "trade_time"  => match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+        "received_at" => match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+        "quote_time"  => "2026-11-13T21:59:59.870Z",
+        "trade_time"  => "2026-11-13T21:59:59.870Z"
       ))
     end
 
